@@ -32,7 +32,7 @@ The content is organized as follows:
 <notes>
 - Some files may have been excluded based on .gitignore rules and Repomix's configuration
 - Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
-- Files matching these patterns are excluded: varia, .specstory
+- Files matching these patterns are excluded: varia, .specstory, TODO.md
 - Files matching patterns in .gitignore are excluded
 - Files matching default ignore patterns are excluded
 - Files are sorted by Git change count (files with more changes are at the bottom)
@@ -59,9 +59,6 @@ The content is organized as follows:
   workflows/
     push.yml
     release.yml
-.kudosflow/
-  credentials.json
-  template.txt
 src/
   vidkompy/
     core/
@@ -89,239 +86,10 @@ package.toml
 PROGRESS.md
 pyproject.toml
 README.md
-TODO.md
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
-
-<file path=".cursor/rules/alignment-algorithms.mdc">
----
-description: Technical specification for video alignment and synchronization algorithms in vidkompy
-globs: src/vidkompy/core/alignment_engine.py,src/vidkompy/core/spatial_alignment.py,src/vidkompy/core/temporal_alignment.py
-alwaysApply: false
----
-
-
-# alignment-algorithms
-
-## Spatial Alignment (Importance: 95)
-- Template Matching Algorithm
-  - Precise pixel-level matching for exact overlay positioning
-  - Intelligent sub-region detection within background frame
-  - Confidence scoring based on match quality
-
-- Feature Matching Algorithm
-  - ORB keypoint detection for robust positioning
-  - Median displacement calculation for overlay coordinates
-  - Fallback to center alignment below confidence threshold
-
-## Temporal Alignment (Importance: 90) 
-- Audio-Based Synchronization
-  - Cross-correlation of audio streams to determine optimal offset
-  - Preserves foreground audio timing as reference
-  - Match quality validation through confidence scoring
-
-- Frame-Based Alignment
-  - Structural similarity analysis between frame pairs
-  - Dynamic frame mapping to handle timing variations
-  - Monotonic progression enforcement for timeline consistency
-  - Adaptive keyframe sampling based on content changes
-
-## Core Business Rules
-- Foreground Frame Integrity
-  - All foreground frames must be preserved without modification
-  - Background frames can be stretched/modified to match
-  - Output maintains foreground timing as reference
-
-- Synchronization Priority
-  - Audio matching takes precedence when available
-  - Falls back to frame matching for silent videos
-  - Duration-based centering as final fallback
-
-- Resolution Constraints
-  - Foreground must fit within background dimensions
-  - Aspect ratios preserved during any scaling
-  - Automatic position adjustment for optimal overlay
-
-Relevant Files:
-- src/vidkompy/core/alignment_engine.py
-- src/vidkompy/core/spatial_alignment.py
-- src/vidkompy/core/temporal_alignment.py
-
-$END$
-</file>
-
-<file path=".cursor/rules/frame-matching-models.mdc">
----
-description: Technical specification for video frame matching and scoring algorithms used in intelligent video overlay alignment
-globs: src/vidkompy/core/frame_matching/**,src/vidkompy/models/frame.py,src/vidkompy/core/temporal_alignment.py
-alwaysApply: false
----
-
-
-# frame-matching-models
-
-## Frame Matching Core Logic (Importance: 95)
-
-- Two-phase frame matching system for temporal alignment:
-  1. Keyframe selection using structural similarity (SSIM) scoring
-  2. Dynamic frame mapping between foreground and background videos 
-
-- Frame scoring criteria:
-  - Content similarity between frames
-  - Temporal consistency with adjacent matches
-  - Monotonic progression enforcement
-  - Confidence thresholds for match acceptance
-
-## Temporal Frame Mapping (Importance: 90)
-
-- Maintains foreground frame integrity while adjusting background frames
-- Handles mismatched frame rates by:
-  - Using highest input FPS for output
-  - Creating dynamic frame mappings
-  - Interpolating between keyframe matches
-  - Preventing timeline inconsistencies
-
-## Frame Selection Logic (Importance: 85)
-
-- Keyframe sampling with configurable density (max 2000 frames)
-- Frame quality assessment:
-  - Minimum similarity threshold: 0.6
-  - Local maxima detection for optimal matches
-  - Frame drift detection and correction
-  - Automatic rejection of low-confidence matches
-
-## Frame Rate Handling (Importance: 80)
-
-- Intelligent FPS management:
-  - Always uses highest input frame rate
-  - Preserves foreground frame timing
-  - Dynamically adjusts background frame selection
-  - Maintains smooth playback despite rate differences
-
-$END$
-</file>
-
-<file path=".cursor/rules/video-composition-rules.mdc">
----
-description: Documents core video composition rules and constraints for overlaying foreground onto background videos while preserving quality and timing
-globs: src/vidkompy/core/*.py,src/vidkompy/models.py
-alwaysApply: false
----
-
-
-# video-composition-rules
-
-## Core Composition Rules (Importance: 95)
-
-1. Foreground Video Preservation
-- All foreground frames must be preserved without modification
-- Foreground timing cannot be altered or resampled
-- Foreground audio takes precedence when available
-
-2. Background Video Adaptation
-- Background frames can be stretched/modified to match foreground
-- Frame selection optimized to maintain consistent motion
-- Automatic spatial offset calculation when foreground is smaller
-
-3. Audio Handling
-- Prioritize foreground audio track
-- Use audio cross-correlation for temporal alignment when available
-- Fallback to frame matching if audio unavailable/mismatched
-
-## Quality Thresholds (Importance: 85)
-
-1. Spatial Alignment
-- Template matching confidence threshold: 0.6
-- Minimum feature points for matching: 4
-- Automatic fallback to center alignment below thresholds
-
-2. Temporal Alignment
-- Frame similarity minimum threshold for keyframe pairs
-- Maximum allowed frame drift before correction
-- Monotonic progression enforcement in frame mapping
-
-3. Output Requirements
-- Always use highest input FPS for output
-- Maintain foreground aspect ratio
-- Trim to optimal overlapping segment
-
-## Frame Rate Management (Importance: 80)
-
-1. FPS Handling
-- Higher FPS input determines output frame rate
-- Background frames interpolated/dropped to match foreground
-- Frame timing preserved for foreground content
-
-2. Duration Reconciliation
-- Find optimal start/end points for overlay
-- Trim excess frames from longer video
-- Center shorter video if no better match found
-
-$END$
-</file>
-
-<file path=".cursor/rules/video-processing-flow.mdc">
----
-description: Technical documentation for video processing pipeline, frame handling, and overlay composition workflows.
-globs: src/vidkompy/core/*.py,src/vidkompy/vidkompy_old.py
-alwaysApply: false
----
-
-
-# video-processing-flow
-
-## Frame Processing Pipeline (Importance: 95)
-1. Video Ingestion
-- Separate handling for background and foreground video streams
-- Frame extraction with FPS synchronization to highest rate
-- Audio stream separation for temporal alignment
-
-2. Frame Analysis
-- Keyframe detection and extraction
-- Frame similarity scoring using SSIM metrics
-- Feature point detection for spatial positioning
-- Frame pair matching for temporal alignment
-
-3. Overlay Composition
-- Dynamic frame mapping between foreground and background
-- Spatial positioning based on template/feature matching
-- Frame compositing with foreground overlay
-- Audio stream integration based on availability
-
-## Core Processing Rules
-1. Frame Timing Management
-- Preserve all foreground frames without modification
-- Adjust background frames to match foreground timing
-- Handle FPS mismatches through frame interpolation
-- Maintain monotonic frame progression
-
-2. Content Alignment Controls
-- Spatial: Ensure foreground fits within background bounds
-- Temporal: Match frame pairs for optimal overlay
-- Audio: Use sound streams for coarse alignment
-- Quality: Preserve foreground video integrity
-
-3. Output Generation
-- Use highest input FPS for output video
-- Trim to matched frame segments
-- Integrate synchronized audio track
-- Generate aligned composite frames
-
-## File Structure
-```
-src/vidkompy/
-├── core/
-│   ├── alignment_engine.py      # Frame matching orchestration
-│   ├── spatial_alignment.py     # Position detection
-│   ├── temporal_alignment.py    # Frame synchronization
-│   └── video_processor.py       # Frame extraction/composition
-└── vidkompy_old.py             # Main processing pipeline
-```
-
-$END$
-</file>
 
 <file path=".giga/specifications.json">
 [
@@ -525,369 +293,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 </file>
 
-<file path=".kudosflow/credentials.json">
-{
-  "openai": [
-    {
-      "name": "OPENAI_API",
-      "description": "OpenAI API credentials",
-      "apikey": ""
-    }
-  ],
-  "azureOpenai": [
-    {
-      "name": "AZURE_OPENAI_API",
-      "description": "Azure OpenAI API credentials",
-      "apikey": "",
-      "instance": "",
-      "deployment": "",
-      "version": ""
-    }
-  ],
-  "azureOpenaiEmbeddings": [
-    {
-      "name": "AZURE_OPENAI_EMBEDDINGS_API",
-      "description": "Azure OpenAI Embeddings API credentials",
-      "apikey": "",
-      "instance": "",
-      "deployment": "",
-      "version": ""
-    }
-  ],
-  "anthropic": [
-    {
-      "name": "ANTHROPIC_API",
-      "description": "Anthropic API credentials",
-      "apikey": ""
-    }
-  ],
-  "qdrant": [
-    {
-      "name": "QDRANT_API",
-      "description": "Qdrant API credentials",
-      "apikey": ""
-    }
-  ],
-  "weaviate": [
-    {
-      "name": "WEAVIATE_API",
-      "description": "Weaviate API credentials",
-      "apikey": ""
-    }
-  ],
-  "postgres": [
-    {
-      "name": "POSTGRES_API",
-      "description": "PostgreSQL credentials",
-      "username": "",
-      "database": "",
-      "password": ""
-    }
-  ]
-}
-</file>
-
-<file path=".kudosflow/template.txt">
-<specification>
-```markdown
-```
-</specification>
-
-<Project>
-```plain text
-${{kudosflow_tree}}
-```
-</Project>
-
-<${{kudosflow_filename}}>
-```typescript
-${{kudosflow_content}}
-```
-</${{kudosflow_filename}}>
-
-<LOG>
-```bash
-${{kudosflow_terminal}}
-```
-</LOG>
-
-QUERY： ${{kudosflow_query}}
-
-CAUTION:
-If answering a question requires checking specific files in the project, do not provide an answer immediately.
-Instead, prompt the user with the following message:
-"Please provide the actual filename including its full path."
-When the user’s request involves adding or modifying multiple files, follow these steps:
-1. First, list all relevant filenames with their full paths.
-2. Wait for the user to confirm or specify which file to proceed with.
-3. Then, show only the additions or modifications for the selected file.
-4. Repeat this process for each file individually.
-</file>
-
-<file path=".cursorrules">
-## Coding style
-
-<guidelines>
-# When you write code
-
-- Iterate gradually, avoiding major changes
-- Minimize confirmations and checks
-- Preserve existing code/structure unless necessary
-- Use constants over magic numbers
-- Check for existing solutions in the codebase before starting
-- Check often the coherence of the code you’re writing with the rest of the code.
-- Focus on minimal viable increments and ship early
-- Write explanatory docstrings/comments that explain what and WHY this does, explain where and how the code is used/referred to elsewhere in the code
-- Analyze code line-by-line
-- Handle failures gracefully with retries, fallbacks, user guidance
-- Address edge cases, validate assumptions, catch errors early
-- Let the computer do the work, minimize user decisions
-- Reduce cognitive load, beautify code
-- Modularize repeated logic into concise, single-purpose functions
-- Favor flat over nested structures
-- Consistently keep, document, update and consult the holistic overview mental image of the codebase. 
-
-Work in rounds: 
-
-- Create `PROGRESS.md` as a detailed flat plan with `[ ]` items. 
-- Identify the most important TODO items, and create `TODO.md` with `[ ]` items. 
-- Implement the changes. 
-- Update `PROGRESS.md` and `TODO.md` as you go. 
-- After each round of changes, update `CHANGELOG.md` with the changes.
-- Update `README.md` to reflect the changes.
-
-## Keep track of paths
-
-In each source file, maintain the up-to-date `this_file` record that shows the path of the current file relative to project root. Place the `this_file` record near the top of the file, as a comment after the shebangs, or in the YAML Markdown frontmatter.
-
-## When you write Python
-
-- Use `uv pip`, never `pip`
-- Use `python -m` when running code
-- PEP 8: Use consistent formatting and naming
-- Write clear, descriptive names for functions and variables
-- PEP 20: Keep code simple and explicit. Prioritize readability over cleverness
-- Use type hints in their simplest form (list, dict, | for unions)
-- PEP 257: Write clear, imperative docstrings
-- Use f-strings. Use structural pattern matching where appropriate
-- ALWAYS add "verbose" mode logugu-based logging, & debug-log
-- For CLI Python scripts, use fire & rich, and start the script with
-
-```
-#!/usr/bin/env -S uv run -s
-# /// script
-# dependencies = ["PKG1", "PKG2"]
-# ///
-# this_file: PATH_TO_CURRENT_FILE
-```
-
-Ask before extending/refactoring existing code in a way that may add complexity or break things.
-
-When you’re finished, print "Wait, but" to go back, think & reflect, revise & improvement what you’ve done (but don’t invent functionality freely). Repeat this. But stick to the goal of "minimal viable next version". Lead two experts: "Ideot" for creative, unorthodox ideas, and "Critin" to critique flawed thinking and moderate for balanced discussions. The three of you shall illuminate knowledge with concise, beautiful responses, process methodically for clear answers, collaborate step-by-step, sharing thoughts and adapting. If errors are found, step back and focus on accuracy and progress.
-
-## After Python changes run:
-
-```
-fd -e py -x autoflake {}; fd -e py -x pyupgrade --py312-plus {}; fd -e py -x ruff check --output-format=github --fix --unsafe-fixes {}; fd -e py -x ruff format --respect-gitignore --target-version py312 {}; python -m pytest;
-```
-
-Be creative, diligent, critical, relentless & funny!
-</guidelines>
-
-
-## Project Overview
-
-vidkompy is an intelligent video overlay tool that overlays foreground videos onto background videos with automatic alignment. The project prioritizes 
-precision and intelligence over raw speed.
-
-`vidkompy` is a Python CLI (Fire) tool that lets me overlay two videos: --bg (background) and --fg (foreground), and saves the result to --output (name is built automatically if not provided).
-
-The tool needs to be robust and smart.
-
-1. The bg video can be larger than the fg video. In that case, the tool needs to automatically find the best offset to overlay the fg video on the bg video.
-
-2. The bg and fg videos can have different FPSes. In that case, the tool needs to use the higher FPS for the output video.
-
-3. The bg and fg videos may have different durations (the difference would be typically rather slight). Ths tool needs to find the optimal time offset to overlay the fg video on the bg video. We need to find "the perfect pair of frames that when overlaid will form the START frame of the output video", and "the perfect pair of frames that when overlaid will form the END frame of the output video". The output video will be trimmed to go from that start to that end. Some starting and/or ending frames from either the fg or the bg video may be dropped. 
-
-4. The bg and fg videos may have sound (it would be identical, but may be offset). If both have sound, the sound may be used to find the right time offset for the overlay (if I specify --match_time audio). The fg sound would be is for the output video. If only one has sound, that sound is used for the output video.
-
-5. The content of the two videos would typically be very similar but not identical, because one video is typically a recompressed, edited variant of the other.
-
-6. Overall, the fg video is thought to be "better quality", and temporally properly aligned. The bg video can be streched, modified, re-timed, frames added or dropped etc. 
-
-7. All these conditions may be combined. That means, the tool needs to be able to find both the spatial and the temporal offsets. Spatially, the fg video is never larger than the bg video. Temporally, either video can be longer.
-
-
-
-## Key Commands
-
-### Development & Testing
-```bash
-# Run tests
-hatch run test
-
-# Run tests with coverage
-hatch run test-cov
-
-# Type checking
-hatch run type-check
-
-# Linting and formatting
-hatch run lint      # Check code
-hatch run fix       # Auto-fix issues
-hatch run fmt       # Format code
-
-# All lint checks
-hatch run lint:all
-```
-
-### Running the Tool
-```bash
-python src/vidkompy/vidkompy_old.py --help|cat
-
-INFO: Showing help with the command 'vidkompy_old.py -- --help'.
-
-NAME
-    vidkompy_old.py - Overlay foreground video onto background video with intelligent alignment.
-
-SYNOPSIS
-    vidkompy_old.py BG FG <flags>
-
-DESCRIPTION
-    Overlay foreground video onto background video with intelligent alignment.
-
-POSITIONAL ARGUMENTS
-    BG
-        Type: str
-        Background video path
-    FG
-        Type: str
-        Foreground video path
-
-FLAGS
-    -o, --output=OUTPUT
-        Type: Optional[str | None]
-        Default: None
-        Output video path (auto-generated if not provided)
-    --match_space=MATCH_SPACE
-        Type: str
-        Default: 'precise'
-        Spatial alignment method ('precise' or 'fast')
-    --temporal_align=TEMPORAL_ALIGN
-        Type: str
-        Default: 'frames'
-        Temporal alignment method ('audio', 'duration', or 'frames') [default: 'frames']
-    --trim=TRIM
-        Type: bool
-        Default: True
-        Trim output to overlapping segments only [default: True]
-    -s, --skip_spatial_align=SKIP_SPATIAL_ALIGN
-        Type: bool
-        Default: False
-        Skip spatial alignment (use center)
-    -v, --verbose=VERBOSE
-        Type: bool
-        Default: False
-        Enable verbose logging
-    --max_keyframes=MAX_KEYFRAMES
-        Type: int
-        Default: 2000
-        Maximum number of keyframes to use in frames mode [default: 2000]
-
-NOTES
-    You can also use flags syntax for POSITIONAL ARGUMENTS
-
-
-# Direct execution (main implementation in vidkompy_old.py)
-python -m vidkompy --bg tests/bg.mp4 --fg tests/fg.mp4 -o tests/output_new.mp4 --match_time precise --verbose
-```
-
-## Architecture Notes
-
-1. **Main Implementation**: The core functionality resides in `src/vidkompy/vidkompy_old.py` (60KB). 
-
-The `vidkompy.py` file is a placeholder for future refactoring.
-
-2. **Temporal Alignment Modes**:
-   - `audio`: Cross-correlation of audio tracks
-   - `duration`: Centers foreground within background duration
-   - `frames`: Advanced frame-by-frame content matching with dynamic mapping
-
-3. **Spatial Alignment Methods**:
-   - `template` (precise, default): OpenCV template matching for exact sub-regions
-   - `feature` (fast): ORB feature matching for more robust alignment
-
-4. **Known Issue**: The `frames` temporal alignment method has drift-and-catchup issues where the background portion runs at varying speeds 
-
-5. **Dependencies**: The tool requires FFmpeg binary installed separately. Python dependencies are listed in the script header and include opencv-python, ffmpeg-python, scipy, numpy, soundfile, scikit-image, fire, rich, and loguru.
-
-## Testing Approach
-
-The project uses pytest with minimal test coverage currently (only version check). When adding new functionality:
-- Place tests in `tests/` directory
-- Use pytest markers for categorization (unit, integration, benchmark)
-- Run with `hatch run test` or `hatch run test-cov` for coverage
-
-START SPECIFICATION:
----
-description: Create high-level documentation for video processing systems that handle intelligent alignment and overlay of video content with automatic spatial and temporal synchronization
-globs: *.py,*.md
-alwaysApply: false
----
-
-
-# main-overview
-
-## Development Guidelines
-
-- Only modify code directly relevant to the specific request. Avoid changing unrelated functionality.
-- Never replace code with placeholders like `# ... rest of the processing ...`. Always include complete code.
-- Break problems into smaller steps. Think through each step separately before implementing.
-- Always provide a complete PLAN with REASONING based on evidence from code and logs before making changes.
-- Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
-
-
-vidkompy is an intelligent video overlay system that automatically aligns and composites foreground videos onto background videos while preserving content integrity.
-
-Core Business Components:
-
-1. Alignment Engine (90/100)
-- Coordinates spatial and temporal video alignment 
-- Maintains foreground frame integrity
-- Handles mismatched video properties
-- Selects optimal alignment methods based on content
-
-2. Temporal Synchronization (85/100)
-Three primary methods:
-- Audio alignment using cross-correlation
-- Frame-based matching with dynamic mapping
-- Duration-based centering as fallback
-- Preserves all foreground frames without modification
-
-3. Spatial Positioning (80/100)
-- Template matching for precise pixel alignment
-- Feature matching for robust positioning
-- Automatic positioning validation
-- Center alignment fallback mechanism
-
-4. Video Composition Rules (75/100)
-- Uses higher FPS between inputs
-- Preserves foreground timing and quality
-- Adapts background content to match foreground
-- Intelligent audio source selection
-
-Business Logic Highlights:
-- Never modifies foreground content
-- Background can be stretched/modified
-- Automatic method selection
-- Smart fallbacks at each stage
-- Focus on precision over performance
-
-$END$
-END SPECIFICATION
-</file>
-
 <file path=".pre-commit-config.yaml">
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -908,212 +313,6 @@ repos:
       - id: check-case-conflict
       - id: mixed-line-ending
         args: [--fix=lf]
-</file>
-
-<file path="CLAUDE.md">
-## Coding style
-
-<guidelines>
-# When you write code
-
-- Iterate gradually, avoiding major changes
-- Minimize confirmations and checks
-- Preserve existing code/structure unless necessary
-- Use constants over magic numbers
-- Check for existing solutions in the codebase before starting
-- Check often the coherence of the code you’re writing with the rest of the code.
-- Focus on minimal viable increments and ship early
-- Write explanatory docstrings/comments that explain what and WHY this does, explain where and how the code is used/referred to elsewhere in the code
-- Analyze code line-by-line
-- Handle failures gracefully with retries, fallbacks, user guidance
-- Address edge cases, validate assumptions, catch errors early
-- Let the computer do the work, minimize user decisions
-- Reduce cognitive load, beautify code
-- Modularize repeated logic into concise, single-purpose functions
-- Favor flat over nested structures
-- Consistently keep, document, update and consult the holistic overview mental image of the codebase. 
-
-Work in rounds: 
-
-- Create `PROGRESS.md` as a detailed flat plan with `[ ]` items. 
-- Identify the most important TODO items, and create `TODO.md` with `[ ]` items. 
-- Implement the changes. 
-- Update `PROGRESS.md` and `TODO.md` as you go. 
-- After each round of changes, update `CHANGELOG.md` with the changes.
-- Update `README.md` to reflect the changes.
-
-## Keep track of paths
-
-In each source file, maintain the up-to-date `this_file` record that shows the path of the current file relative to project root. Place the `this_file` record near the top of the file, as a comment after the shebangs, or in the YAML Markdown frontmatter.
-
-## When you write Python
-
-- Use `uv pip`, never `pip`
-- Use `python -m` when running code
-- PEP 8: Use consistent formatting and naming
-- Write clear, descriptive names for functions and variables
-- PEP 20: Keep code simple and explicit. Prioritize readability over cleverness
-- Use type hints in their simplest form (list, dict, | for unions)
-- PEP 257: Write clear, imperative docstrings
-- Use f-strings. Use structural pattern matching where appropriate
-- ALWAYS add "verbose" mode logugu-based logging, & debug-log
-- For CLI Python scripts, use fire & rich, and start the script with
-
-```
-#!/usr/bin/env -S uv run -s
-# /// script
-# dependencies = ["PKG1", "PKG2"]
-# ///
-# this_file: PATH_TO_CURRENT_FILE
-```
-
-Ask before extending/refactoring existing code in a way that may add complexity or break things.
-
-When you’re finished, print "Wait, but" to go back, think & reflect, revise & improvement what you’ve done (but don’t invent functionality freely). Repeat this. But stick to the goal of "minimal viable next version". Lead two experts: "Ideot" for creative, unorthodox ideas, and "Critin" to critique flawed thinking and moderate for balanced discussions. The three of you shall illuminate knowledge with concise, beautiful responses, process methodically for clear answers, collaborate step-by-step, sharing thoughts and adapting. If errors are found, step back and focus on accuracy and progress.
-
-## After Python changes run:
-
-```
-fd -e py -x autoflake {}; fd -e py -x pyupgrade --py312-plus {}; fd -e py -x ruff check --output-format=github --fix --unsafe-fixes {}; fd -e py -x ruff format --respect-gitignore --target-version py312 {}; python -m pytest;
-```
-
-Be creative, diligent, critical, relentless & funny!
-</guidelines>
-
-
-## Project Overview
-
-vidkompy is an intelligent video overlay tool that overlays foreground videos onto background videos with automatic alignment. The project prioritizes 
-precision and intelligence over raw speed.
-
-`vidkompy` is a Python CLI (Fire) tool that lets me overlay two videos: --bg (background) and --fg (foreground), and saves the result to --output (name is built automatically if not provided).
-
-The tool needs to be robust and smart.
-
-1. The bg video can be larger than the fg video. In that case, the tool needs to automatically find the best offset to overlay the fg video on the bg video.
-
-2. The bg and fg videos can have different FPSes. In that case, the tool needs to use the higher FPS for the output video.
-
-3. The bg and fg videos may have different durations (the difference would be typically rather slight). Ths tool needs to find the optimal time offset to overlay the fg video on the bg video. We need to find "the perfect pair of frames that when overlaid will form the START frame of the output video", and "the perfect pair of frames that when overlaid will form the END frame of the output video". The output video will be trimmed to go from that start to that end. Some starting and/or ending frames from either the fg or the bg video may be dropped. 
-
-4. The bg and fg videos may have sound (it would be identical, but may be offset). If both have sound, the sound may be used to find the right time offset for the overlay (if I specify --match_time audio). The fg sound would be is for the output video. If only one has sound, that sound is used for the output video.
-
-5. The content of the two videos would typically be very similar but not identical, because one video is typically a recompressed, edited variant of the other.
-
-6. Overall, the fg video is thought to be "better quality", and temporally properly aligned. The bg video can be streched, modified, re-timed, frames added or dropped etc. 
-
-7. All these conditions may be combined. That means, the tool needs to be able to find both the spatial and the temporal offsets. Spatially, the fg video is never larger than the bg video. Temporally, either video can be longer.
-
-
-
-## Key Commands
-
-### Development & Testing
-```bash
-# Run tests
-hatch run test
-
-# Run tests with coverage
-hatch run test-cov
-
-# Type checking
-hatch run type-check
-
-# Linting and formatting
-hatch run lint      # Check code
-hatch run fix       # Auto-fix issues
-hatch run fmt       # Format code
-
-# All lint checks
-hatch run lint:all
-```
-
-### Running the Tool
-```bash
-python src/vidkompy/vidkompy_old.py --help|cat
-
-INFO: Showing help with the command 'vidkompy_old.py -- --help'.
-
-NAME
-    vidkompy_old.py - Overlay foreground video onto background video with intelligent alignment.
-
-SYNOPSIS
-    vidkompy_old.py BG FG <flags>
-
-DESCRIPTION
-    Overlay foreground video onto background video with intelligent alignment.
-
-POSITIONAL ARGUMENTS
-    BG
-        Type: str
-        Background video path
-    FG
-        Type: str
-        Foreground video path
-
-FLAGS
-    -o, --output=OUTPUT
-        Type: Optional[str | None]
-        Default: None
-        Output video path (auto-generated if not provided)
-    --match_space=MATCH_SPACE
-        Type: str
-        Default: 'precise'
-        Spatial alignment method ('precise' or 'fast')
-    --temporal_align=TEMPORAL_ALIGN
-        Type: str
-        Default: 'frames'
-        Temporal alignment method ('audio', 'duration', or 'frames') [default: 'frames']
-    --trim=TRIM
-        Type: bool
-        Default: True
-        Trim output to overlapping segments only [default: True]
-    -s, --skip_spatial_align=SKIP_SPATIAL_ALIGN
-        Type: bool
-        Default: False
-        Skip spatial alignment (use center)
-    -v, --verbose=VERBOSE
-        Type: bool
-        Default: False
-        Enable verbose logging
-    --max_keyframes=MAX_KEYFRAMES
-        Type: int
-        Default: 2000
-        Maximum number of keyframes to use in frames mode [default: 2000]
-
-NOTES
-    You can also use flags syntax for POSITIONAL ARGUMENTS
-
-
-# Direct execution (main implementation in vidkompy_old.py)
-python -m vidkompy --bg tests/bg.mp4 --fg tests/fg.mp4 -o tests/output_new.mp4 --match_time precise --verbose
-```
-
-## Architecture Notes
-
-1. **Main Implementation**: The core functionality resides in `src/vidkompy/vidkompy_old.py` (60KB). 
-
-The `vidkompy.py` file is a placeholder for future refactoring.
-
-2. **Temporal Alignment Modes**:
-   - `audio`: Cross-correlation of audio tracks
-   - `duration`: Centers foreground within background duration
-   - `frames`: Advanced frame-by-frame content matching with dynamic mapping
-
-3. **Spatial Alignment Methods**:
-   - `template` (precise, default): OpenCV template matching for exact sub-regions
-   - `feature` (fast): ORB feature matching for more robust alignment
-
-4. **Known Issue**: The `frames` temporal alignment method has drift-and-catchup issues where the background portion runs at varying speeds 
-
-5. **Dependencies**: The tool requires FFmpeg binary installed separately. Python dependencies are listed in the script header and include opencv-python, ffmpeg-python, scipy, numpy, soundfile, scikit-image, fire, rich, and loguru.
-
-## Testing Approach
-
-The project uses pytest with minimal test coverage currently (only version check). When adding new functionality:
-- Place tests in `tests/` directory
-- Use pytest markers for categorization (unit, integration, benchmark)
-- Run with `hatch run test` or `hatch run test-cov` for coverage
 </file>
 
 <file path="LICENSE">
@@ -1152,6 +351,215 @@ use_rich = true          # Use Rich for terminal output
 mkdocs = false           # Enable MkDocs documentation
 vcs = true              # Initialize Git repository
 github_actions = true   # Add GitHub Actions workflows
+</file>
+
+<file path=".cursor/rules/alignment-algorithms.mdc">
+---
+description: Documents video alignment algorithms for spatial/temporal synchronization and frame matching implementations
+globs: src/vidkompy/core/alignment*.py,src/vidkompy/core/dtw*.py,src/vidkompy/core/temporal*.py,src/vidkompy/core/spatial*.py
+alwaysApply: false
+---
+
+
+# alignment-algorithms
+
+## Spatial Alignment Core (90/100)
+- Advanced template matching using OpenCV for precise sub-region detection
+- Two-phase alignment approach:
+  1. Initial coarse positioning using feature detection (ORB) 
+  2. Fine-tuning using normalized cross-correlation
+- Compensates for compression artifacts and brightness variations
+- Automatic position optimization within background frame bounds
+
+## Temporal Synchronization Engine (95/100)
+- Dynamic Time Warping (DTW) implementation for frame sequence alignment
+- Perceptual hash-based frame fingerprinting for robust matching
+- Adaptive keyframe selection with confidence-based early termination
+- Multi-modal alignment combining audio and visual cues
+- Zero-drift frame interpolation maintaining foreground timing integrity
+
+## Frame Matching System (85/100)
+- Combined perceptual hash algorithms (pHash, ColorMoment) for frame signatures
+- Progressive refinement matching:
+  1. Quick hash-based candidate identification
+  2. Structural similarity validation
+  3. Content-aware position adjustment
+- Maintains foreground frame sequence while adapting background timing
+
+## Audio-Visual Integration (80/100)
+- Cross-correlation based audio track alignment
+- Fallback chain for temporal synchronization:
+  1. Audio track correlation
+  2. Frame content matching
+  3. Duration-based centering
+- Intelligent audio source selection prioritizing foreground quality
+
+Relevant Files:
+```
+src/vidkompy/core/alignment_engine.py
+src/vidkompy/core/dtw_aligner.py 
+src/vidkompy/core/spatial_alignment.py
+src/vidkompy/core/temporal_alignment.py
+```
+
+$END$
+</file>
+
+<file path=".cursor/rules/frame-matching-models.mdc">
+---
+description: Specifications for frame matching, similarity scoring, and temporal mapping models in video overlay system
+globs: src/vidkompy/core/frame_fingerprint.py,src/vidkompy/core/temporal_alignment.py,src/vidkompy/core/dtw_aligner.py
+alwaysApply: false
+---
+
+
+# frame-matching-models
+
+Core frame matching and temporal alignment models implementing the intelligent video overlay system.
+
+## Frame Fingerprinting System (Importance: 95)
+- Perceptual hash generation for efficient frame comparison
+- Multi-hash approach combining pHash, AverageHash and ColorMomentHash 
+- Frame similarity scoring using custom Hamming distance thresholds
+- Adaptive keyframe detection and extraction
+
+## Temporal Mapping Models (Importance: 90)
+- Dynamic Time Warping (DTW) alignment for optimal frame-to-frame mapping
+- Zero-drift temporal synchronization preserving foreground frame timing
+- Sakoe-Chiba band constraint implementation for restricted warping paths
+- Keyframe interpolation system for smooth transitions
+
+## Frame Matching Engine (Importance: 85) 
+- Template-based precise matching for exact frame alignment
+- Feature-based fast matching using ORB detection
+- Confidence scoring for match quality assessment
+- Adaptive search window optimization
+
+## Key Implementation Files:
+```
+src/vidkompy/core/
+├── frame_fingerprint.py    # Frame hash generation and comparison
+├── temporal_alignment.py   # Frame mapping and synchronization
+└── dtw_aligner.py         # Dynamic time warping implementation
+```
+
+$END$
+</file>
+
+<file path=".cursor/rules/video-composition-rules.mdc">
+---
+description: Defines core business rules for video composition, foreground preservation, and quality thresholds in video overlaying operations
+globs: src/vidkompy/core/video_processor.py,src/vidkompy/core/alignment_engine.py,src/vidkompy/models/composition.py
+alwaysApply: false
+---
+
+
+# video-composition-rules
+
+## Core Composition Rules (Importance: 95)
+1. Foreground video prioritization:
+   - Foreground video is preserved as the "better quality" source
+   - Never re-time or modify foreground video frames
+   - Foreground frames dictate the output FPS
+   - Foreground audio track takes precedence when both sources have audio
+
+2. Background video adaptations:
+   - Background video can be dynamically stretched/modified
+   - Frame dropping/interpolation allowed for background synchronization
+   - Background spatial position adjusted to accommodate foreground overlay
+
+## Audio Handling Rules (Importance: 85)
+1. Audio source selection:
+   - If both videos have audio: Use foreground audio
+   - If only one has audio: Use available audio track
+   - Audio tracks used for temporal alignment when --match_time audio specified
+
+2. Audio synchronization:
+   - Audio track alignment determines frame timing
+   - Audio cross-correlation used to find optimal time offset
+   - Audio fallback to frame-based methods if unusable
+
+## Quality and Resolution Rules (Importance: 90)
+1. Resolution constraints:
+   - Foreground video never larger than background video
+   - Background video must fully contain foreground overlay
+   - Output resolution matches background video dimensions
+
+2. Frame preservation:
+   - No quality loss allowed in foreground frames
+   - Background frames may be transformed to match foreground timing
+   - Output uses highest FPS between sources
+
+## Temporal Alignment Rules (Importance: 88)
+1. Frame selection:
+   - Find optimal start/end frame pairs
+   - Trim output to best matching segment
+   - Drop non-matching frames from start/end
+   - Preserve foreground frame sequence integrity
+
+2. Duration handling:
+   - Handle different video durations
+   - Find best temporal offset for overlay
+   - Trim to overlapping segments when --trim enabled
+
+Relevant files:
+- src/vidkompy/core/video_processor.py
+- src/vidkompy/core/alignment_engine.py
+
+$END$
+</file>
+
+<file path=".cursor/rules/video-processing-flow.mdc">
+---
+description: Documents video data flow for frame processing, alignment calculations, overlay composition, and output generation
+globs: src/vidkompy/core/*.py,src/vidkompy/vidkompy*.py,src/vidkompy/models.py
+alwaysApply: false
+---
+
+
+# video-processing-flow
+
+## Frame Processing Flow
+- Video frames are extracted and processed using a frame-by-frame pipeline:
+  1. Frame extraction from source videos
+  2. Frame fingerprinting using perceptual hashing
+  3. Keyframe detection and analysis
+  4. Frame matching and alignment calculation
+
+Importance Score: 95 (Core video processing pipeline)
+
+## Alignment Calculation Flow
+- Two-stage alignment process:
+  1. Spatial alignment using template/feature matching
+  2. Temporal alignment using frame content or audio matching
+- Generates frame mapping between foreground and background videos
+
+Importance Score: 90 (Critical alignment logic)
+
+## Overlay Composition Pipeline
+1. Frame pair selection based on alignment mapping
+2. Foreground frame overlay onto background frame
+3. Output frame composition and encoding
+4. Audio track selection and synchronization
+
+Importance Score: 85 (Core video composition logic)
+
+## Output Generation
+- Handles synchronized video/audio output:
+  - Uses foreground video's FPS as the target rate
+  - Preserves foreground video timing
+  - Adapts background video timing dynamically
+  - Prioritizes foreground audio when available
+
+Importance Score: 80 (Output generation workflow)
+
+Key files:
+- `src/vidkompy/core/video_processor.py`: Frame extraction and processing
+- `src/vidkompy/core/alignment_engine.py`: Alignment coordination
+- `src/vidkompy/core/spatial_alignment.py`: Spatial alignment
+- `src/vidkompy/core/temporal_alignment.py`: Temporal alignment
+
+$END$
 </file>
 
 <file path="src/vidkompy/core/__init__.py">
@@ -1517,6 +925,283 @@ if __name__ == "__main__":
     fire.Fire(main)
 </file>
 
+<file path=".cursorrules">
+## Coding style
+
+<guidelines>
+# When you write code
+
+- Iterate gradually, avoiding major changes
+- Minimize confirmations and checks
+- Preserve existing code/structure unless necessary
+- Use constants over magic numbers
+- Check for existing solutions in the codebase before starting
+- Check often the coherence of the code you’re writing with the rest of the code.
+- Focus on minimal viable increments and ship early
+- Write explanatory docstrings/comments that explain what and WHY this does, explain where and how the code is used/referred to elsewhere in the code
+- Analyze code line-by-line
+- Handle failures gracefully with retries, fallbacks, user guidance
+- Address edge cases, validate assumptions, catch errors early
+- Let the computer do the work, minimize user decisions
+- Reduce cognitive load, beautify code
+- Modularize repeated logic into concise, single-purpose functions
+- Favor flat over nested structures
+- Consistently keep, document, update and consult the holistic overview mental image of the codebase. 
+
+Work in rounds: 
+
+- Create `PROGRESS.md` as a detailed flat plan with `[ ]` items. 
+- Identify the most important TODO items, and create `TODO.md` with `[ ]` items. 
+- Implement the changes. 
+- Update `PROGRESS.md` and `TODO.md` as you go. 
+- After each round of changes, update `CHANGELOG.md` with the changes.
+- Update `README.md` to reflect the changes.
+
+## Keep track of paths
+
+In each source file, maintain the up-to-date `this_file` record that shows the path of the current file relative to project root. Place the `this_file` record near the top of the file, as a comment after the shebangs, or in the YAML Markdown frontmatter.
+
+## When you write Python
+
+- Use `uv pip`, never `pip`
+- Use `python -m` when running code
+- PEP 8: Use consistent formatting and naming
+- Write clear, descriptive names for functions and variables
+- PEP 20: Keep code simple and explicit. Prioritize readability over cleverness
+- Use type hints in their simplest form (list, dict, | for unions)
+- PEP 257: Write clear, imperative docstrings
+- Use f-strings. Use structural pattern matching where appropriate
+- ALWAYS add "verbose" mode logugu-based logging, & debug-log
+- For CLI Python scripts, use fire & rich, and start the script with
+
+```
+#!/usr/bin/env -S uv run -s
+# /// script
+# dependencies = ["PKG1", "PKG2"]
+# ///
+# this_file: PATH_TO_CURRENT_FILE
+```
+
+Ask before extending/refactoring existing code in a way that may add complexity or break things.
+
+When you’re finished, print "Wait, but" to go back, think & reflect, revise & improvement what you’ve done (but don’t invent functionality freely). Repeat this. But stick to the goal of "minimal viable next version". Lead two experts: "Ideot" for creative, unorthodox ideas, and "Critin" to critique flawed thinking and moderate for balanced discussions. The three of you shall illuminate knowledge with concise, beautiful responses, process methodically for clear answers, collaborate step-by-step, sharing thoughts and adapting. If errors are found, step back and focus on accuracy and progress.
+
+## After Python changes run:
+
+```
+fd -e py -x autoflake {}; fd -e py -x pyupgrade --py312-plus {}; fd -e py -x ruff check --output-format=github --fix --unsafe-fixes {}; fd -e py -x ruff format --respect-gitignore --target-version py312 {}; python -m pytest;
+```
+
+Be creative, diligent, critical, relentless & funny!
+</guidelines>
+
+
+## Project Overview
+
+vidkompy is an intelligent video overlay tool that overlays foreground videos onto background videos with automatic alignment. The project prioritizes 
+precision and intelligence over raw speed.
+
+`vidkompy` is a Python CLI (Fire) tool that lets me overlay two videos: --bg (background) and --fg (foreground), and saves the result to --output (name is built automatically if not provided).
+
+The tool needs to be robust and smart.
+
+1. The bg video can be larger than the fg video. In that case, the tool needs to automatically find the best offset to overlay the fg video on the bg video.
+
+2. The bg and fg videos can have different FPSes. In that case, the tool needs to use the higher FPS for the output video.
+
+3. The bg and fg videos may have different durations (the difference would be typically rather slight). Ths tool needs to find the optimal time offset to overlay the fg video on the bg video. We need to find "the perfect pair of frames that when overlaid will form the START frame of the output video", and "the perfect pair of frames that when overlaid will form the END frame of the output video". The output video will be trimmed to go from that start to that end. Some starting and/or ending frames from either the fg or the bg video may be dropped. 
+
+4. The bg and fg videos may have sound (it would be identical, but may be offset). If both have sound, the sound may be used to find the right time offset for the overlay (if I specify --match_time audio). The fg sound would be is for the output video. If only one has sound, that sound is used for the output video.
+
+5. The content of the two videos would typically be very similar but not identical, because one video is typically a recompressed, edited variant of the other.
+
+6. Overall, the fg video is thought to be "better quality", and temporally properly aligned. The bg video can be streched, modified, re-timed, frames added or dropped etc. 
+
+7. All these conditions may be combined. That means, the tool needs to be able to find both the spatial and the temporal offsets. Spatially, the fg video is never larger than the bg video. Temporally, either video can be longer.
+
+
+
+## Key Commands
+
+### Development & Testing
+```bash
+# Run tests
+hatch run test
+
+# Run tests with coverage
+hatch run test-cov
+
+# Type checking
+hatch run type-check
+
+# Linting and formatting
+hatch run lint      # Check code
+hatch run fix       # Auto-fix issues
+hatch run fmt       # Format code
+
+# All lint checks
+hatch run lint:all
+```
+
+### Running the Tool
+```bash
+python src/vidkompy/vidkompy_old.py --help|cat
+
+INFO: Showing help with the command 'vidkompy_old.py -- --help'.
+
+NAME
+    vidkompy_old.py - Overlay foreground video onto background video with intelligent alignment.
+
+SYNOPSIS
+    vidkompy_old.py BG FG <flags>
+
+DESCRIPTION
+    Overlay foreground video onto background video with intelligent alignment.
+
+POSITIONAL ARGUMENTS
+    BG
+        Type: str
+        Background video path
+    FG
+        Type: str
+        Foreground video path
+
+FLAGS
+    -o, --output=OUTPUT
+        Type: Optional[str | None]
+        Default: None
+        Output video path (auto-generated if not provided)
+    --match_space=MATCH_SPACE
+        Type: str
+        Default: 'precise'
+        Spatial alignment method ('precise' or 'fast')
+    --temporal_align=TEMPORAL_ALIGN
+        Type: str
+        Default: 'frames'
+        Temporal alignment method ('audio', 'duration', or 'frames') [default: 'frames']
+    --trim=TRIM
+        Type: bool
+        Default: True
+        Trim output to overlapping segments only [default: True]
+    -s, --skip_spatial_align=SKIP_SPATIAL_ALIGN
+        Type: bool
+        Default: False
+        Skip spatial alignment (use center)
+    -v, --verbose=VERBOSE
+        Type: bool
+        Default: False
+        Enable verbose logging
+    --max_keyframes=MAX_KEYFRAMES
+        Type: int
+        Default: 2000
+        Maximum number of keyframes to use in frames mode [default: 2000]
+
+NOTES
+    You can also use flags syntax for POSITIONAL ARGUMENTS
+
+
+# Direct execution (main implementation in vidkompy_old.py)
+python -m vidkompy --bg tests/bg.mp4 --fg tests/fg.mp4 -o tests/output_new.mp4 --match_time precise --verbose
+```
+
+## Architecture Notes
+
+1. **Main Implementation**: The core functionality resides in `src/vidkompy/vidkompy_old.py` (60KB). 
+
+The `vidkompy.py` file is a placeholder for future refactoring.
+
+2. **Temporal Alignment Modes**:
+   - `audio`: Cross-correlation of audio tracks
+   - `duration`: Centers foreground within background duration
+   - `frames`: Advanced frame-by-frame content matching with dynamic mapping
+
+3. **Spatial Alignment Methods**:
+   - `template` (precise, default): OpenCV template matching for exact sub-regions
+   - `feature` (fast): ORB feature matching for more robust alignment
+
+4. **Known Issue**: The `frames` temporal alignment method has drift-and-catchup issues where the background portion runs at varying speeds 
+
+5. **Dependencies**: The tool requires FFmpeg binary installed separately. Python dependencies are listed in the script header and include opencv-python, ffmpeg-python, scipy, numpy, soundfile, scikit-image, fire, rich, and loguru.
+
+## Testing Approach
+
+The project uses pytest with minimal test coverage currently (only version check). When adding new functionality:
+- Place tests in `tests/` directory
+- Use pytest markers for categorization (unit, integration, benchmark)
+- Run with `hatch run test` or `hatch run test-cov` for coverage
+
+START SPECIFICATION:
+---
+description: Apply when documenting high-level business logic and domain-specific implementations for video overlay and alignment systems, specifically for intelligent video composition tools that require precise spatial and temporal synchronization
+globs: *.py,*.md
+alwaysApply: false
+---
+
+
+# main-overview
+
+## Development Guidelines
+
+- Only modify code directly relevant to the specific request. Avoid changing unrelated functionality.
+- Never replace code with placeholders like `# ... rest of the processing ...`. Always include complete code.
+- Break problems into smaller steps. Think through each step separately before implementing.
+- Always provide a complete PLAN with REASONING based on evidence from code and logs before making changes.
+- Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
+
+
+vidkompy is an intelligent video overlay system focused on precision alignment of video content. The core business logic revolves around automatically synchronizing and compositing video streams with different characteristics.
+
+## Core Business Components
+
+### Video Alignment Engine (Importance: 95)
+- Automatic detection of optimal spatial positioning for foreground overlay
+- Temporal synchronization using frame content or audio signals
+- Smart handling of FPS and duration differences between videos
+- File: src/vidkompy/vidkompy_old.py
+
+### Temporal Alignment Methods (Importance: 90)
+Three distinct alignment strategies:
+- Audio-based cross-correlation for sound-driven synchronization
+- Duration-based centering for simple timeline alignment
+- Frame-based content matching for precise visual synchronization
+- File: src/vidkompy/vidkompy_old.py
+
+### Spatial Alignment Methods (Importance: 85)
+Two precision-focused positioning approaches:
+- Template matching for exact region identification
+- Feature matching for compression-tolerant alignment
+- File: src/vidkompy/vidkompy_old.py
+
+### Quality Preservation Logic (Importance: 80)
+- Foreground video quality preservation as primary directive
+- Intelligent frame selection to maintain temporal integrity
+- Dynamic background adaptation to match foreground timing
+- File: src/vidkompy/vidkompy_old.py
+
+### Audio Management (Importance: 75)
+- Intelligent audio track selection between sources
+- Audio-based synchronization when available
+- Preservation of high-quality audio source
+- File: src/vidkompy/vidkompy_old.py
+
+## Workflow Integration
+
+### Command Interface (Importance: 70)
+- Intelligent default behaviors for minimal user intervention
+- Automatic output filename generation
+- Configurable alignment methods
+- File: src/vidkompy/vidkompy_old.py
+
+### Process Control (Importance: 65)
+- Progress tracking and logging
+- Error handling with user guidance
+- Automatic fallback strategies
+- File: src/vidkompy/vidkompy_old.py
+
+$END$
+END SPECIFICATION
+</file>
+
 <file path=".gitignore">
 __pycache__/
 __pypackages__/
@@ -1614,52 +1299,281 @@ venv/
 wheels/
 </file>
 
-<file path="CHANGELOG.md">
-# Changelog
+<file path="CLAUDE.md">
+## Coding style
 
-All notable changes to vidkompy will be documented in this file.
+<guidelines>
+# When you write code
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+- Iterate gradually, avoiding major changes
+- Minimize confirmations and checks
+- Preserve existing code/structure unless necessary
+- Use constants over magic numbers
+- Check for existing solutions in the codebase before starting
+- Check often the coherence of the code you’re writing with the rest of the code.
+- Focus on minimal viable increments and ship early
+- Write explanatory docstrings/comments that explain what and WHY this does, explain where and how the code is used/referred to elsewhere in the code
+- Analyze code line-by-line
+- Handle failures gracefully with retries, fallbacks, user guidance
+- Address edge cases, validate assumptions, catch errors early
+- Let the computer do the work, minimize user decisions
+- Reduce cognitive load, beautify code
+- Modularize repeated logic into concise, single-purpose functions
+- Favor flat over nested structures
+- Consistently keep, document, update and consult the holistic overview mental image of the codebase. 
 
-## [Unreleased]
+Work in rounds: 
 
-### Fixed
-- **Critical Performance**: Fixed compositing bottleneck by implementing sequential reading with generators
-- **UI Bug**: Resolved "Only one live display may be active at once" error from nested Progress contexts
-- **Compositing Speed**: Eliminated costly random seeks in video files during frame composition
-- **Progress UX**: Removed annoying spinner displays for quick operations
+- Create `PROGRESS.md` as a detailed flat plan with `[ ]` items. 
+- Identify the most important TODO items, and create `TODO.md` with `[ ]` items. 
+- Implement the changes. 
+- Update `PROGRESS.md` and `TODO.md` as you go. 
+- After each round of changes, update `CHANGELOG.md` with the changes.
+- Update `README.md` to reflect the changes.
 
-### Added
-- Sequential frame generators for optimal video reading performance
-- Detailed frame composition progress bar with percentage, frame count, and time remaining
-- Spatial alignment results now logged in non-verbose mode for better visibility
-- Temporal alignment results now logged in non-verbose mode showing method, offset, and frame count
-- Comprehensive docstrings explaining the "why" behind design decisions in all core modules
-- SPEC4.md: Detailed performance improvement plan with DTW algorithm and perceptual hashing
-- Border-based temporal alignment mode with mask generation
-- Smooth alpha blending for frame edges
-- Sliding window constraint for frame matching optimization
+## Keep track of paths
 
-### Changed
-- **Performance**: Compositing now uses forward-only sequential reads instead of random seeks (10-100x speedup)
-- **Progress UX**: Quick tasks (video analysis, spatial alignment) now use simple logging instead of spinners
-- **Progress Bars**: Frame composition shows meaningful progress bar instead of percentage logging
-- **Default Mode**: Border-based temporal alignment is now the default for improved accuracy
-- Progress bars now show time remaining for better user experience
-- Maintained useful progress bars for time-intensive operations (DTW, cost matrix building)
+In each source file, maintain the up-to-date `this_file` record that shows the path of the current file relative to project root. Place the `this_file` record near the top of the file, as a comment after the shebangs, or in the YAML Markdown frontmatter.
 
-### Documentation
-- Added detailed docstrings to alignment_engine.py explaining architecture decisions
-- Added detailed docstrings to spatial_alignment.py explaining algorithm choices
-- Added detailed docstrings to temporal_alignment.py explaining current limitations
-- Added detailed docstrings to video_processor.py explaining tool choices
-- Created SPEC4.md with comprehensive improvement plan addressing performance and quality issues
+## When you write Python
 
-### Technical Details
-- Removed SpinnerColumn from inner progress bars to prevent conflicts
-- Added TimeRemainingColumn for better progress estimation
-- Made outer progress transient to reduce visual clutter
+- Use `uv pip`, never `pip`
+- Use `python -m` when running code
+- PEP 8: Use consistent formatting and naming
+- Write clear, descriptive names for functions and variables
+- PEP 20: Keep code simple and explicit. Prioritize readability over cleverness
+- Use type hints in their simplest form (list, dict, | for unions)
+- PEP 257: Write clear, imperative docstrings
+- Use f-strings. Use structural pattern matching where appropriate
+- ALWAYS add "verbose" mode logugu-based logging, & debug-log
+- For CLI Python scripts, use fire & rich, and start the script with
+
+```
+#!/usr/bin/env -S uv run -s
+# /// script
+# dependencies = ["PKG1", "PKG2"]
+# ///
+# this_file: PATH_TO_CURRENT_FILE
+```
+
+Ask before extending/refactoring existing code in a way that may add complexity or break things.
+
+When you’re finished, print "Wait, but" to go back, think & reflect, revise & improvement what you’ve done (but don’t invent functionality freely). Repeat this. But stick to the goal of "minimal viable next version". Lead two experts: "Ideot" for creative, unorthodox ideas, and "Critin" to critique flawed thinking and moderate for balanced discussions. The three of you shall illuminate knowledge with concise, beautiful responses, process methodically for clear answers, collaborate step-by-step, sharing thoughts and adapting. If errors are found, step back and focus on accuracy and progress.
+
+## After Python changes run:
+
+```
+fd -e py -x autoflake {}; fd -e py -x pyupgrade --py312-plus {}; fd -e py -x ruff check --output-format=github --fix --unsafe-fixes {}; fd -e py -x ruff format --respect-gitignore --target-version py312 {}; python -m pytest;
+```
+
+Be creative, diligent, critical, relentless & funny!
+</guidelines>
+
+
+## Project Overview
+
+vidkompy is an intelligent video overlay tool that overlays foreground videos onto background videos with automatic alignment. The project prioritizes 
+precision and intelligence over raw speed.
+
+`vidkompy` is a Python CLI (Fire) tool that lets me overlay two videos: --bg (background) and --fg (foreground), and saves the result to --output (name is built automatically if not provided).
+
+The tool needs to be robust and smart.
+
+1. The bg video can be larger than the fg video. In that case, the tool needs to automatically find the best offset to overlay the fg video on the bg video.
+
+2. The bg and fg videos can have different FPSes. In that case, the tool needs to use the higher FPS for the output video.
+
+3. The bg and fg videos may have different durations (the difference would be typically rather slight). Ths tool needs to find the optimal time offset to overlay the fg video on the bg video. We need to find "the perfect pair of frames that when overlaid will form the START frame of the output video", and "the perfect pair of frames that when overlaid will form the END frame of the output video". The output video will be trimmed to go from that start to that end. Some starting and/or ending frames from either the fg or the bg video may be dropped. 
+
+4. The bg and fg videos may have sound (it would be identical, but may be offset). If both have sound, the sound may be used to find the right time offset for the overlay (if I specify --match_time audio). The fg sound would be is for the output video. If only one has sound, that sound is used for the output video.
+
+5. The content of the two videos would typically be very similar but not identical, because one video is typically a recompressed, edited variant of the other.
+
+6. Overall, the fg video is thought to be "better quality", and temporally properly aligned. The bg video can be streched, modified, re-timed, frames added or dropped etc. 
+
+7. All these conditions may be combined. That means, the tool needs to be able to find both the spatial and the temporal offsets. Spatially, the fg video is never larger than the bg video. Temporally, either video can be longer.
+
+
+
+## Key Commands
+
+### Development & Testing
+```bash
+# Run tests
+hatch run test
+
+# Run tests with coverage
+hatch run test-cov
+
+# Type checking
+hatch run type-check
+
+# Linting and formatting
+hatch run lint      # Check code
+hatch run fix       # Auto-fix issues
+hatch run fmt       # Format code
+
+# All lint checks
+hatch run lint:all
+```
+
+### Running the Tool
+```bash
+python src/vidkompy/vidkompy_old.py --help|cat
+
+INFO: Showing help with the command 'vidkompy_old.py -- --help'.
+
+NAME
+    vidkompy_old.py - Overlay foreground video onto background video with intelligent alignment.
+
+SYNOPSIS
+    vidkompy_old.py BG FG <flags>
+
+DESCRIPTION
+    Overlay foreground video onto background video with intelligent alignment.
+
+POSITIONAL ARGUMENTS
+    BG
+        Type: str
+        Background video path
+    FG
+        Type: str
+        Foreground video path
+
+FLAGS
+    -o, --output=OUTPUT
+        Type: Optional[str | None]
+        Default: None
+        Output video path (auto-generated if not provided)
+    --match_space=MATCH_SPACE
+        Type: str
+        Default: 'precise'
+        Spatial alignment method ('precise' or 'fast')
+    --temporal_align=TEMPORAL_ALIGN
+        Type: str
+        Default: 'frames'
+        Temporal alignment method ('audio', 'duration', or 'frames') [default: 'frames']
+    --trim=TRIM
+        Type: bool
+        Default: True
+        Trim output to overlapping segments only [default: True]
+    -s, --skip_spatial_align=SKIP_SPATIAL_ALIGN
+        Type: bool
+        Default: False
+        Skip spatial alignment (use center)
+    -v, --verbose=VERBOSE
+        Type: bool
+        Default: False
+        Enable verbose logging
+    --max_keyframes=MAX_KEYFRAMES
+        Type: int
+        Default: 2000
+        Maximum number of keyframes to use in frames mode [default: 2000]
+
+NOTES
+    You can also use flags syntax for POSITIONAL ARGUMENTS
+
+
+# Direct execution (main implementation in vidkompy_old.py)
+python -m vidkompy --bg tests/bg.mp4 --fg tests/fg.mp4 -o tests/output_new.mp4 --match_time precise --verbose
+```
+
+## Architecture Notes
+
+1. **Main Implementation**: The core functionality resides in `src/vidkompy/vidkompy_old.py` (60KB). 
+
+The `vidkompy.py` file is a placeholder for future refactoring.
+
+2. **Temporal Alignment Modes**:
+   - `audio`: Cross-correlation of audio tracks
+   - `duration`: Centers foreground within background duration
+   - `frames`: Advanced frame-by-frame content matching with dynamic mapping
+
+3. **Spatial Alignment Methods**:
+   - `template` (precise, default): OpenCV template matching for exact sub-regions
+   - `feature` (fast): ORB feature matching for more robust alignment
+
+4. **Known Issue**: The `frames` temporal alignment method has drift-and-catchup issues where the background portion runs at varying speeds 
+
+5. **Dependencies**: The tool requires FFmpeg binary installed separately. Python dependencies are listed in the script header and include opencv-python, ffmpeg-python, scipy, numpy, soundfile, scikit-image, fire, rich, and loguru.
+
+## Testing Approach
+
+The project uses pytest with minimal test coverage currently (only version check). When adding new functionality:
+- Place tests in `tests/` directory
+- Use pytest markers for categorization (unit, integration, benchmark)
+- Run with `hatch run test` or `hatch run test-cov` for coverage
+
+START SPECIFICATION:
+---
+description: Apply when documenting high-level business logic and domain-specific implementations for video overlay and alignment systems, specifically for intelligent video composition tools that require precise spatial and temporal synchronization
+globs: *.py,*.md
+alwaysApply: false
+---
+
+
+# main-overview
+
+## Development Guidelines
+
+- Only modify code directly relevant to the specific request. Avoid changing unrelated functionality.
+- Never replace code with placeholders like `# ... rest of the processing ...`. Always include complete code.
+- Break problems into smaller steps. Think through each step separately before implementing.
+- Always provide a complete PLAN with REASONING based on evidence from code and logs before making changes.
+- Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
+
+
+vidkompy is an intelligent video overlay system focused on precision alignment of video content. The core business logic revolves around automatically synchronizing and compositing video streams with different characteristics.
+
+## Core Business Components
+
+### Video Alignment Engine (Importance: 95)
+- Automatic detection of optimal spatial positioning for foreground overlay
+- Temporal synchronization using frame content or audio signals
+- Smart handling of FPS and duration differences between videos
+- File: src/vidkompy/vidkompy_old.py
+
+### Temporal Alignment Methods (Importance: 90)
+Three distinct alignment strategies:
+- Audio-based cross-correlation for sound-driven synchronization
+- Duration-based centering for simple timeline alignment
+- Frame-based content matching for precise visual synchronization
+- File: src/vidkompy/vidkompy_old.py
+
+### Spatial Alignment Methods (Importance: 85)
+Two precision-focused positioning approaches:
+- Template matching for exact region identification
+- Feature matching for compression-tolerant alignment
+- File: src/vidkompy/vidkompy_old.py
+
+### Quality Preservation Logic (Importance: 80)
+- Foreground video quality preservation as primary directive
+- Intelligent frame selection to maintain temporal integrity
+- Dynamic background adaptation to match foreground timing
+- File: src/vidkompy/vidkompy_old.py
+
+### Audio Management (Importance: 75)
+- Intelligent audio track selection between sources
+- Audio-based synchronization when available
+- Preservation of high-quality audio source
+- File: src/vidkompy/vidkompy_old.py
+
+## Workflow Integration
+
+### Command Interface (Importance: 70)
+- Intelligent default behaviors for minimal user intervention
+- Automatic output filename generation
+- Configurable alignment methods
+- File: src/vidkompy/vidkompy_old.py
+
+### Process Control (Importance: 65)
+- Progress tracking and logging
+- Error handling with user guidance
+- Automatic fallback strategies
+- File: src/vidkompy/vidkompy_old.py
+
+$END$
+END SPECIFICATION
 </file>
 
 <file path="src/vidkompy/core/dtw_aligner.py">
@@ -2666,6 +2580,55 @@ def test_version():
     assert vidkompy.__version__
 </file>
 
+<file path="CHANGELOG.md">
+# Changelog
+
+All notable changes to vidkompy will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Fixed
+- **Critical Performance**: Fixed compositing bottleneck by implementing sequential reading with generators
+- **UI Bug**: Resolved "Only one live display may be active at once" error from nested Progress contexts
+- **Compositing Speed**: Eliminated costly random seeks in video files during frame composition
+- **Progress UX**: Removed annoying spinner displays for quick operations
+
+### Added
+- Sequential frame generators for optimal video reading performance
+- Detailed frame composition progress bar with percentage, frame count, and time remaining
+- Spatial alignment results now logged in non-verbose mode for better visibility
+- Temporal alignment results now logged in non-verbose mode showing method, offset, and frame count
+- Comprehensive docstrings explaining the "why" behind design decisions in all core modules
+- SPEC4.md: Detailed performance improvement plan with DTW algorithm and perceptual hashing
+- Border-based temporal alignment mode with mask generation
+- Smooth alpha blending for frame edges
+- Sliding window constraint for frame matching optimization
+
+### Changed
+- **Performance**: Compositing now uses forward-only sequential reads instead of random seeks (10-100x speedup)
+- **Performance**: Significantly reduced keyframe sampling when using SSIM (e.g., in border mode fallback), drastically improving speed for that specific path.
+- **Progress UX**: Quick tasks (video analysis, spatial alignment) now use simple logging instead of spinners
+- **Progress Bars**: Frame composition shows meaningful progress bar instead of percentage logging
+- **Default Mode**: Border-based temporal alignment is now the default for improved accuracy
+- Progress bars now show time remaining for better user experience
+- Maintained useful progress bars for time-intensive operations (DTW, cost matrix building)
+
+### Documentation
+- Added detailed docstrings to alignment_engine.py explaining architecture decisions
+- Added detailed docstrings to spatial_alignment.py explaining algorithm choices
+- Added detailed docstrings to temporal_alignment.py explaining current limitations
+- Added detailed docstrings to video_processor.py explaining tool choices
+- Created SPEC4.md with comprehensive improvement plan addressing performance and quality issues
+
+### Technical Details
+- Removed SpinnerColumn from inner progress bars to prevent conflicts
+- Added TimeRemainingColumn for better progress estimation
+- Made outer progress transient to reduce visual clutter
+</file>
+
 <file path=".claude/settings.local.json">
 {
   "permissions": {
@@ -2685,6 +2648,536 @@ def test_version():
     "deny": []
   }
 }
+</file>
+
+<file path="src/vidkompy/models.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/models.py
+
+"""
+Data models and enums for vidkompy.
+
+Contains all shared data structures used across the application.
+"""
+
+from dataclasses import dataclass
+from enum import Enum
+
+
+class MatchTimeMode(Enum):
+    """Temporal alignment modes."""
+
+    BORDER = "border"  # Border-based matching (new default)
+    FAST = "fast"  # Try audio first, fallback to frames
+    PRECISE = "precise"  # Use frame-based matching
+
+
+class SpatialMethod(Enum):
+    """Spatial alignment methods."""
+
+    TEMPLATE = "template"  # Precise template matching
+    FEATURE = "feature"  # Fast feature-based matching
+    CENTER = "center"  # Simple center alignment
+
+
+class TemporalMethod(Enum):
+    """Temporal alignment algorithm methods."""
+
+    DTW = "dtw"  # Dynamic Time Warping (new default)
+    CLASSIC = "classic"  # Original keyframe matching
+    FRAMES = "frames"  # Legacy alias for classic
+
+
+@dataclass
+class VideoInfo:
+    """Video metadata container."""
+
+    width: int
+    height: int
+    fps: float
+    duration: float
+    frame_count: int
+    has_audio: bool
+    audio_sample_rate: int | None = None
+    audio_channels: int | None = None
+    path: str = ""
+
+    @property
+    def resolution(self) -> tuple[int, int]:
+        """Get video resolution as (width, height)."""
+        return (self.width, self.height)
+
+    @property
+    def aspect_ratio(self) -> float:
+        """Calculate aspect ratio."""
+        return self.width / self.height if self.height > 0 else 0
+
+
+@dataclass
+class FrameAlignment:
+    """Represents alignment between a foreground and background frame."""
+
+    fg_frame_idx: int  # Foreground frame index (never changes)
+    bg_frame_idx: int  # Corresponding background frame index
+    similarity_score: float  # Similarity between frames (0-1)
+
+    def __repr__(self) -> str:
+        return f"FrameAlignment(fg={self.fg_frame_idx}, bg={self.bg_frame_idx}, sim={self.similarity_score:.3f})"
+
+
+@dataclass
+class SpatialAlignment:
+    """Spatial offset for overlaying foreground on background."""
+
+    x_offset: int
+    y_offset: int
+    scale_factor: float = 1.0
+    confidence: float = 1.0
+
+    @property
+    def offset(self) -> tuple[int, int]:
+        """Get offset as tuple."""
+        return (self.x_offset, self.y_offset)
+
+
+@dataclass
+class TemporalAlignment:
+    """Temporal alignment results."""
+
+    offset_seconds: float  # Time offset in seconds
+    frame_alignments: list[FrameAlignment]  # Frame-by-frame mapping
+    method_used: str  # Method that produced this alignment
+    confidence: float = 1.0
+
+    @property
+    def start_frame(self) -> int | None:
+        """Get first aligned foreground frame."""
+        return self.frame_alignments[0].fg_frame_idx if self.frame_alignments else None
+
+    @property
+    def end_frame(self) -> int | None:
+        """Get last aligned foreground frame."""
+        return self.frame_alignments[-1].fg_frame_idx if self.frame_alignments else None
+
+
+@dataclass
+class ProcessingOptions:
+    """Options for video processing."""
+
+    time_mode: MatchTimeMode
+    space_method: str
+    skip_spatial: bool
+    trim: bool
+    max_keyframes: int = 2000
+    verbose: bool = False
+    border_thickness: int = 8
+    blend: bool = False
+    window: int = 0
+</file>
+
+<file path="pyproject.toml">
+[project]
+name = 'vidkompy'
+dynamic = ['version']
+description = ''
+readme = 'README.md'
+requires-python = '>=3.10'
+license = 'MIT'
+keywords = []
+classifiers = [
+    'Development Status :: 4 - Beta',
+    'Programming Language :: Python',
+    'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
+    'Programming Language :: Python :: Implementation :: CPython',
+    'Programming Language :: Python :: Implementation :: PyPy',
+]
+dependencies = [
+    'fire',
+    'rich',
+    'loguru',
+    'opencv-contrib-python',
+    'numpy',
+    'scipy',
+    'ffmpeg-python',
+    'soundfile',
+    'scikit-image',
+]
+
+[[project.authors]]
+name = 'Adam Twardoch'
+email = 'adam+github@twardoch.com'
+
+[project.optional-dependencies]
+dev = [
+    'pre-commit>=4.2.0',
+    'ruff>=0.1.0',
+    'mypy>=1.0.0',
+    'pyupgrade>=3.19.0',
+]
+test = [
+    'pytest>=8.3.5',
+    'pytest-cov>=6.1.1',
+]
+all = [
+    'fire',
+    'rich',
+    'loguru',
+    'opencv-contrib-python',
+    'numpy',
+    'scipy',
+    'ffmpeg-python',
+    'soundfile',
+    'scikit-image',
+    'pre-commit>=4.2.0',
+    'ruff>=0.1.0',
+    'mypy>=1.0.0',
+    'pyupgrade>=3.19.0',
+    'pytest>=8.3.5',
+    'pytest-cov>=6.1.1',
+    'hatchling>=1.21.0',
+    'hatch-vcs>=0.3.0',
+]
+
+[project.scripts]
+
+[project.urls]
+Documentation = 'https://github.com/twardoch/vidkompy#readme'
+Issues = 'https://github.com/twardoch/vidkompy/issues'
+Source = 'https://github.com/twardoch/vidkompy'
+
+[build-system]
+build-backend = 'hatchling.build'
+requires = [
+    'hatchling>=1.21.0',
+    'hatch-vcs>=0.3.0',
+]
+[tool.coverage.paths]
+vidkompy = [
+    'src/vidkompy',
+    '*/vidkompy/src/vidkompy',
+]
+tests = [
+    'tests',
+    '*/vidkompy/tests',
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    'no cov',
+    'if __name__ == .__main__.:',
+    'if TYPE_CHECKING:',
+]
+
+[tool.coverage.run]
+source_pkgs = [
+    'vidkompy',
+    'tests',
+]
+branch = true
+parallel = true
+omit = ['src/vidkompy/__about__.py']
+[tool.hatch.build.hooks.vcs]
+version-file = 'src/vidkompy/__version__.py'
+[tool.hatch.build.targets.wheel]
+packages = ['src/vidkompy']
+[tool.hatch.envs.default]
+dependencies = []
+
+[tool.hatch.envs.default.scripts]
+test = 'pytest {args:tests}'
+test-cov = 'pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=src/vidkompy --cov=tests {args:tests}'
+type-check = 'mypy src/vidkompy tests'
+lint = [
+    'ruff check src/vidkompy tests',
+    'ruff format --respect-gitignore src/vidkompy tests',
+]
+fix = [
+    'ruff check  --fix --unsafe-fixes src/vidkompy tests',
+    'ruff format --respect-gitignore src/vidkompy tests',
+]
+[[tool.hatch.envs.all.matrix]]
+python = [
+    '3.10',
+    '3.11',
+    '3.12',
+]
+
+[tool.hatch.envs.lint]
+detached = true
+dependencies = []
+
+[tool.hatch.envs.lint.scripts]
+typing = 'mypy --install-types --non-interactive {args:src/vidkompy tests}'
+style = [
+    'ruff check {args:.}',
+    'ruff format --respect-gitignore {args:.}',
+]
+fmt = [
+    'ruff format --respect-gitignore {args:.}',
+    'ruff check --fix {args:.}',
+]
+all = [
+    'style',
+    'typing',
+]
+
+[tool.hatch.envs.test]
+dependencies = []
+
+[tool.hatch.envs.test.scripts]
+test = 'python -m pytest -n auto -p no:briefcase {args:tests}'
+test-cov = 'python -m pytest -n auto -p no:briefcase --cov-report=term-missing --cov-config=pyproject.toml --cov=src/vidkompy --cov=tests {args:tests}'
+bench = 'python -m pytest -v -p no:briefcase tests/test_benchmark.py --benchmark-only'
+bench-save = 'python -m pytest -v -p no:briefcase tests/test_benchmark.py --benchmark-only --benchmark-json=benchmark/results.json'
+
+[tool.hatch.version]
+source = 'vcs'
+
+[tool.hatch.version.raw-options]
+version_scheme = 'post-release'
+
+[tool.mypy]
+python_version = '3.10'
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+
+[tool.ruff]
+target-version = 'py310'
+line-length = 88
+
+[tool.ruff.lint]
+extend-select = [
+    'A',
+    'ARG',
+    'B',
+    'C',
+    'DTZ',
+    'E',
+    'EM',
+    'F',
+    'FBT',
+    'I',
+    'ICN',
+    'ISC',
+    'N',
+    'PLC',
+    'PLE',
+    'PLR',
+    'PLW',
+    'Q',
+    'RUF',
+    'S',
+    'T',
+    'TID',
+    'UP',
+    'W',
+    'YTT',
+]
+ignore = [
+    'ARG001',
+    'E501',
+    'I001',
+    'RUF001',
+    'PLR2004',
+    'EXE003',
+    'ISC001',
+]
+
+[tool.ruff.per-file-ignores]
+"tests/*" = ['S101']
+[tool.pytest.ini_options]
+addopts = '-v --durations=10 -p no:briefcase'
+asyncio_mode = 'auto'
+console_output_style = 'progress'
+filterwarnings = [
+    'ignore::DeprecationWarning',
+    'ignore::UserWarning',
+]
+log_cli = true
+log_cli_level = 'INFO'
+markers = [
+    '''benchmark: marks tests as benchmarks (select with '-m benchmark')''',
+    'unit: mark a test as a unit test',
+    'integration: mark a test as an integration test',
+    'permutation: tests for permutation functionality',
+    'parameter: tests for parameter parsing',
+    'prompt: tests for prompt parsing',
+]
+norecursedirs = [
+    '.*',
+    'build',
+    'dist',
+    'venv',
+    '__pycache__',
+    '*.egg-info',
+    '_private',
+]
+python_classes = ['Test*']
+python_files = ['test_*.py']
+python_functions = ['test_*']
+testpaths = ['tests']
+
+[tool.pytest-benchmark]
+min_rounds = 100
+min_time = 0.1
+histogram = true
+storage = 'file'
+save-data = true
+compare = [
+    'min',
+    'max',
+    'mean',
+    'stddev',
+    'median',
+    'iqr',
+    'ops',
+    'rounds',
+]
+</file>
+
+<file path="README.md">
+# vidkompy
+
+`vidkompy` is an intelligent command-line tool designed to overlay a foreground video onto a background video with high-precision automatic alignment. The system is engineered to handle differences in resolution, frame rate, duration, and audio, prioritizing content integrity and accuracy over raw processing speed.
+
+The core philosophy is to treat the **foreground video as the definitive source of quality and timing**. All its frames are preserved without modification or retiming. The background video is dynamically adapted—stretched, retimed, and selectively sampled—to synchronize perfectly with the foreground content.
+
+---
+
+## How It Works: The Processing Pipeline
+
+The alignment and composition process is orchestrated by the `AlignmentEngine` and follows a meticulous, multi-stage pipeline:
+
+1.  **Video Analysis**: The process begins by probing both background and foreground videos using `ffprobe` to extract essential metadata. This includes resolution, frames per second (FPS), duration, frame count, and audio presence. This information is used to check for compatibility and inform subsequent alignment decisions.
+
+2.  **Spatial Alignment**: The engine determines the optimal (x, y) coordinates to place the foreground video on top of the background. A sample frame from the middle of each video is used for this calculation, and the system computes the offset needed to position the foreground video correctly within the background frame.
+
+3.  **Temporal Alignment**: This is the most critical phase, where the videos are synchronized in time. `vidkompy` finds the perfect background frame to match _every single_ foreground frame, ensuring the foreground's timing is flawlessly preserved. This creates a detailed frame-by-frame mapping using advanced algorithms like Dynamic Time Warping.
+
+4.  **Video Composition**: With alignment data computed, the final video is composed:
+
+- First, a silent video is created using OpenCV. The engine iterates through the frame alignment map, reads the corresponding frames from each video, overlays them using the spatial offset, and writes the composite frame to a temporary file. The output FPS is set to the foreground video's FPS to ensure no foreground frames are dropped.
+- Next, an audio track is added using FFmpeg. The tool intelligently selects the audio source, **prioritizing the foreground video's audio**. The audio is synchronized with the composed video, and the final output file is generated.
+
+---
+
+## Alignment Algorithms in Detail
+
+`vidkompy` employs sophisticated algorithms for both temporal and spatial alignment, with different modes to balance speed and precision.
+
+### Temporal Alignment: Finding the Perfect Sync
+
+Temporal alignment synchronizes the two videos over time. This is the most complex and powerful feature of `vidkompy` .
+
+#### **`--temporal_align dtw`** (Default, Recommended)
+
+This method uses **Dynamic Time Warping (DTW)** with **Perceptual Hashing** to achieve the most robust and accurate temporal alignment, completely avoiding the timing drift and "catch-up" issues seen in simpler methods.
+
+It creates a unique "fingerprint" for every frame in both videos. Then, it finds the optimal way to stretch and squeeze the background video's timeline to best match the foreground's timeline, guaranteeing a smooth, continuous result.
+
+**How it works**:
+
+1.  **Frame Fingerprinting**: Instead of comparing raw pixels (which is slow), the system first computes a "perceptual fingerprint" for a sample of frames from each video. It uses a combination of multiple hashing algorithms (pHash, AverageHash, ColorMomentHash) that capture different visual aspects like structure, brightness, and color distribution. This results in a compact and robust representation of each frame.
+2.  **Cost Matrix**: It builds a cost matrix where each cell `(i, j)` represents the "distance" (dissimilarity) between the fingerprint of foreground frame `i` and background frame `j`.
+3.  **Dynamic Time Warping**: The DTW algorithm then finds the lowest-cost path through this matrix from start to finish. This path represents the optimal "warping" of the background's timeline to match the foreground's. A **Sakoe-Chiba band** constraint is used to keep the alignment within a reasonable time window, dramatically speeding up the calculation from O(N²) to O(N).
+4.  **Interpolation**: The final alignment map for _every single_ foreground frame is generated by interpolating between the points on the optimal DTW path. This ensures that every foreground frame has a corresponding background frame, resulting in perfectly smooth motion.
+
+#### **`--temporal_align classic`**
+
+This is the legacy frame-matching method. It can be faster for some content but is susceptible to temporal drift.
+
+It finds a few good matching "anchor" frames (keyframes) between the two videos and then guesses the frames in between.
+
+**How it works**:
+
+1.  **Keyframe Matching**: It samples a limited number of frames (keyframes) from both videos and finds the best matches using **Structural Similarity (SSIM)**.
+2.  **Monotonic Filtering**: The matches are filtered to ensure a logical time progression (i.e., time only moves forward).
+3.  **Interpolation**: For all the frames _between_ the keyframes, the corresponding background frame is estimated using simple linear interpolation. This is where drift can occur if the videos have different playback speeds between keyframes.
+
+#### **`--match_time fast`** (Audio-Based)
+
+This mode leverages audio tracks for a very fast initial alignment. It can be used with either `dtw` or `classic` temporal alignment.
+
+It listens to both audio tracks and slides one until they sound perfectly synced up.
+
+**How it works**: The audio from both videos is extracted, and the system computes the **cross-correlation** between them. The peak of the correlation reveals the precise time offset. If successful, this offset is used to create the frame map. If audio is missing or doesn't match, it automatically falls back to the configured frame-based method ( `dtw` or `classic` ).
+
+### Spatial Alignment: Finding the Perfect Position
+
+Spatial alignment determines where the foreground video sits within the larger background frame. If the foreground is larger than the background, it is automatically scaled down to fit while preserving its aspect ratio.
+
+#### ** `--match_space precise` / `template` ** (Default)
+
+It treats the foreground frame like a puzzle piece and finds exactly where it fits inside the background frame.
+
+**How it works**: This method uses **Template Matching**. It takes the entire foreground frame as a template and performs a pixel-by-pixel search across the background frame to find the location with the highest normalized cross-correlation. It's extremely accurate when the foreground is an exact, un-altered crop of the background.
+
+#### ** `--match_space fast` / `feature` **
+
+It finds hundreds of unique interest points (like corners and edges) in both frames and matches them up to figure out the position.
+
+**How it works**: This method uses **Feature Matching** with the **ORB (Oriented FAST and Rotated BRIEF)** algorithm. It detects key feature points in both frames and matches them. This approach is more robust against variations in brightness, contrast, or compression artifacts. If too few features are found, it safely falls back to centering the foreground.
+
+#### **`--skip_spatial_align`**
+
+If this flag is used, all alignment calculations are skipped, and the foreground video is simply centered within the background frame.
+
+---
+
+## Usage
+
+### Prerequisites
+
+You must have the **FFmpeg** binary installed on your system and accessible in your system's PATH. `vidkompy` depends on it for all video and audio processing tasks.
+
+### Installation
+
+The tool is a Python package and can be installed locally:
+
+```bash
+# Clone the repository and install using uv (or pip)
+git clone https://github.com/your-repo/vidkompy.git
+cd vidkompy
+uv pip install .
+```
+
+### Command-Line Interface (CLI)
+
+The tool is run from the command line. The primary arguments are the paths to the background and foreground videos.
+
+```bash
+python -m vidkompy --bg <background_video> --fg <foreground_video> [OPTIONS]
+```
+
+**Key Arguments:**
+
+- `--bg` (str): Path to the background video file. **[Required]**
+- `--fg` (str): Path to the foreground video file. **[Required]**
+- `-o`, `--output` (str): Path for the final output video. If not provided, a name is automatically generated (e.g., `bg-stem_overlay_fg-stem.mp4`).
+- `--match_time` (str): The high-level temporal alignment strategy.
+  - `'precise'` (default): Uses the chosen frame-based method directly for maximum accuracy.
+  - `'fast'`: Attempts audio-based alignment first and falls back to the frame-based method.
+- `--temporal_align` (str): The core algorithm for frame-based temporal alignment.
+  - `'dtw'` (default): Dynamic Time Warping with perceptual hashing. Highly robust and accurate.
+  - `'classic'`: The legacy keyframe matching and interpolation method.
+- `--match_space` (str): The spatial alignment method.
+  - `'precise'` or `'template'` (default): Slower but more exact pixel matching.
+  - `'fast'` or `'feature'`: Faster, more robust feature-based matching.
+- `--trim` (bool): If `True` (default), the output video is trimmed to the duration of the aligned segment.
+- `--skip_spatial_align` (bool): If `True` (default: `False`), skips spatial alignment and centers the foreground video.
+- `--verbose` (bool): Enables detailed debug logging for troubleshooting.
+- `--max_keyframes` (int): Sets the approximate number of frames to sample for temporal alignment (default: 2000). Higher values can increase accuracy but also memory usage and processing time.
 </file>
 
 <file path="src/vidkompy/core/alignment_engine.py">
@@ -3324,129 +3817,25 @@ class AlignmentEngine:
             logger.warning("Saved video without audio")
 </file>
 
-<file path="src/vidkompy/models.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/models.py
+<file path="src/vidkompy/__version__.py">
+# file generated by setuptools-scm
+# don't change, don't track in version control
 
-"""
-Data models and enums for vidkompy.
+__all__ = ["__version__", "__version_tuple__", "version", "version_tuple"]
 
-Contains all shared data structures used across the application.
-"""
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    VERSION_TUPLE = tuple[int | str, ...]
+else:
+    VERSION_TUPLE = object
 
-from dataclasses import dataclass
-from enum import Enum
+version: str
+__version__: str
+__version_tuple__: VERSION_TUPLE
+version_tuple: VERSION_TUPLE
 
-
-class MatchTimeMode(Enum):
-    """Temporal alignment modes."""
-
-    BORDER = "border"  # Border-based matching (new default)
-    FAST = "fast"  # Try audio first, fallback to frames
-    PRECISE = "precise"  # Use frame-based matching
-
-
-class SpatialMethod(Enum):
-    """Spatial alignment methods."""
-
-    TEMPLATE = "template"  # Precise template matching
-    FEATURE = "feature"  # Fast feature-based matching
-    CENTER = "center"  # Simple center alignment
-
-
-class TemporalMethod(Enum):
-    """Temporal alignment algorithm methods."""
-
-    DTW = "dtw"  # Dynamic Time Warping (new default)
-    CLASSIC = "classic"  # Original keyframe matching
-    FRAMES = "frames"  # Legacy alias for classic
-
-
-@dataclass
-class VideoInfo:
-    """Video metadata container."""
-
-    width: int
-    height: int
-    fps: float
-    duration: float
-    frame_count: int
-    has_audio: bool
-    audio_sample_rate: int | None = None
-    audio_channels: int | None = None
-    path: str = ""
-
-    @property
-    def resolution(self) -> tuple[int, int]:
-        """Get video resolution as (width, height)."""
-        return (self.width, self.height)
-
-    @property
-    def aspect_ratio(self) -> float:
-        """Calculate aspect ratio."""
-        return self.width / self.height if self.height > 0 else 0
-
-
-@dataclass
-class FrameAlignment:
-    """Represents alignment between a foreground and background frame."""
-
-    fg_frame_idx: int  # Foreground frame index (never changes)
-    bg_frame_idx: int  # Corresponding background frame index
-    similarity_score: float  # Similarity between frames (0-1)
-
-    def __repr__(self) -> str:
-        return f"FrameAlignment(fg={self.fg_frame_idx}, bg={self.bg_frame_idx}, sim={self.similarity_score:.3f})"
-
-
-@dataclass
-class SpatialAlignment:
-    """Spatial offset for overlaying foreground on background."""
-
-    x_offset: int
-    y_offset: int
-    scale_factor: float = 1.0
-    confidence: float = 1.0
-
-    @property
-    def offset(self) -> tuple[int, int]:
-        """Get offset as tuple."""
-        return (self.x_offset, self.y_offset)
-
-
-@dataclass
-class TemporalAlignment:
-    """Temporal alignment results."""
-
-    offset_seconds: float  # Time offset in seconds
-    frame_alignments: list[FrameAlignment]  # Frame-by-frame mapping
-    method_used: str  # Method that produced this alignment
-    confidence: float = 1.0
-
-    @property
-    def start_frame(self) -> int | None:
-        """Get first aligned foreground frame."""
-        return self.frame_alignments[0].fg_frame_idx if self.frame_alignments else None
-
-    @property
-    def end_frame(self) -> int | None:
-        """Get last aligned foreground frame."""
-        return self.frame_alignments[-1].fg_frame_idx if self.frame_alignments else None
-
-
-@dataclass
-class ProcessingOptions:
-    """Options for video processing."""
-
-    time_mode: MatchTimeMode
-    space_method: str
-    skip_spatial: bool
-    trim: bool
-    max_keyframes: int = 2000
-    verbose: bool = False
-    border_thickness: int = 8
-    blend: bool = False
-    window: int = 0
+__version__ = version = "0.0.post3+g39be67c.d20250524"
+__version_tuple__ = version_tuple = (0, 0, "post3", "g39be67c.d20250524")
 </file>
 
 <file path="PROGRESS.md">
@@ -3490,8 +3879,9 @@ class ProcessingOptions:
 ### Phase 7: Fast Frame Similarity Metrics
 
 - [ ] Install opencv-contrib-python for img_hash module
-- [ ] Implement perceptual hashing (pHash/dHash) for frame fingerprinting
-- [ ] Pre-compute hashes for all frames at video load
+- [x] **Partially Addressed**: For SSIM path (used in border mode), drastically reduced keyframe sampling to improve performance. Perceptual hashing is used by default for DTW/non-border modes.
+- [ ] Implement perceptual hashing (pHash/dHash) for frame fingerprinting (FrameFingerprinter exists, but integration with classic keyframe matching needs review if hashes are to be used there beyond DTW)
+- [ ] Pre-compute hashes for all frames at video load (FrameFingerprinter does this on demand for DTW)
 - [ ] Create hash-based similarity function replacing SSIM
 - [ ] Use Hamming distance for fast similarity checks
 - [ ] Keep SSIM as fallback for low-confidence matches
@@ -3557,409 +3947,179 @@ class ProcessingOptions:
 4. **DTW** (Phase 9) - Eliminates drift, complex but valuable
 </file>
 
-<file path="pyproject.toml">
-[project]
-name = 'vidkompy'
-dynamic = ['version']
-description = ''
-readme = 'README.md'
-requires-python = '>=3.10'
-license = 'MIT'
-keywords = []
-classifiers = [
-    'Development Status :: 4 - Beta',
-    'Programming Language :: Python',
-    'Programming Language :: Python :: 3.10',
-    'Programming Language :: Python :: 3.11',
-    'Programming Language :: Python :: 3.12',
-    'Programming Language :: Python :: Implementation :: CPython',
-    'Programming Language :: Python :: Implementation :: PyPy',
-]
-dependencies = [
-    'fire',
-    'rich',
-    'loguru',
-    'opencv-contrib-python',
-    'numpy',
-    'scipy',
-    'ffmpeg-python',
-    'soundfile',
-    'scikit-image',
-]
-
-[[project.authors]]
-name = 'Adam Twardoch'
-email = 'adam+github@twardoch.com'
-
-[project.optional-dependencies]
-dev = [
-    'pre-commit>=4.2.0',
-    'ruff>=0.1.0',
-    'mypy>=1.0.0',
-    'pyupgrade>=3.19.0',
-]
-test = [
-    'pytest>=8.3.5',
-    'pytest-cov>=6.1.1',
-]
-all = [
-    'fire',
-    'rich',
-    'loguru',
-    'opencv-contrib-python',
-    'numpy',
-    'scipy',
-    'ffmpeg-python',
-    'soundfile',
-    'scikit-image',
-    'pre-commit>=4.2.0',
-    'ruff>=0.1.0',
-    'mypy>=1.0.0',
-    'pyupgrade>=3.19.0',
-    'pytest>=8.3.5',
-    'pytest-cov>=6.1.1',
-    'hatchling>=1.21.0',
-    'hatch-vcs>=0.3.0',
-]
-
-[project.scripts]
-
-[project.urls]
-Documentation = 'https://github.com/twardoch/vidkompy#readme'
-Issues = 'https://github.com/twardoch/vidkompy/issues'
-Source = 'https://github.com/twardoch/vidkompy'
-
-[build-system]
-build-backend = 'hatchling.build'
-requires = [
-    'hatchling>=1.21.0',
-    'hatch-vcs>=0.3.0',
-]
-[tool.coverage.paths]
-vidkompy = [
-    'src/vidkompy',
-    '*/vidkompy/src/vidkompy',
-]
-tests = [
-    'tests',
-    '*/vidkompy/tests',
-]
-
-[tool.coverage.report]
-exclude_lines = [
-    'no cov',
-    'if __name__ == .__main__.:',
-    'if TYPE_CHECKING:',
-]
-
-[tool.coverage.run]
-source_pkgs = [
-    'vidkompy',
-    'tests',
-]
-branch = true
-parallel = true
-omit = ['src/vidkompy/__about__.py']
-[tool.hatch.build.hooks.vcs]
-version-file = 'src/vidkompy/__version__.py'
-[tool.hatch.build.targets.wheel]
-packages = ['src/vidkompy']
-[tool.hatch.envs.default]
-dependencies = []
-
-[tool.hatch.envs.default.scripts]
-test = 'pytest {args:tests}'
-test-cov = 'pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=src/vidkompy --cov=tests {args:tests}'
-type-check = 'mypy src/vidkompy tests'
-lint = [
-    'ruff check src/vidkompy tests',
-    'ruff format --respect-gitignore src/vidkompy tests',
-]
-fix = [
-    'ruff check  --fix --unsafe-fixes src/vidkompy tests',
-    'ruff format --respect-gitignore src/vidkompy tests',
-]
-[[tool.hatch.envs.all.matrix]]
-python = [
-    '3.10',
-    '3.11',
-    '3.12',
-]
-
-[tool.hatch.envs.lint]
-detached = true
-dependencies = []
-
-[tool.hatch.envs.lint.scripts]
-typing = 'mypy --install-types --non-interactive {args:src/vidkompy tests}'
-style = [
-    'ruff check {args:.}',
-    'ruff format --respect-gitignore {args:.}',
-]
-fmt = [
-    'ruff format --respect-gitignore {args:.}',
-    'ruff check --fix {args:.}',
-]
-all = [
-    'style',
-    'typing',
-]
-
-[tool.hatch.envs.test]
-dependencies = []
-
-[tool.hatch.envs.test.scripts]
-test = 'python -m pytest -n auto -p no:briefcase {args:tests}'
-test-cov = 'python -m pytest -n auto -p no:briefcase --cov-report=term-missing --cov-config=pyproject.toml --cov=src/vidkompy --cov=tests {args:tests}'
-bench = 'python -m pytest -v -p no:briefcase tests/test_benchmark.py --benchmark-only'
-bench-save = 'python -m pytest -v -p no:briefcase tests/test_benchmark.py --benchmark-only --benchmark-json=benchmark/results.json'
-
-[tool.hatch.version]
-source = 'vcs'
-
-[tool.hatch.version.raw-options]
-version_scheme = 'post-release'
-
-[tool.mypy]
-python_version = '3.10'
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-check_untyped_defs = true
-disallow_untyped_decorators = true
-no_implicit_optional = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-warn_no_return = true
-warn_unreachable = true
-
-[tool.ruff]
-target-version = 'py310'
-line-length = 88
-
-[tool.ruff.lint]
-extend-select = [
-    'A',
-    'ARG',
-    'B',
-    'C',
-    'DTZ',
-    'E',
-    'EM',
-    'F',
-    'FBT',
-    'I',
-    'ICN',
-    'ISC',
-    'N',
-    'PLC',
-    'PLE',
-    'PLR',
-    'PLW',
-    'Q',
-    'RUF',
-    'S',
-    'T',
-    'TID',
-    'UP',
-    'W',
-    'YTT',
-]
-ignore = [
-    'ARG001',
-    'E501',
-    'I001',
-    'RUF001',
-    'PLR2004',
-    'EXE003',
-    'ISC001',
-]
-
-[tool.ruff.per-file-ignores]
-"tests/*" = ['S101']
-[tool.pytest.ini_options]
-addopts = '-v --durations=10 -p no:briefcase'
-asyncio_mode = 'auto'
-console_output_style = 'progress'
-filterwarnings = [
-    'ignore::DeprecationWarning',
-    'ignore::UserWarning',
-]
-log_cli = true
-log_cli_level = 'INFO'
-markers = [
-    '''benchmark: marks tests as benchmarks (select with '-m benchmark')''',
-    'unit: mark a test as a unit test',
-    'integration: mark a test as an integration test',
-    'permutation: tests for permutation functionality',
-    'parameter: tests for parameter parsing',
-    'prompt: tests for prompt parsing',
-]
-norecursedirs = [
-    '.*',
-    'build',
-    'dist',
-    'venv',
-    '__pycache__',
-    '*.egg-info',
-    '_private',
-]
-python_classes = ['Test*']
-python_files = ['test_*.py']
-python_functions = ['test_*']
-testpaths = ['tests']
-
-[tool.pytest-benchmark]
-min_rounds = 100
-min_time = 0.1
-histogram = true
-storage = 'file'
-save-data = true
-compare = [
-    'min',
-    'max',
-    'mean',
-    'stddev',
-    'median',
-    'iqr',
-    'ops',
-    'rounds',
-]
-</file>
-
-<file path="README.md">
-# vidkompy
-
-`vidkompy` is an intelligent command-line tool designed to overlay a foreground video onto a background video with high-precision automatic alignment. The system is engineered to handle differences in resolution, frame rate, duration, and audio, prioritizing content integrity and accuracy over raw processing speed.
-
-The core philosophy is to treat the **foreground video as the definitive source of quality and timing**. All its frames are preserved without modification or retiming. The background video is dynamically adapted—stretched, retimed, and selectively sampled—to synchronize perfectly with the foreground content.
-
----
-
-## How It Works: The Processing Pipeline
-
-The alignment and composition process is orchestrated by the `AlignmentEngine` and follows a meticulous, multi-stage pipeline:
-
-1.  **Video Analysis**: The process begins by probing both background and foreground videos using `ffprobe` to extract essential metadata. This includes resolution, frames per second (FPS), duration, frame count, and audio presence. This information is used to check for compatibility and inform subsequent alignment decisions.
-
-2.  **Spatial Alignment**: The engine determines the optimal (x, y) coordinates to place the foreground video on top of the background. A sample frame from the middle of each video is used for this calculation, and the system computes the offset needed to position the foreground video correctly within the background frame.
-
-3.  **Temporal Alignment**: This is the most critical phase, where the videos are synchronized in time. `vidkompy` finds the perfect background frame to match _every single_ foreground frame, ensuring the foreground's timing is flawlessly preserved. This creates a detailed frame-by-frame mapping using advanced algorithms like Dynamic Time Warping.
-
-4.  **Video Composition**: With alignment data computed, the final video is composed:
-
-- First, a silent video is created using OpenCV. The engine iterates through the frame alignment map, reads the corresponding frames from each video, overlays them using the spatial offset, and writes the composite frame to a temporary file. The output FPS is set to the foreground video's FPS to ensure no foreground frames are dropped.
-- Next, an audio track is added using FFmpeg. The tool intelligently selects the audio source, **prioritizing the foreground video's audio**. The audio is synchronized with the composed video, and the final output file is generated.
-
----
-
-## Alignment Algorithms in Detail
-
-`vidkompy` employs sophisticated algorithms for both temporal and spatial alignment, with different modes to balance speed and precision.
-
-### Temporal Alignment: Finding the Perfect Sync
-
-Temporal alignment synchronizes the two videos over time. This is the most complex and powerful feature of `vidkompy` .
-
-#### **`--temporal_align dtw`** (Default, Recommended)
-
-This method uses **Dynamic Time Warping (DTW)** with **Perceptual Hashing** to achieve the most robust and accurate temporal alignment, completely avoiding the timing drift and "catch-up" issues seen in simpler methods.
-
-It creates a unique "fingerprint" for every frame in both videos. Then, it finds the optimal way to stretch and squeeze the background video's timeline to best match the foreground's timeline, guaranteeing a smooth, continuous result.
-
-**How it works**:
-
-1.  **Frame Fingerprinting**: Instead of comparing raw pixels (which is slow), the system first computes a "perceptual fingerprint" for a sample of frames from each video. It uses a combination of multiple hashing algorithms (pHash, AverageHash, ColorMomentHash) that capture different visual aspects like structure, brightness, and color distribution. This results in a compact and robust representation of each frame.
-2.  **Cost Matrix**: It builds a cost matrix where each cell `(i, j)` represents the "distance" (dissimilarity) between the fingerprint of foreground frame `i` and background frame `j`.
-3.  **Dynamic Time Warping**: The DTW algorithm then finds the lowest-cost path through this matrix from start to finish. This path represents the optimal "warping" of the background's timeline to match the foreground's. A **Sakoe-Chiba band** constraint is used to keep the alignment within a reasonable time window, dramatically speeding up the calculation from O(N²) to O(N).
-4.  **Interpolation**: The final alignment map for _every single_ foreground frame is generated by interpolating between the points on the optimal DTW path. This ensures that every foreground frame has a corresponding background frame, resulting in perfectly smooth motion.
-
-#### **`--temporal_align classic`**
-
-This is the legacy frame-matching method. It can be faster for some content but is susceptible to temporal drift.
-
-It finds a few good matching "anchor" frames (keyframes) between the two videos and then guesses the frames in between.
-
-**How it works**:
-
-1.  **Keyframe Matching**: It samples a limited number of frames (keyframes) from both videos and finds the best matches using **Structural Similarity (SSIM)**.
-2.  **Monotonic Filtering**: The matches are filtered to ensure a logical time progression (i.e., time only moves forward).
-3.  **Interpolation**: For all the frames _between_ the keyframes, the corresponding background frame is estimated using simple linear interpolation. This is where drift can occur if the videos have different playback speeds between keyframes.
-
-#### **`--match_time fast`** (Audio-Based)
-
-This mode leverages audio tracks for a very fast initial alignment. It can be used with either `dtw` or `classic` temporal alignment.
-
-It listens to both audio tracks and slides one until they sound perfectly synced up.
-
-**How it works**: The audio from both videos is extracted, and the system computes the **cross-correlation** between them. The peak of the correlation reveals the precise time offset. If successful, this offset is used to create the frame map. If audio is missing or doesn't match, it automatically falls back to the configured frame-based method ( `dtw` or `classic` ).
-
-### Spatial Alignment: Finding the Perfect Position
-
-Spatial alignment determines where the foreground video sits within the larger background frame. If the foreground is larger than the background, it is automatically scaled down to fit while preserving its aspect ratio.
-
-#### ** `--match_space precise` / `template` ** (Default)
-
-It treats the foreground frame like a puzzle piece and finds exactly where it fits inside the background frame.
-
-**How it works**: This method uses **Template Matching**. It takes the entire foreground frame as a template and performs a pixel-by-pixel search across the background frame to find the location with the highest normalized cross-correlation. It's extremely accurate when the foreground is an exact, un-altered crop of the background.
-
-#### ** `--match_space fast` / `feature` **
-
-It finds hundreds of unique interest points (like corners and edges) in both frames and matches them up to figure out the position.
-
-**How it works**: This method uses **Feature Matching** with the **ORB (Oriented FAST and Rotated BRIEF)** algorithm. It detects key feature points in both frames and matches them. This approach is more robust against variations in brightness, contrast, or compression artifacts. If too few features are found, it safely falls back to centering the foreground.
-
-#### **`--skip_spatial_align`**
-
-If this flag is used, all alignment calculations are skipped, and the foreground video is simply centered within the background frame.
-
----
-
-## Usage
-
-### Prerequisites
-
-You must have the **FFmpeg** binary installed on your system and accessible in your system's PATH. `vidkompy` depends on it for all video and audio processing tasks.
-
-### Installation
-
-The tool is a Python package and can be installed locally:
-
-```bash
-# Clone the repository and install using uv (or pip)
-git clone https://github.com/your-repo/vidkompy.git
-cd vidkompy
-uv pip install .
-```
-
-### Command-Line Interface (CLI)
-
-The tool is run from the command line. The primary arguments are the paths to the background and foreground videos.
-
-```bash
-python -m vidkompy --bg <background_video> --fg <foreground_video> [OPTIONS]
-```
-
-**Key Arguments:**
-
-- `--bg` (str): Path to the background video file. **[Required]**
-- `--fg` (str): Path to the foreground video file. **[Required]**
-- `-o`, `--output` (str): Path for the final output video. If not provided, a name is automatically generated (e.g., `bg-stem_overlay_fg-stem.mp4`).
-- `--match_time` (str): The high-level temporal alignment strategy.
-  - `'precise'` (default): Uses the chosen frame-based method directly for maximum accuracy.
-  - `'fast'`: Attempts audio-based alignment first and falls back to the frame-based method.
-- `--temporal_align` (str): The core algorithm for frame-based temporal alignment.
-  - `'dtw'` (default): Dynamic Time Warping with perceptual hashing. Highly robust and accurate.
-  - `'classic'`: The legacy keyframe matching and interpolation method.
-- `--match_space` (str): The spatial alignment method.
-  - `'precise'` or `'template'` (default): Slower but more exact pixel matching.
-  - `'fast'` or `'feature'`: Faster, more robust feature-based matching.
-- `--trim` (bool): If `True` (default), the output video is trimmed to the duration of the aligned segment.
-- `--skip_spatial_align` (bool): If `True` (default: `False`), skips spatial alignment and centers the foreground video.
-- `--verbose` (bool): Enables detailed debug logging for troubleshooting.
-- `--max_keyframes` (int): Sets the approximate number of frames to sample for temporal alignment (default: 2000). Higher values can increase accuracy but also memory usage and processing time.
+<file path="src/vidkompy/vidkompy.py">
+#!/usr/bin/env -S uv run -s
+# /// script
+# dependencies = ["fire", "rich", "loguru", "opencv-python", "numpy", "scipy", "ffmpeg-python", "soundfile", "scikit-image"]
+# ///
+# this_file: src/vidkompy/vidkompy.py
+
+"""
+Intelligent video overlay tool with automatic spatial and temporal alignment.
+
+This tool overlays foreground videos onto background videos with smart alignment:
+- Preserves all foreground frames without retiming
+- Finds optimal background frames for each foreground frame
+- Supports audio-based and frame-based temporal alignment
+- Automatic spatial alignment with template/feature matching
+"""
+
+import sys
+import fire
+from loguru import logger
+from pathlib import Path
+
+from .core.video_processor import VideoProcessor
+from .core.alignment_engine import AlignmentEngine
+from .models import MatchTimeMode, TemporalMethod
+
+
+def main(
+    bg: str,
+    fg: str,
+    output: str | None = None,
+    match_time: str = "border",
+    match_space: str = "precise",
+    temporal_align: str = "dtw",
+    skip_spatial_align: bool = False,
+    trim: bool = True,
+    verbose: bool = False,
+    max_keyframes: int = 2000,
+    border: int = 8,
+    blend: bool = False,
+    window: int = 0,
+):
+    """Overlay foreground video onto background video with intelligent alignment.
+
+    Args:
+        bg: Background video path
+        fg: Foreground video path
+        output: Output video path (auto-generated if not provided)
+        match_time: Temporal alignment - 'border' (border matching, default), 'fast' (audio then frames), or 'precise' (frames)
+        match_space: Spatial alignment - 'precise' (template) or 'fast' (feature)
+        temporal_align: Temporal algorithm - 'dtw' (new default) or 'classic'
+        skip_spatial_align: Skip spatial alignment, center foreground
+        trim: Trim output to overlapping segments only
+        verbose: Enable verbose logging
+        max_keyframes: Maximum keyframes for frame-based alignment
+        border: Border thickness for border matching mode (default: 8)
+        blend: Enable smooth blending at frame edges
+        window: Sliding window size for frame matching (0 = no window)
+    """
+    # Setup logging
+    logger.remove()
+    if verbose:
+        logger.add(
+            sys.stderr,
+            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{function}</cyan> - <level>{message}</level>",
+            level="DEBUG",
+        )
+    else:
+        logger.add(
+            sys.stderr,
+            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+            level="INFO",
+        )
+
+    # Validate inputs
+    bg_path = Path(bg)
+    fg_path = Path(fg)
+
+    if not bg_path.exists():
+        logger.error(f"Background video not found: {bg}")
+        return
+
+    if not fg_path.exists():
+        logger.error(f"Foreground video not found: {fg}")
+        return
+
+    # Generate output path if needed
+    if output is None:
+        output = f"{bg_path.stem}_overlay_{fg_path.stem}.mp4"
+        logger.info(f"Output path: {output}")
+
+    # Validate output path
+    output_path = Path(output)
+    if output_path.exists():
+        logger.warning(f"Output file already exists: {output}")
+        logger.warning("It will be overwritten")
+
+    # Ensure output directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Validate match_time mode
+    try:
+        time_mode = MatchTimeMode(match_time)
+    except ValueError:
+        logger.error(
+            f"Invalid match_time mode: {match_time}. Use 'border', 'fast', or 'precise'"
+        )
+        return
+
+    # Validate match_space mode
+    valid_space_methods = ["precise", "template", "fast", "feature"]
+    if match_space not in valid_space_methods:
+        logger.error(
+            f"Invalid match_space mode: {match_space}. Use one of: {', '.join(valid_space_methods)}"
+        )
+        return
+
+    # Normalize space method names
+    if match_space == "precise":
+        match_space = "template"
+    elif match_space == "fast":
+        match_space = "feature"
+
+    # Validate temporal_align
+    try:
+        temporal_method = TemporalMethod(temporal_align)
+    except ValueError:
+        # Try common aliases
+        if temporal_align in ["frames", "keyframes"]:
+            temporal_method = TemporalMethod.CLASSIC
+        else:
+            logger.error(
+                f"Invalid temporal_align: {temporal_align}. Use 'dtw' or 'classic'"
+            )
+            return
+
+    # Validate max_keyframes
+    if max_keyframes < 10:
+        logger.error(f"max_keyframes must be at least 10, got {max_keyframes}")
+        return
+    elif max_keyframes > 10000:
+        logger.warning(
+            f"max_keyframes is very high ({max_keyframes}), this may be slow"
+        )
+
+    # Create processor and engine
+    processor = VideoProcessor()
+    engine = AlignmentEngine(
+        processor=processor, verbose=verbose, max_keyframes=max_keyframes
+    )
+
+    # Process the videos
+    try:
+        engine.process(
+            bg_path=str(bg_path),
+            fg_path=str(fg_path),
+            output_path=output,
+            time_mode=time_mode,
+            space_method=match_space,
+            temporal_method=temporal_method,
+            skip_spatial=skip_spatial_align,
+            trim=trim,
+            border_thickness=border,
+            blend=blend,
+            window=window,
+        )
+    except Exception as e:
+        logger.error(f"Processing failed: {e}")
+        raise
+
+
+if __name__ == "__main__":
+    fire.Fire(main)
 </file>
 
 <file path="src/vidkompy/core/temporal_alignment.py">
@@ -4023,22 +4183,48 @@ class TemporalAligner:
         """
         self.processor = processor
         self.max_keyframes = max_keyframes
-        self.use_perceptual_hash = True  # Enable by default
-        self.hash_cache: dict[str, dict[int, np.ndarray]] = {}
+        self.use_perceptual_hash = True
+        self.hash_cache: dict[str, dict[int, dict[str, np.ndarray]]] = {}
+        self._current_mask: np.ndarray | None = None
 
-        # Initialize new components
-        self.fingerprinter = None
+        self.fingerprinter: FrameFingerprinter | None = None
         self.dtw_aligner = DTWAligner(window_constraint=100)
-        self.use_dtw = True  # Enable DTW by default
+        self.use_dtw = True
+        self.hasher: cv2.img_hash.PHash | None = None
 
-        # Try to initialize perceptual hasher
         try:
-            self.hasher = cv2.img_hash.PHash_create()
-            logger.info("✓ Perceptual hashing enabled (pHash)")
+            if hasattr(cv2, "img_hash") and hasattr(cv2.img_hash, "PHash_create"):
+                self.hasher = cv2.img_hash.PHash_create()
+                if self.hasher is not None:
+                    logger.info("✓ Perceptual hashing enabled (pHash)")
+                    self.use_perceptual_hash = True
+                else:
+                    logger.warning(
+                        "cv2.img_hash.PHash_create() returned None. "
+                        "Perceptual hashing disabled. Falling back to SSIM."
+                    )
+                    self.use_perceptual_hash = False
+            else:
+                logger.warning(
+                    "cv2.img_hash.PHash_create not found. "
+                    "Perceptual hashing disabled. Falling back to SSIM."
+                )
+                self.use_perceptual_hash = False
         except AttributeError:
-            logger.warning("opencv-contrib-python not installed, falling back to SSIM")
+            logger.warning(
+                "cv2.img_hash module or PHash_create not available. "
+                "Ensure opencv-contrib-python is correctly installed. "
+                "Perceptual hashing disabled. Falling back to SSIM."
+            )
             self.use_perceptual_hash = False
-            self.hasher = None
+        except Exception as e:
+            logger.error(f"Unexpected error initializing perceptual hasher: {e}")
+            self.use_perceptual_hash = False
+
+        if self.hasher is None:
+            if self.use_perceptual_hash:
+                logger.warning("Hasher is None, forcing use_perceptual_hash to False.")
+            self.use_perceptual_hash = False
 
     def align_audio(self, bg_audio_path: str, fg_audio_path: str) -> float:
         """Compute temporal offset using audio cross-correlation.
@@ -4200,8 +4386,27 @@ class TemporalAligner:
         - Poor interpolation between sparse keyframes
         """
         # Determine sampling rate
-        target_keyframes = min(self.max_keyframes, fg_info.frame_count)
-        sample_interval = max(1, fg_info.frame_count // target_keyframes)
+        effective_target_keyframes = min(self.max_keyframes, fg_info.frame_count)
+
+        if (
+            not self.use_perceptual_hash or self.hasher is None
+        ):  # Indicates SSIM will be used
+            # If SSIM is used and the number of keyframes is high, warn the user.
+            if effective_target_keyframes > 200:  # Threshold for SSIM warning
+                logger.warning(
+                    f"SSIM mode active for keyframe matching with a high target of {effective_target_keyframes} keyframes. "
+                    f"This may be very slow. Consider reducing --max_keyframes or ensuring perceptual hashing is available."
+                )
+            else:
+                logger.info(
+                    f"SSIM mode active for keyframe matching. Target keyframes: {effective_target_keyframes}"
+                )
+        else:
+            logger.info(
+                f"Perceptual hashing mode active. Target keyframes: {effective_target_keyframes}"
+            )
+
+        sample_interval = max(1, fg_info.frame_count // effective_target_keyframes)
 
         logger.info(f"Sampling every {sample_interval} frames for keyframe matching")
 
@@ -4269,26 +4474,17 @@ class TemporalAligner:
             mask: Optional binary mask to restrict comparison to specific regions
         """
         if mask is not None:
-            # Apply mask before comparison
             frame1 = self._apply_mask_to_frame(frame1, mask)
             frame2 = self._apply_mask_to_frame(frame2, mask)
 
         if self.use_perceptual_hash and self.hasher is not None:
-            # Use perceptual hash for fast comparison
             hash1 = self._compute_frame_hash(frame1)
             hash2 = self._compute_frame_hash(frame2)
-
-            # Compute Hamming distance
             distance = cv2.norm(hash1, hash2, cv2.NORM_HAMMING)
-
-            # Convert to similarity score (0-1)
-            # pHash produces 64-bit hash (8 bytes)
-            max_distance = 64  # Maximum possible Hamming distance
+            max_distance = 64
             similarity = 1.0 - (distance / max_distance)
-
             return float(similarity)
         else:
-            # Fallback to SSIM
             return self._compute_ssim_similarity(frame1, frame2)
 
     def _compute_ssim_similarity(self, frame1: np.ndarray, frame2: np.ndarray) -> float:
@@ -4991,52 +5187,94 @@ class TemporalAligner:
         trim: bool = False,
         mask: np.ndarray | None = None,
     ) -> TemporalAlignment:
-        """Align videos using frame content matching with optional mask.
-
-        This method is similar to align_frames but supports masked similarity comparison
-        for border-based matching.
-
-        Args:
-            bg_info: Background video metadata
-            fg_info: Foreground video metadata
-            trim: Whether to trim to overlapping segment
-            mask: Optional mask for limiting similarity comparison to specific regions
-
-        Returns:
-            TemporalAlignment with frame mappings
-        """
-        logger.info("Starting frame-based temporal alignment with mask")
-
-        # Store mask for use in similarity calculation
         self._current_mask = mask
 
-        # Use DTW if enabled (default)
-        if self.use_dtw:
-            return self._align_frames_dtw(bg_info, fg_info, trim)
+        original_use_dtw = self.use_dtw
+        original_use_perceptual_hash = self.use_perceptual_hash
 
-        # Otherwise use original keyframe matching with mask support
-        keyframe_matches = self._find_keyframe_matches_with_mask(bg_info, fg_info, mask)
+        effective_use_dtw = self.use_dtw
+        effective_use_perceptual_hash = self.use_perceptual_hash
 
-        if not keyframe_matches:
-            logger.warning("No keyframe matches found, using direct mapping")
-            # Fallback to simple frame mapping
-            return self._create_direct_mapping(bg_info, fg_info)
+        if mask is not None:
+            logger.info("Border mode active for temporal alignment.")
+            if self.use_dtw:
+                logger.warning(
+                    "Border mode forces classic (keyframe/SSIM) alignment to ensure "
+                    "mask is respected, even if DTW is selected. DTW with perceptual "
+                    "hashing does not yet support masked regions effectively."
+                )
+                effective_use_dtw = False
 
-        # Build complete frame alignment preserving all FG frames
-        frame_alignments = self._build_frame_alignments(
-            bg_info, fg_info, keyframe_matches, trim
-        )
+            if not effective_use_dtw and self.use_perceptual_hash:
+                logger.info(
+                    "In border mode (classic path), forcing SSIM comparison (disabling "
+                    "perceptual hash) to ensure mask is applied."
+                )
+                self.use_perceptual_hash = False
+                effective_use_perceptual_hash = False
+            elif not effective_use_dtw and not self.use_perceptual_hash:
+                effective_use_perceptual_hash = False
 
-        # Calculate overall temporal offset
-        first_match = keyframe_matches[0]
-        offset_seconds = (first_match[0] / bg_info.fps) - (first_match[1] / fg_info.fps)
+        alignment_result: TemporalAlignment
+        try:
+            # Attempt to initialize fingerprinter for DTW if needed and not already done
+            if effective_use_dtw and self.fingerprinter is None:
+                try:
+                    self.fingerprinter = FrameFingerprinter()
+                except Exception as e:
+                    logger.error(f"Failed to init FrameFingerprinter for DTW: {e}")
+                    logger.warning("Falling back to classic alignment.")
+                    effective_use_dtw = False
+                    self.use_perceptual_hash = original_use_perceptual_hash
+                    effective_use_perceptual_hash = original_use_perceptual_hash
 
-        return TemporalAlignment(
-            offset_seconds=offset_seconds,
-            frame_alignments=frame_alignments,
-            method_used="border" if mask is not None else "frames",
-            confidence=self._calculate_alignment_confidence(keyframe_matches),
-        )
+            if effective_use_dtw and self.fingerprinter is not None:
+                logger.info("Using DTW-based temporal alignment (full frame).")
+                alignment_result = self._align_frames_dtw(bg_info, fg_info, trim)
+            else:
+                log_hash_status = (
+                    "Enabled"
+                    if self.use_perceptual_hash and self.hasher
+                    else "Disabled (SSIM)"
+                )
+                logger.info(
+                    f"Using classic (keyframe-based) temporal alignment. "
+                    f"Hash/SSIM: {log_hash_status}."
+                )
+                keyframe_matches = self._find_keyframe_matches(bg_info, fg_info)
+
+                if not keyframe_matches:
+                    logger.warning("No keyframe matches found, using direct mapping.")
+                    alignment_result = self._create_direct_mapping(bg_info, fg_info)
+                else:
+                    frame_alignments = self._build_frame_alignments(
+                        bg_info, fg_info, keyframe_matches, trim
+                    )
+                    first_match = keyframe_matches[0]
+                    offset_seconds = (first_match[0] / bg_info.fps) - (
+                        first_match[1] / fg_info.fps
+                    )
+                    confidence = self._calculate_alignment_confidence(keyframe_matches)
+
+                    method_detail = (
+                        "hash"
+                        if effective_use_perceptual_hash and self.hasher
+                        else "SSIM"
+                    )
+                    base_method_str = "border" if mask is not None else "frames"
+                    method_used_str = f"{base_method_str} (classic/{method_detail})"
+
+                    alignment_result = TemporalAlignment(
+                        offset_seconds=offset_seconds,
+                        frame_alignments=frame_alignments,
+                        method_used=method_used_str,
+                        confidence=confidence,
+                    )
+            return alignment_result
+        finally:
+            self._current_mask = None
+            self.use_dtw = original_use_dtw
+            self.use_perceptual_hash = original_use_perceptual_hash
 
     def _find_keyframe_matches_with_mask(
         self, bg_info: VideoInfo, fg_info: VideoInfo, mask: np.ndarray | None = None
@@ -5045,222 +5283,6 @@ class TemporalAligner:
         # This is similar to _find_keyframe_matches but uses masked similarity
         # For now, we'll modify the existing method to support masks
         return self._find_keyframe_matches(bg_info, fg_info)
-</file>
-
-<file path="src/vidkompy/__version__.py">
-# file generated by setuptools-scm
-# don't change, don't track in version control
-
-__all__ = ["__version__", "__version_tuple__", "version", "version_tuple"]
-
-TYPE_CHECKING = False
-if TYPE_CHECKING:
-    VERSION_TUPLE = tuple[int | str, ...]
-else:
-    VERSION_TUPLE = object
-
-version: str
-__version__: str
-__version_tuple__: VERSION_TUPLE
-version_tuple: VERSION_TUPLE
-
-__version__ = version = "0.0.post3+g39be67c.d20250524"
-__version_tuple__ = version_tuple = (0, 0, "post3", "g39be67c.d20250524")
-</file>
-
-<file path="src/vidkompy/vidkompy.py">
-#!/usr/bin/env -S uv run -s
-# /// script
-# dependencies = ["fire", "rich", "loguru", "opencv-python", "numpy", "scipy", "ffmpeg-python", "soundfile", "scikit-image"]
-# ///
-# this_file: src/vidkompy/vidkompy.py
-
-"""
-Intelligent video overlay tool with automatic spatial and temporal alignment.
-
-This tool overlays foreground videos onto background videos with smart alignment:
-- Preserves all foreground frames without retiming
-- Finds optimal background frames for each foreground frame
-- Supports audio-based and frame-based temporal alignment
-- Automatic spatial alignment with template/feature matching
-"""
-
-import sys
-import fire
-from loguru import logger
-from pathlib import Path
-
-from .core.video_processor import VideoProcessor
-from .core.alignment_engine import AlignmentEngine
-from .models import MatchTimeMode, TemporalMethod
-
-
-def main(
-    bg: str,
-    fg: str,
-    output: str | None = None,
-    match_time: str = "border",
-    match_space: str = "precise",
-    temporal_align: str = "dtw",
-    skip_spatial_align: bool = False,
-    trim: bool = True,
-    verbose: bool = False,
-    max_keyframes: int = 2000,
-    border: int = 8,
-    blend: bool = False,
-    window: int = 0,
-):
-    """Overlay foreground video onto background video with intelligent alignment.
-
-    Args:
-        bg: Background video path
-        fg: Foreground video path
-        output: Output video path (auto-generated if not provided)
-        match_time: Temporal alignment - 'border' (border matching, default), 'fast' (audio then frames), or 'precise' (frames)
-        match_space: Spatial alignment - 'precise' (template) or 'fast' (feature)
-        temporal_align: Temporal algorithm - 'dtw' (new default) or 'classic'
-        skip_spatial_align: Skip spatial alignment, center foreground
-        trim: Trim output to overlapping segments only
-        verbose: Enable verbose logging
-        max_keyframes: Maximum keyframes for frame-based alignment
-        border: Border thickness for border matching mode (default: 8)
-        blend: Enable smooth blending at frame edges
-        window: Sliding window size for frame matching (0 = no window)
-    """
-    # Setup logging
-    logger.remove()
-    if verbose:
-        logger.add(
-            sys.stderr,
-            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{function}</cyan> - <level>{message}</level>",
-            level="DEBUG",
-        )
-    else:
-        logger.add(
-            sys.stderr,
-            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-            level="INFO",
-        )
-
-    # Validate inputs
-    bg_path = Path(bg)
-    fg_path = Path(fg)
-
-    if not bg_path.exists():
-        logger.error(f"Background video not found: {bg}")
-        return
-
-    if not fg_path.exists():
-        logger.error(f"Foreground video not found: {fg}")
-        return
-
-    # Generate output path if needed
-    if output is None:
-        output = f"{bg_path.stem}_overlay_{fg_path.stem}.mp4"
-        logger.info(f"Output path: {output}")
-
-    # Validate output path
-    output_path = Path(output)
-    if output_path.exists():
-        logger.warning(f"Output file already exists: {output}")
-        logger.warning("It will be overwritten")
-
-    # Ensure output directory exists
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Validate match_time mode
-    try:
-        time_mode = MatchTimeMode(match_time)
-    except ValueError:
-        logger.error(
-            f"Invalid match_time mode: {match_time}. Use 'border', 'fast', or 'precise'"
-        )
-        return
-
-    # Validate match_space mode
-    valid_space_methods = ["precise", "template", "fast", "feature"]
-    if match_space not in valid_space_methods:
-        logger.error(
-            f"Invalid match_space mode: {match_space}. Use one of: {', '.join(valid_space_methods)}"
-        )
-        return
-
-    # Normalize space method names
-    if match_space == "precise":
-        match_space = "template"
-    elif match_space == "fast":
-        match_space = "feature"
-
-    # Validate temporal_align
-    try:
-        temporal_method = TemporalMethod(temporal_align)
-    except ValueError:
-        # Try common aliases
-        if temporal_align in ["frames", "keyframes"]:
-            temporal_method = TemporalMethod.CLASSIC
-        else:
-            logger.error(
-                f"Invalid temporal_align: {temporal_align}. Use 'dtw' or 'classic'"
-            )
-            return
-
-    # Validate max_keyframes
-    if max_keyframes < 10:
-        logger.error(f"max_keyframes must be at least 10, got {max_keyframes}")
-        return
-    elif max_keyframes > 10000:
-        logger.warning(
-            f"max_keyframes is very high ({max_keyframes}), this may be slow"
-        )
-
-    # Create processor and engine
-    processor = VideoProcessor()
-    engine = AlignmentEngine(
-        processor=processor, verbose=verbose, max_keyframes=max_keyframes
-    )
-
-    # Process the videos
-    try:
-        engine.process(
-            bg_path=str(bg_path),
-            fg_path=str(fg_path),
-            output_path=output,
-            time_mode=time_mode,
-            space_method=match_space,
-            temporal_method=temporal_method,
-            skip_spatial=skip_spatial_align,
-            trim=trim,
-            border_thickness=border,
-            blend=blend,
-            window=window,
-        )
-    except Exception as e:
-        logger.error(f"Processing failed: {e}")
-        raise
-
-
-if __name__ == "__main__":
-    fire.Fire(main)
-</file>
-
-<file path="TODO.md">
-- Always assume that the fg video is the "better quality" video, and never should be re-timed 
-- Use `tests/bg.mp4` and `tests/fg.mp4` for testing. 
-- Work in rounds
-- Create `PROGRESS.md` as a detailed flat plan with `[ ]` items. 
-- Identify the most important TODO items, and create `TODO.md` with `[ ]` items. 
-- Implement the changes. 
-- Update `PROGRESS.md` and `TODO.md` as you go. 
-- After each round of changes, update `CHANGELOG.md` with the changes.
-- Update `README.md` to reflect the changes.
-
-```
-time python -m vidkompy  --bg tests/bg.mp4 --fg tests/fg.mp4 -o tests/out-2.mp4 --verbose --blend --border 20 --window 4
-```
-
-# TODO
-
-There is still visible drift despite the use of the border mode with a windows = 4 frames.
 </file>
 
 </files>

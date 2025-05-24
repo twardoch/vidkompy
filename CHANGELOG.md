@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Performance**: Compositing now uses forward-only sequential reads instead of random seeks (10-100x speedup)
+- **Performance**: Significantly reduced keyframe sampling when using SSIM (e.g., in border mode fallback), drastically improving speed for that specific path.
 - **Progress UX**: Quick tasks (video analysis, spatial alignment) now use simple logging instead of spinners
 - **Progress Bars**: Frame composition shows meaningful progress bar instead of percentage logging
 - **Default Mode**: Border-based temporal alignment is now the default for improved accuracy

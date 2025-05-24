@@ -261,8 +261,27 @@ class TemporalAligner:
         - Poor interpolation between sparse keyframes
         """
         # Determine sampling rate
-        target_keyframes = min(self.max_keyframes, fg_info.frame_count)
-        sample_interval = max(1, fg_info.frame_count // target_keyframes)
+        effective_target_keyframes = min(self.max_keyframes, fg_info.frame_count)
+
+        if (
+            not self.use_perceptual_hash or self.hasher is None
+        ):  # Indicates SSIM will be used
+            # If SSIM is used and the number of keyframes is high, warn the user.
+            if effective_target_keyframes > 200:  # Threshold for SSIM warning
+                logger.warning(
+                    f"SSIM mode active for keyframe matching with a high target of {effective_target_keyframes} keyframes. "
+                    f"This may be very slow. Consider reducing --max_keyframes or ensuring perceptual hashing is available."
+                )
+            else:
+                logger.info(
+                    f"SSIM mode active for keyframe matching. Target keyframes: {effective_target_keyframes}"
+                )
+        else:
+            logger.info(
+                f"Perceptual hashing mode active. Target keyframes: {effective_target_keyframes}"
+            )
+
+        sample_interval = max(1, fg_info.frame_count // effective_target_keyframes)
 
         logger.info(f"Sampling every {sample_interval} frames for keyframe matching")
 

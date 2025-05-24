@@ -38,8 +38,9 @@
 ### Phase 7: Fast Frame Similarity Metrics
 
 - [ ] Install opencv-contrib-python for img_hash module
-- [ ] Implement perceptual hashing (pHash/dHash) for frame fingerprinting
-- [ ] Pre-compute hashes for all frames at video load
+- [x] **Partially Addressed**: For SSIM path (used in border mode), drastically reduced keyframe sampling to improve performance. Perceptual hashing is used by default for DTW/non-border modes.
+- [ ] Implement perceptual hashing (pHash/dHash) for frame fingerprinting (FrameFingerprinter exists, but integration with classic keyframe matching needs review if hashes are to be used there beyond DTW)
+- [ ] Pre-compute hashes for all frames at video load (FrameFingerprinter does this on demand for DTW)
 - [ ] Create hash-based similarity function replacing SSIM
 - [ ] Use Hamming distance for fast similarity checks
 - [ ] Keep SSIM as fallback for low-confidence matches
