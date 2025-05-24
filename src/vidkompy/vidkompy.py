@@ -34,7 +34,7 @@ def main(
     skip_spatial_align: bool = False,
     trim: bool = True,
     verbose: bool = False,
-    max_keyframes: int = 2000,
+    max_keyframes: int = 200,
     border: int = 8,
     blend: bool = False,
     window: int = 0,

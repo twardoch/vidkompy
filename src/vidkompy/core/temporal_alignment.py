@@ -49,7 +49,7 @@ class TemporalAligner:
     Future versions will use Dynamic Time Warping (see SPEC4.md).
     """
 
-    def __init__(self, processor: VideoProcessor, max_keyframes: int = 2000):
+    def __init__(self, processor: VideoProcessor, max_keyframes: int = 200):
         """Initialize temporal aligner.
 
         Args:
@@ -100,6 +100,34 @@ class TemporalAligner:
             if self.use_perceptual_hash:
                 logger.warning("Hasher is None, forcing use_perceptual_hash to False.")
             self.use_perceptual_hash = False
+
+    def calculate_adaptive_keyframe_count(
+        self, fg_info: VideoInfo, bg_info: VideoInfo, target_drift_frames: float = 1.0
+    ) -> int:
+        """Calculate optimal keyframe count to prevent drift.
+
+        Args:
+            fg_info: Foreground video info
+            bg_info: Background video info
+            target_drift_frames: Maximum acceptable drift in frames
+
+        Returns:
+            Optimal number of keyframes
+        """
+        # Account for FPS difference
+        fps_ratio = abs(bg_info.fps - fg_info.fps) / max(bg_info.fps, fg_info.fps)
+
+        # More keyframes needed for higher FPS mismatch
+        fps_factor = 1.0 + fps_ratio * 2.0
+
+        # Calculate base requirement to keep interpolation gaps small
+        base_keyframes = fg_info.frame_count / (target_drift_frames * 10)
+
+        # Apply factors
+        required_keyframes = int(base_keyframes * fps_factor)
+
+        # Clamp to reasonable range
+        return max(50, min(required_keyframes, fg_info.frame_count // 2))
 
     def align_audio(self, bg_audio_path: str, fg_audio_path: str) -> float:
         """Compute temporal offset using audio cross-correlation.
@@ -260,8 +288,16 @@ class TemporalAligner:
         - Cost matrix computation is slow
         - Poor interpolation between sparse keyframes
         """
-        # Determine sampling rate
-        effective_target_keyframes = min(self.max_keyframes, fg_info.frame_count)
+        # Use adaptive keyframe density calculation
+        adaptive_keyframes = self.calculate_adaptive_keyframe_count(fg_info, bg_info)
+        effective_target_keyframes = min(
+            self.max_keyframes, adaptive_keyframes, fg_info.frame_count
+        )
+
+        logger.info(f"Adaptive calculation suggests {adaptive_keyframes} keyframes")
+        logger.info(
+            f"Using {effective_target_keyframes} keyframes (clamped by max_keyframes={self.max_keyframes})"
+        )
 
         if (
             not self.use_perceptual_hash or self.hasher is None
@@ -304,8 +340,23 @@ class TemporalAligner:
         # Pre-compute all hashes if available
         if self.use_perceptual_hash and self.hasher is not None:
             logger.info("Pre-computing perceptual hashes...")
-            fg_hashes = self._precompute_frame_hashes(fg_info.path, fg_indices, 0.125)
-            bg_hashes = self._precompute_frame_hashes(bg_info.path, bg_indices, 0.125)
+
+            # Check if we need masked hashing
+            if self._current_mask is not None:
+                logger.info("Computing masked perceptual hashes for border mode...")
+                fg_hashes = self._precompute_masked_frame_hashes(
+                    fg_info.path, fg_indices, 0.125
+                )
+                bg_hashes = self._precompute_masked_frame_hashes(
+                    bg_info.path, bg_indices, 0.125
+                )
+            else:
+                fg_hashes = self._precompute_frame_hashes(
+                    fg_info.path, fg_indices, 0.125
+                )
+                bg_hashes = self._precompute_frame_hashes(
+                    bg_info.path, bg_indices, 0.125
+                )
 
             if not fg_hashes or not bg_hashes:
                 logger.error("Failed to compute hashes, falling back to SSIM")
@@ -430,8 +481,71 @@ class TemporalAligner:
                     cost_matrix[i, j] = distance
         else:
             logger.debug("Building cost matrix using frame extraction")
-            # Fallback to extracting and comparing frames
+            # Parallelize frame extraction and comparison
             resize_factor = 0.25
+
+            # Pre-extract all frames in parallel batches
+            logger.info("Pre-extracting frames for cost matrix...")
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                fg_future = executor.submit(
+                    self.processor.extract_frames,
+                    fg_info.path,
+                    fg_indices,
+                    resize_factor,
+                )
+                bg_future = executor.submit(
+                    self.processor.extract_frames,
+                    bg_info.path,
+                    bg_indices,
+                    resize_factor,
+                )
+
+                fg_frames = fg_future.result()
+                bg_frames = bg_future.result()
+
+            # Create frame dictionaries for fast lookup
+            fg_frame_dict = {
+                idx: frame
+                for idx, frame in zip(fg_indices, fg_frames)
+                if frame is not None
+            }
+            bg_frame_dict = {
+                idx: frame
+                for idx, frame in zip(bg_indices, bg_frames)
+                if frame is not None
+            }
+
+            def compute_cell(i, j):
+                """Compute single cell of cost matrix."""
+                fg_idx = fg_indices[i]
+                bg_idx = bg_indices[j]
+
+                if fg_idx not in fg_frame_dict or bg_idx not in bg_frame_dict:
+                    return i, j, np.inf
+
+                fg_frame = fg_frame_dict[fg_idx]
+                bg_frame = bg_frame_dict[bg_idx]
+
+                # Apply mask if in border mode
+                if self._current_mask is not None:
+                    similarity = self._compute_frame_similarity(
+                        bg_frame, fg_frame, self._current_mask
+                    )
+                else:
+                    similarity = self._compute_frame_similarity(bg_frame, fg_frame)
+
+                cost = 1.0 - similarity
+
+                # Add temporal consistency penalty
+                expected_j = int(i * n_bg / n_fg)
+                time_penalty = 0.1 * abs(j - expected_j) / n_bg
+                cost += time_penalty
+
+                return i, j, cost
+
+            # Process comparisons in parallel
+            logger.info(f"Computing {n_fg * n_bg} similarities in parallel...")
 
             with Progress(
                 TextColumn("[progress.description]{task.description}"),
@@ -440,42 +554,23 @@ class TemporalAligner:
                 console=console,
                 transient=True,
             ) as progress:
-                task = progress.add_task("  Comparing frames...", total=n_fg * n_bg)
+                task = progress.add_task(
+                    "  Computing similarities...", total=n_fg * n_bg
+                )
 
-                for i, fg_idx in enumerate(fg_indices):
-                    fg_frames = self.processor.extract_frames(
-                        fg_info.path, [fg_idx], resize_factor
-                    )
-                    if not fg_frames or fg_frames[0] is None:
-                        progress.update(task, advance=n_bg)
-                        continue
+                with ThreadPoolExecutor(max_workers=mp.cpu_count()) as executor:
+                    # Submit all tasks
+                    futures = []
+                    for i in range(n_fg):
+                        for j in range(n_bg):
+                            future = executor.submit(compute_cell, i, j)
+                            futures.append(future)
 
-                    fg_frame = fg_frames[0]
-
-                    for j, bg_idx in enumerate(bg_indices):
-                        bg_frames = self.processor.extract_frames(
-                            bg_info.path, [bg_idx], resize_factor
-                        )
-                        if not bg_frames or bg_frames[0] is None:
-                            progress.update(task, advance=1)
-                            continue
-
-                        bg_frame = bg_frames[0]
-
-                        # Use SSIM as similarity, convert to cost
-                        similarity = self._compute_ssim_similarity(bg_frame, fg_frame)
-                        cost_matrix[i, j] = 1.0 - similarity
-
+                    # Collect results
+                    for future in as_completed(futures):
+                        i, j, cost = future.result()
+                        cost_matrix[i, j] = cost
                         progress.update(task, advance=1)
-
-        # Add temporal consistency penalty
-        # Penalize large jumps in time
-        for i in range(n_fg):
-            for j in range(n_bg):
-                # Expected position based on linear time mapping
-                expected_j = int(i * n_bg / n_fg)
-                time_penalty = 0.1 * abs(j - expected_j) / n_bg
-                cost_matrix[i, j] += time_penalty
 
         return cost_matrix
 
@@ -1080,14 +1175,16 @@ class TemporalAligner:
                 )
                 effective_use_dtw = False
 
+            # In border mode, we can now use masked perceptual hashing
             if not effective_use_dtw and self.use_perceptual_hash:
                 logger.info(
-                    "In border mode (classic path), forcing SSIM comparison (disabling "
-                    "perceptual hash) to ensure mask is applied."
+                    "Border mode with masked perceptual hashing enabled for faster processing."
                 )
-                self.use_perceptual_hash = False
-                effective_use_perceptual_hash = False
+                effective_use_perceptual_hash = True
             elif not effective_use_dtw and not self.use_perceptual_hash:
+                logger.info(
+                    "Border mode using SSIM comparison (perceptual hashing not available)."
+                )
                 effective_use_perceptual_hash = False
 
         alignment_result: TemporalAlignment

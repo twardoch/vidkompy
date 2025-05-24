@@ -136,6 +136,43 @@ class FrameFingerprinter:
 
         return fingerprint
 
+    def compute_masked_fingerprint(
+        self, frame: np.ndarray, mask: np.ndarray
+    ) -> dict[str, np.ndarray]:
+        """Compute fingerprint for masked region of frame.
+
+        Args:
+            frame: Input frame
+            mask: Binary mask (1 = include, 0 = exclude)
+
+        Returns:
+            Fingerprint dictionary
+        """
+        # Apply mask to frame
+        masked_frame = frame.copy()
+        if len(frame.shape) == 3:
+            # Apply to all channels
+            for c in range(frame.shape[2]):
+                masked_frame[:, :, c] = frame[:, :, c] * mask
+        else:
+            masked_frame = frame * mask
+
+        # Crop to bounding box of mask to focus on relevant region
+        rows = np.any(mask, axis=1)
+        cols = np.any(mask, axis=0)
+
+        if not np.any(rows) or not np.any(cols):
+            # Empty mask, return default fingerprint
+            return self.compute_fingerprint(frame)
+
+        rmin, rmax = np.where(rows)[0][[0, -1]]
+        cmin, cmax = np.where(cols)[0][[0, -1]]
+
+        cropped = masked_frame[rmin : rmax + 1, cmin : cmax + 1]
+
+        # Compute fingerprint on cropped region
+        return self.compute_fingerprint(cropped)
+
     def _compute_color_histogram(self, frame: np.ndarray) -> np.ndarray:
         """Compute color histogram for additional discrimination.
 
