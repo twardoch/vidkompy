@@ -4955,12 +4955,3 @@ python -m vidkompy --bg <background_video> --fg <foreground_video> [OPTIONS]
 
 ---
 
-<TASK>
-
-TODO: 
-
-Conduct extensive research for alternative, better methods of spatial and temporal alignment of video that we could use in our code. I’m interested in performant methods, smart methods, optimal methods. Right now the frame-by-frame alignment is kind of slow. 
-
-Perform the research, and write a spec that a junior software development can use to improve the current code.  
-
-</TASK>

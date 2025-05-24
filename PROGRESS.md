@@ -1,83 +1,81 @@
-# Progress: vidkompy Refactoring
+# Progress: vidkompy Performance Improvements
 
-## Round 1: Analysis and Architecture Design
+## Previous Rounds Complete
 
-### Phase 1: Understanding Current Implementation
+### Phase 1-6: Core Architecture ✓
+- [x] Modular architecture implemented
+- [x] Spatial alignment (template/feature) working
+- [x] Temporal alignment (audio/frames) working
+- [x] Frame preservation guaranteed
+- [x] Basic functionality verified
 
-- [x] Analyze vidkompy_old.py structure and functionality
-- [x] Document key functions and their purposes
-- [x] Identify pain points and areas for improvement
-- [x] Map out dependencies and data flow
+## Current Round: Performance Optimization (from SPEC2.md)
 
-### Phase 2: Modular Architecture Design
+### Phase 7: Fast Frame Similarity Metrics
 
-- [x] Design module structure (core, alignment, temporal, spatial, cli)
-- [x] Define interfaces between modules
-- [x] Plan data structures for video metadata and alignment results
-- [x] Create module dependency diagram
+- [ ] Install opencv-contrib-python for img_hash module
+- [ ] Implement perceptual hashing (pHash/dHash) for frame fingerprinting
+- [ ] Pre-compute hashes for all frames at video load
+- [ ] Create hash-based similarity function replacing SSIM
+- [ ] Use Hamming distance for fast similarity checks
+- [ ] Keep SSIM as fallback for low-confidence matches
+- [ ] Benchmark hash vs SSIM performance
 
-### Phase 3: Core Module Implementation
+### Phase 8: Optimize Keyframe Matching
 
-- [x] Create vidkompy.py as main entry point
-- [x] Implement video_processor.py for core video operations
-- [x] Create alignment_engine.py for coordination
-- [x] Implement metadata extraction and validation
+- [ ] Implement adaptive search windows based on previous matches
+- [ ] Add confidence-based early termination
+- [ ] Reduce initial downsampling from 0.25 to 0.125 for speed
+- [ ] Cache extracted frames to avoid redundant reads
+- [ ] Implement dynamic keyframe sampling (coarse → fine)
+- [ ] Add temporal consistency checks
 
-## Round 2: Alignment Module Implementation
+### Phase 9: Advanced Temporal Alignment (DTW)
 
-### Phase 4: Spatial Alignment
+- [ ] Implement Dynamic Time Warping algorithm
+- [ ] Create cost matrix using perceptual hash distances
+- [ ] Add Sakoe-Chiba band constraint for O(N) complexity
+- [ ] Provide DTW as optional "drift-free" alignment mode
+- [ ] Compare DTW vs keyframe interpolation accuracy
+- [ ] Handle edge cases (extra footage, gaps)
 
-- [x] Extract spatial alignment logic from old code
-- [x] Create spatial_alignment.py module
-- [x] Implement template matching method
-- [x] Implement feature matching method
-- [x] Add center alignment fallback
+### Phase 10: Performance Optimizations
 
-### Phase 5: Temporal Alignment - Audio
+- [ ] Add multiprocessing.Pool for frame hash computations
+- [ ] Parallelize similarity matrix calculations
+- [ ] Implement batched frame extraction with threading
+- [ ] Add detailed progress reporting with time estimates
+- [ ] Profile and optimize memory usage
+- [ ] Consider numba JIT for critical loops
 
-- [x] Create temporal_alignment.py module
-- [x] Implement audio extraction and analysis
-- [x] Implement cross-correlation for audio sync
-- [x] Add fallback mechanisms
+### Phase 11: Testing & Validation
 
-### Phase 6: Temporal Alignment - Frames (Complete Rewrite)
+- [ ] Create performance benchmark suite
+- [ ] Test with tests/bg.mp4 and tests/fg.mp4
+- [ ] Measure speedup: target 10-20x improvement
+- [ ] Validate zero drift with DTW mode
+- [ ] Test various video scenarios (different fps, durations)
+- [ ] Add unit tests for new hash/DTW components
 
-- [x] Analyze current frames method issues
-- [x] Design new algorithm preserving all fg frames
-- [x] Implement frame similarity metrics
-- [x] Create optimal bg-to-fg frame mapping
-- [x] Ensure no fg frame retiming occurs
-- [x] Test with various frame rate combinations
+### Phase 12: Integration & Documentation
 
-## Round 3: CLI and Integration
+- [ ] Update CLI with new options (--temporal_align dtw)
+- [ ] Update CHANGELOG.md with performance improvements
+- [ ] Document new alignment modes in README.md
+- [ ] Add performance tuning guide
+- [ ] Clean up and optimize imports
+- [ ] Run final formatting/linting
 
-### Phase 7: CLI Improvements
+## Performance Targets
 
-- [ ] Update CLI arguments (--match_time fast/precise)
-- [ ] Implement argument validation
-- [ ] Add better progress reporting with rich
-- [ ] Enhance verbose logging with loguru
+- Current: ~2-5 fps for frame matching (8s video times out)
+- Target: 40-80 fps (process 8s video in <1s)
+- Zero temporal drift with DTW mode
+- Memory usage < 1GB for 1080p videos
 
-### Phase 8: Testing and Validation
+## Implementation Priority
 
-- [ ] Test with provided bg.mp4 and fg.mp4
-- [ ] Verify spatial alignment accuracy
-- [ ] Validate temporal alignment (all methods)
-- [ ] Check output quality and frame preservation
-- [ ] Performance benchmarking
-
-### Phase 9: Documentation and Cleanup
-
-- [ ] Update CHANGELOG.md with all changes
-- [ ] Update README.md with new usage
-- [ ] Add inline documentation
-- [ ] Clean up old code references
-- [ ] Final code formatting and linting
-
-## Key Principles for Implementation
-
-1. Foreground video is never retimed - all frames preserved
-2. Background frames are mapped to foreground frames optimally
-3. Modular design with clear separation of concerns
-4. Robust error handling and fallbacks
-5. Comprehensive logging for debugging
+1. **Perceptual hashing** (Phase 7) - Biggest impact, easiest
+2. **Adaptive windows** (Phase 8) - Quick win, moderate effort
+3. **Parallelization** (Phase 10) - Good speedup, moderate effort
+4. **DTW** (Phase 9) - Eliminates drift, complex but valuable
