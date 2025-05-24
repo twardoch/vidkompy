@@ -1,5 +1,3 @@
-# TODO: 
-
 - Always assume that the fg video is the "better quality" video, and never should be re-timed 
 - Use `tests/bg.mp4` and `tests/fg.mp4` for testing. 
 - Work in rounds
@@ -14,7 +12,15 @@
 time python -m vidkompy --bg tests/bg.mp4 --fg tests/fg.mp4 -o tests/out4.mp4 --verbose
 ```
 
-The code is kinda slow. Even though we have just an 8 seconds video with just 480 frames. See log below. 
+<TODO>
+Examine `varia/SPEC3.md` and `varia/SPEC4.md`, check if all the sensible performance suggestions outlined there are already implemented in our code. If not, implement.  
+</TODO>
+
+
+
+
+
+
 
 ```
 23:10:38 | INFO     | __init__ - ✓ Perceptual hashing enabled (pHash)
