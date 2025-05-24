@@ -13,11 +13,9 @@ import numpy as np
 import soundfile as sf
 from scipy import signal
 from skimage.metrics import structural_similarity as ssim
-from typing import List, Tuple, Optional, Dict
 from loguru import logger
 from rich.progress import (
     Progress,
-    SpinnerColumn,
     TextColumn,
     BarColumn,
     TimeRemainingColumn,
@@ -27,7 +25,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import multiprocessing as mp
 
-from ..models import VideoInfo, FrameAlignment, TemporalAlignment
+from vidkompy.models import VideoInfo, FrameAlignment, TemporalAlignment
 from .video_processor import VideoProcessor
 from .frame_fingerprint import FrameFingerprinter
 from .dtw_aligner import DTWAligner
@@ -61,7 +59,7 @@ class TemporalAligner:
         self.processor = processor
         self.max_keyframes = max_keyframes
         self.use_perceptual_hash = True  # Enable by default
-        self.hash_cache: Dict[str, Dict[int, np.ndarray]] = {}
+        self.hash_cache: dict[str, dict[int, np.ndarray]] = {}
 
         # Initialize new components
         self.fingerprinter = None
@@ -168,8 +166,8 @@ class TemporalAligner:
         )
 
     def _precompute_frame_hashes(
-        self, video_path: str, frame_indices: List[int], resize_factor: float = 0.125
-    ) -> Dict[int, np.ndarray]:
+        self, video_path: str, frame_indices: list[int], resize_factor: float = 0.125
+    ) -> dict[int, np.ndarray]:
         """Pre-compute perceptual hashes for frames in parallel."""
         if not self.use_perceptual_hash or self.hasher is None:
             return {}
@@ -191,7 +189,7 @@ class TemporalAligner:
         with ThreadPoolExecutor(max_workers=mp.cpu_count()) as executor:
             future_to_idx = {
                 executor.submit(self._compute_frame_hash, frame): idx
-                for idx, frame in zip(frame_indices, frames)
+                for idx, frame in zip(frame_indices, frames, strict=False)
                 if frame is not None
             }
 
@@ -215,7 +213,7 @@ class TemporalAligner:
 
     def _find_keyframe_matches(
         self, bg_info: VideoInfo, fg_info: VideoInfo
-    ) -> List[Tuple[int, int, float]]:
+    ) -> list[tuple[int, int, float]]:
         """Find matching keyframes between videos using monotonic dynamic programming.
 
         Returns:
@@ -348,9 +346,9 @@ class TemporalAligner:
         self,
         bg_info: VideoInfo,
         fg_info: VideoInfo,
-        bg_indices: List[int],
-        fg_indices: List[int],
-    ) -> Optional[np.ndarray]:
+        bg_indices: list[int],
+        fg_indices: list[int],
+    ) -> np.ndarray | None:
         """Build cost matrix for dynamic programming alignment.
 
         Lower cost = better match. Uses perceptual hashes if available.
@@ -435,8 +433,8 @@ class TemporalAligner:
         return cost_matrix
 
     def _find_optimal_path(
-        self, cost_matrix: np.ndarray, bg_indices: List[int], fg_indices: List[int]
-    ) -> List[Tuple[int, int, float]]:
+        self, cost_matrix: np.ndarray, bg_indices: list[int], fg_indices: list[int]
+    ) -> list[tuple[int, int, float]]:
         """Find optimal monotonic path through cost matrix using dynamic programming."""
         n_fg, n_bg = cost_matrix.shape
 
@@ -483,12 +481,12 @@ class TemporalAligner:
 
     def _refine_matches(
         self,
-        initial_matches: List[Tuple[int, int, float]],
+        initial_matches: list[tuple[int, int, float]],
         bg_info: VideoInfo,
         fg_info: VideoInfo,
-        bg_indices: List[int],
-        fg_indices: List[int],
-    ) -> List[Tuple[int, int, float]]:
+        bg_indices: list[int],
+        fg_indices: list[int],
+    ) -> list[tuple[int, int, float]]:
         """Refine matches by adding intermediate keyframes where needed."""
         if len(initial_matches) < 2:
             return initial_matches
@@ -501,7 +499,7 @@ class TemporalAligner:
 
             # Check if there's a large gap
             fg_gap = curr_match[1] - prev_match[1]
-            bg_gap = curr_match[0] - prev_match[0]
+            curr_match[0] - prev_match[0]
 
             if fg_gap > 50:  # Large gap in foreground frames
                 # Add intermediate keyframe
@@ -533,8 +531,8 @@ class TemporalAligner:
         return refined
 
     def _filter_monotonic(
-        self, matches: List[Tuple[int, int, float]]
-    ) -> List[Tuple[int, int, float]]:
+        self, matches: list[tuple[int, int, float]]
+    ) -> list[tuple[int, int, float]]:
         """Filter matches to ensure monotonic progression.
 
         This is now only used as a safety check since the DP algorithm
@@ -565,9 +563,9 @@ class TemporalAligner:
         self,
         bg_info: VideoInfo,
         fg_info: VideoInfo,
-        keyframe_matches: List[Tuple[int, int, float]],
+        keyframe_matches: list[tuple[int, int, float]],
         trim: bool,
-    ) -> List[FrameAlignment]:
+    ) -> list[FrameAlignment]:
         """Build complete frame-to-frame alignment.
 
         Creates alignment for EVERY foreground frame, finding the optimal
@@ -611,7 +609,7 @@ class TemporalAligner:
     def _interpolate_bg_frame(
         self,
         fg_idx: int,
-        keyframe_matches: List[Tuple[int, int, float]],
+        keyframe_matches: list[tuple[int, int, float]],
         bg_info: VideoInfo,
         fg_info: VideoInfo,
     ) -> int:
@@ -671,7 +669,7 @@ class TemporalAligner:
         return int(bg_idx)
 
     def _estimate_similarity(
-        self, fg_idx: int, keyframe_matches: List[Tuple[int, int, float]]
+        self, fg_idx: int, keyframe_matches: list[tuple[int, int, float]]
     ) -> float:
         """Estimate similarity score for a frame based on nearby keyframes."""
         if not keyframe_matches:
@@ -692,7 +690,7 @@ class TemporalAligner:
         return closest_sim * decay_rate
 
     def _calculate_alignment_confidence(
-        self, keyframe_matches: List[Tuple[int, int, float]]
+        self, keyframe_matches: list[tuple[int, int, float]]
     ) -> float:
         """Calculate overall confidence in the alignment."""
         if not keyframe_matches:
@@ -815,8 +813,8 @@ class TemporalAligner:
         if trim and frame_alignments:
             # Find actual matched range
             bg_indices_used = [a.bg_frame_idx for a in frame_alignments]
-            min_bg = min(bg_indices_used)
-            max_bg = max(bg_indices_used)
+            min(bg_indices_used)
+            max(bg_indices_used)
 
             # Trim to only include frames with good matches
             trimmed_alignments = []

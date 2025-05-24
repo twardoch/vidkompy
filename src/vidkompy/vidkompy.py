@@ -18,7 +18,6 @@ import sys
 import fire
 from loguru import logger
 from pathlib import Path
-from typing import Optional
 
 from .core.video_processor import VideoProcessor
 from .core.alignment_engine import AlignmentEngine
@@ -28,7 +27,7 @@ from .models import MatchTimeMode, TemporalMethod
 def main(
     bg: str,
     fg: str,
-    output: Optional[str] = None,
+    output: str | None = None,
     match_time: str = "precise",
     match_space: str = "precise",
     temporal_align: str = "dtw",

@@ -9,10 +9,9 @@ Implements template matching and feature-based alignment methods.
 
 import cv2
 import numpy as np
-from typing import Tuple, Optional
 from loguru import logger
 
-from ..models import SpatialAlignment, SpatialMethod
+from vidkompy.models import SpatialAlignment
 
 
 class SpatialAligner:

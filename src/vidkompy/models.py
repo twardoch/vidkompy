@@ -9,7 +9,6 @@ Contains all shared data structures used across the application.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Tuple
 
 
 class MatchTimeMode(Enum):
@@ -45,12 +44,12 @@ class VideoInfo:
     duration: float
     frame_count: int
     has_audio: bool
-    audio_sample_rate: Optional[int] = None
-    audio_channels: Optional[int] = None
+    audio_sample_rate: int | None = None
+    audio_channels: int | None = None
     path: str = ""
 
     @property
-    def resolution(self) -> Tuple[int, int]:
+    def resolution(self) -> tuple[int, int]:
         """Get video resolution as (width, height)."""
         return (self.width, self.height)
 
@@ -82,7 +81,7 @@ class SpatialAlignment:
     confidence: float = 1.0
 
     @property
-    def offset(self) -> Tuple[int, int]:
+    def offset(self) -> tuple[int, int]:
         """Get offset as tuple."""
         return (self.x_offset, self.y_offset)
 
@@ -92,17 +91,17 @@ class TemporalAlignment:
     """Temporal alignment results."""
 
     offset_seconds: float  # Time offset in seconds
-    frame_alignments: List[FrameAlignment]  # Frame-by-frame mapping
+    frame_alignments: list[FrameAlignment]  # Frame-by-frame mapping
     method_used: str  # Method that produced this alignment
     confidence: float = 1.0
 
     @property
-    def start_frame(self) -> Optional[int]:
+    def start_frame(self) -> int | None:
         """Get first aligned foreground frame."""
         return self.frame_alignments[0].fg_frame_idx if self.frame_alignments else None
 
     @property
-    def end_frame(self) -> Optional[int]:
+    def end_frame(self) -> int | None:
         """Get last aligned foreground frame."""
         return self.frame_alignments[-1].fg_frame_idx if self.frame_alignments else None
 

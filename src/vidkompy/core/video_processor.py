@@ -11,18 +11,16 @@ import cv2
 import ffmpeg
 import numpy as np
 from pathlib import Path
-from typing import List, Optional, Tuple
 from loguru import logger
 from rich.progress import (
     Progress,
-    SpinnerColumn,
     TextColumn,
     BarColumn,
     TimeRemainingColumn,
 )
 from rich.console import Console
 
-from ..models import VideoInfo
+from vidkompy.models import VideoInfo
 
 console = Console()
 
@@ -79,7 +77,8 @@ class VideoProcessor:
             )
 
             if not video_stream:
-                raise ValueError(f"No video stream found in {video_path}")
+                msg = f"No video stream found in {video_path}"
+                raise ValueError(msg)
 
             # Extract properties
             width = int(video_stream["width"])
@@ -138,8 +137,8 @@ class VideoProcessor:
             raise
 
     def extract_frames(
-        self, video_path: str, frame_indices: List[int], resize_factor: float = 1.0
-    ) -> List[np.ndarray]:
+        self, video_path: str, frame_indices: list[int], resize_factor: float = 1.0
+    ) -> list[np.ndarray]:
         """Extract specific frames from video.
 
         Why selective frame extraction:
@@ -232,7 +231,7 @@ class VideoProcessor:
         end_frame: int,
         step: int = 1,
         resize_factor: float = 1.0,
-    ) -> List[Tuple[int, np.ndarray]]:
+    ) -> list[tuple[int, np.ndarray]]:
         """Extract a range of frames with their indices.
 
         Args:
@@ -334,6 +333,7 @@ class VideoProcessor:
         writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
         if not writer.isOpened():
-            raise ValueError(f"Failed to create video writer for {output_path}")
+            msg = f"Failed to create video writer for {output_path}"
+            raise ValueError(msg)
 
         return writer

@@ -9,12 +9,12 @@ monotonic alignment between two video sequences, preventing temporal artifacts.
 """
 
 import numpy as np
-from typing import List, Tuple, Dict, Optional, Callable
+from collections.abc import Callable
 from loguru import logger
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 from rich.console import Console
 
-from ..models import FrameAlignment
+from vidkompy.models import FrameAlignment
 
 console = Console()
 
@@ -45,11 +45,11 @@ class DTWAligner:
 
     def align_videos(
         self,
-        fg_fingerprints: Dict[int, Dict[str, np.ndarray]],
-        bg_fingerprints: Dict[int, Dict[str, np.ndarray]],
+        fg_fingerprints: dict[int, dict[str, np.ndarray]],
+        bg_fingerprints: dict[int, dict[str, np.ndarray]],
         fingerprint_compare_func: Callable,
         show_progress: bool = True,
-    ) -> List[Tuple[int, int, float]]:
+    ) -> list[tuple[int, int, float]]:
         """Find optimal monotonic alignment using DTW.
 
         Args:
@@ -106,10 +106,10 @@ class DTWAligner:
 
     def _build_dtw_matrix(
         self,
-        fg_indices: List[int],
-        bg_indices: List[int],
-        fg_fingerprints: Dict[int, Dict[str, np.ndarray]],
-        bg_fingerprints: Dict[int, Dict[str, np.ndarray]],
+        fg_indices: list[int],
+        bg_indices: list[int],
+        fg_fingerprints: dict[int, dict[str, np.ndarray]],
+        bg_fingerprints: dict[int, dict[str, np.ndarray]],
         compare_func: Callable,
         show_progress: bool,
     ) -> np.ndarray:
@@ -171,7 +171,7 @@ class DTWAligner:
 
     def _find_optimal_path(
         self, dtw: np.ndarray, n_fg: int, n_bg: int
-    ) -> List[Tuple[int, int]]:
+    ) -> list[tuple[int, int]]:
         """Backtrack through DTW matrix to find optimal path.
 
         Why backtracking:
@@ -220,13 +220,13 @@ class DTWAligner:
 
     def _path_to_alignments(
         self,
-        path: List[Tuple[int, int]],
-        fg_indices: List[int],
-        bg_indices: List[int],
-        fg_fingerprints: Dict[int, Dict[str, np.ndarray]],
-        bg_fingerprints: Dict[int, Dict[str, np.ndarray]],
+        path: list[tuple[int, int]],
+        fg_indices: list[int],
+        bg_indices: list[int],
+        fg_fingerprints: dict[int, dict[str, np.ndarray]],
+        bg_fingerprints: dict[int, dict[str, np.ndarray]],
         compare_func: Callable,
-    ) -> List[Tuple[int, int, float]]:
+    ) -> list[tuple[int, int, float]]:
         """Convert DTW path to frame alignments with confidence scores.
 
         Why confidence scores:
@@ -268,10 +268,10 @@ class DTWAligner:
 
     def create_frame_alignments(
         self,
-        dtw_matches: List[Tuple[int, int, float]],
+        dtw_matches: list[tuple[int, int, float]],
         total_fg_frames: int,
         total_bg_frames: int,
-    ) -> List[FrameAlignment]:
+    ) -> list[FrameAlignment]:
         """Create complete frame-to-frame alignment from DTW matches.
 
         Args:
@@ -324,19 +324,16 @@ class DTWAligner:
                     total_bg_frames - 1, prev_match[0] + (fg_idx - prev_match[1])
                 )
                 confidence = prev_match[2] * 0.8
+            # Between matches - interpolate
+            elif prev_match[1] == next_match[1]:
+                # Same fg frame
+                bg_idx = prev_match[0]
+                confidence = prev_match[2]
             else:
-                # Between matches - interpolate
-                if prev_match[1] == next_match[1]:
-                    # Same fg frame
-                    bg_idx = prev_match[0]
-                    confidence = prev_match[2]
-                else:
-                    # Linear interpolation
-                    ratio = (fg_idx - prev_match[1]) / (next_match[1] - prev_match[1])
-                    bg_idx = int(
-                        prev_match[0] + ratio * (next_match[0] - prev_match[0])
-                    )
-                    confidence = prev_match[2] * (1 - ratio) + next_match[2] * ratio
+                # Linear interpolation
+                ratio = (fg_idx - prev_match[1]) / (next_match[1] - prev_match[1])
+                bg_idx = int(prev_match[0] + ratio * (next_match[0] - prev_match[0]))
+                confidence = prev_match[2] * (1 - ratio) + next_match[2] * ratio
 
             # Ensure valid bg index
             bg_idx = max(0, min(bg_idx, total_bg_frames - 1))
@@ -353,7 +350,7 @@ class DTWAligner:
 
     def _create_linear_alignment(
         self, total_fg_frames: int, total_bg_frames: int
-    ) -> List[FrameAlignment]:
+    ) -> list[FrameAlignment]:
         """Create simple linear frame mapping as fallback.
 
         Why we need fallback:

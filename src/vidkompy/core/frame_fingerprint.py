@@ -10,13 +10,10 @@ This module provides ultra-fast frame comparison capabilities that are
 
 import cv2
 import numpy as np
-from typing import Dict, List, Optional, Tuple
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing as mp
 from loguru import logger
 import time
-
-from ..models import VideoInfo
 
 
 class FrameFingerprinter:
@@ -36,7 +33,7 @@ class FrameFingerprinter:
 
     def __init__(self, log_init: bool = True):
         """Initialize fingerprinter with multiple hash algorithms.
-        
+
         Args:
             log_init: Whether to log initialization messages
         """
@@ -44,7 +41,7 @@ class FrameFingerprinter:
         self._init_hashers(log_init)
 
         # Cache for computed fingerprints
-        self.fingerprint_cache: Dict[str, Dict[int, Dict[str, np.ndarray]]] = {}
+        self.fingerprint_cache: dict[str, dict[int, dict[str, np.ndarray]]] = {}
 
     def _init_hashers(self, log_init: bool = True):
         """Initialize available hash algorithms.
@@ -84,15 +81,16 @@ class FrameFingerprinter:
             logger.warning("MarrHildrethHash not available")
 
         if not self.hashers:
-            raise RuntimeError(
+            msg = (
                 "No perceptual hash algorithms available. "
                 "Please install opencv-contrib-python."
             )
+            raise RuntimeError(msg)
 
         if log_init:
             logger.info(f"Initialized {len(self.hashers)} hash algorithms")
 
-    def compute_fingerprint(self, frame: np.ndarray) -> Dict[str, np.ndarray]:
+    def compute_fingerprint(self, frame: np.ndarray) -> dict[str, np.ndarray]:
         """Compute multi-algorithm fingerprint for a frame.
 
         Args:
@@ -159,7 +157,7 @@ class FrameFingerprinter:
         return hist.astype(np.float32)
 
     def compare_fingerprints(
-        self, fp1: Dict[str, np.ndarray], fp2: Dict[str, np.ndarray]
+        self, fp1: dict[str, np.ndarray], fp2: dict[str, np.ndarray]
     ) -> float:
         """Compare two fingerprints and return similarity score.
 
@@ -191,8 +189,16 @@ class FrameFingerprinter:
             else:
                 # Use Hamming distance for hashes
                 # Ensure uint8 type for NORM_HAMMING
-                h1 = fp1[name].astype(np.uint8) if fp1[name].dtype != np.uint8 else fp1[name]
-                h2 = fp2[name].astype(np.uint8) if fp2[name].dtype != np.uint8 else fp2[name]
+                h1 = (
+                    fp1[name].astype(np.uint8)
+                    if fp1[name].dtype != np.uint8
+                    else fp1[name]
+                )
+                h2 = (
+                    fp2[name].astype(np.uint8)
+                    if fp2[name].dtype != np.uint8
+                    else fp2[name]
+                )
                 distance = cv2.norm(h1, h2, cv2.NORM_HAMMING)
 
                 # Normalize to 0-1 similarity
@@ -226,10 +232,10 @@ class FrameFingerprinter:
     def precompute_video_fingerprints(
         self,
         video_path: str,
-        frame_indices: List[int],
+        frame_indices: list[int],
         video_processor,
         resize_factor: float = 0.25,
-    ) -> Dict[int, Dict[str, np.ndarray]]:
+    ) -> dict[int, dict[str, np.ndarray]]:
         """Precompute fingerprints for all specified frames in parallel.
 
         Args:
@@ -267,7 +273,7 @@ class FrameFingerprinter:
                 video_path, batch_indices, resize_factor
             )
 
-            for idx, frame in zip(batch_indices, batch_frames):
+            for idx, frame in zip(batch_indices, batch_frames, strict=False):
                 if frame is not None:
                     frames_dict[idx] = frame
 
@@ -308,7 +314,7 @@ class FrameFingerprinter:
         return fingerprints
 
     @staticmethod
-    def _compute_fingerprint_worker(frame: np.ndarray) -> Dict[str, np.ndarray]:
+    def _compute_fingerprint_worker(frame: np.ndarray) -> dict[str, np.ndarray]:
         """Worker function for parallel fingerprint computation.
 
         Static method to enable pickling for multiprocessing.
@@ -317,7 +323,7 @@ class FrameFingerprinter:
         fingerprinter = FrameFingerprinter(log_init=False)
         return fingerprinter.compute_fingerprint(frame)
 
-    def clear_cache(self, video_path: Optional[str] = None):
+    def clear_cache(self, video_path: str | None = None):
         """Clear fingerprint cache.
 
         Args:
