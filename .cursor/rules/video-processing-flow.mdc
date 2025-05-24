@@ -1,58 +1,50 @@
 ---
-description: Technical documentation for video processing pipeline, frame handling, and overlay composition workflows.
-globs: src/vidkompy/core/*.py,src/vidkompy/vidkompy_old.py
+description: Documents video data flow for frame processing, alignment calculations, overlay composition, and output generation
+globs: src/vidkompy/core/*.py,src/vidkompy/vidkompy*.py,src/vidkompy/models.py
 alwaysApply: false
 ---
 
 
 # video-processing-flow
 
-## Frame Processing Pipeline (Importance: 95)
-1. Video Ingestion
-- Separate handling for background and foreground video streams
-- Frame extraction with FPS synchronization to highest rate
-- Audio stream separation for temporal alignment
+## Frame Processing Flow
+- Video frames are extracted and processed using a frame-by-frame pipeline:
+  1. Frame extraction from source videos
+  2. Frame fingerprinting using perceptual hashing
+  3. Keyframe detection and analysis
+  4. Frame matching and alignment calculation
 
-2. Frame Analysis
-- Keyframe detection and extraction
-- Frame similarity scoring using SSIM metrics
-- Feature point detection for spatial positioning
-- Frame pair matching for temporal alignment
+Importance Score: 95 (Core video processing pipeline)
 
-3. Overlay Composition
-- Dynamic frame mapping between foreground and background
-- Spatial positioning based on template/feature matching
-- Frame compositing with foreground overlay
-- Audio stream integration based on availability
+## Alignment Calculation Flow
+- Two-stage alignment process:
+  1. Spatial alignment using template/feature matching
+  2. Temporal alignment using frame content or audio matching
+- Generates frame mapping between foreground and background videos
 
-## Core Processing Rules
-1. Frame Timing Management
-- Preserve all foreground frames without modification
-- Adjust background frames to match foreground timing
-- Handle FPS mismatches through frame interpolation
-- Maintain monotonic frame progression
+Importance Score: 90 (Critical alignment logic)
 
-2. Content Alignment Controls
-- Spatial: Ensure foreground fits within background bounds
-- Temporal: Match frame pairs for optimal overlay
-- Audio: Use sound streams for coarse alignment
-- Quality: Preserve foreground video integrity
+## Overlay Composition Pipeline
+1. Frame pair selection based on alignment mapping
+2. Foreground frame overlay onto background frame
+3. Output frame composition and encoding
+4. Audio track selection and synchronization
 
-3. Output Generation
-- Use highest input FPS for output video
-- Trim to matched frame segments
-- Integrate synchronized audio track
-- Generate aligned composite frames
+Importance Score: 85 (Core video composition logic)
 
-## File Structure
-```
-src/vidkompy/
-├── core/
-│   ├── alignment_engine.py      # Frame matching orchestration
-│   ├── spatial_alignment.py     # Position detection
-│   ├── temporal_alignment.py    # Frame synchronization
-│   └── video_processor.py       # Frame extraction/composition
-└── vidkompy_old.py             # Main processing pipeline
-```
+## Output Generation
+- Handles synchronized video/audio output:
+  - Uses foreground video's FPS as the target rate
+  - Preserves foreground video timing
+  - Adapts background video timing dynamically
+  - Prioritizes foreground audio when available
+
+Importance Score: 80 (Output generation workflow)
+
+Key files:
+- `src/vidkompy/core/video_processor.py`: Frame extraction and processing
+- `src/vidkompy/core/alignment_engine.py`: Alignment coordination
+- `src/vidkompy/core/spatial_alignment.py`: Spatial alignment
+- `src/vidkompy/core/temporal_alignment.py`: Temporal alignment
 
 $END$

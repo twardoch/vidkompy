@@ -58,22 +58,48 @@ class TemporalAligner:
         """
         self.processor = processor
         self.max_keyframes = max_keyframes
-        self.use_perceptual_hash = True  # Enable by default
-        self.hash_cache: dict[str, dict[int, np.ndarray]] = {}
+        self.use_perceptual_hash = True
+        self.hash_cache: dict[str, dict[int, dict[str, np.ndarray]]] = {}
+        self._current_mask: np.ndarray | None = None
 
-        # Initialize new components
-        self.fingerprinter = None
+        self.fingerprinter: FrameFingerprinter | None = None
         self.dtw_aligner = DTWAligner(window_constraint=100)
-        self.use_dtw = True  # Enable DTW by default
+        self.use_dtw = True
+        self.hasher: cv2.img_hash.PHash | None = None
 
-        # Try to initialize perceptual hasher
         try:
-            self.hasher = cv2.img_hash.PHash_create()
-            logger.info("✓ Perceptual hashing enabled (pHash)")
+            if hasattr(cv2, "img_hash") and hasattr(cv2.img_hash, "PHash_create"):
+                self.hasher = cv2.img_hash.PHash_create()
+                if self.hasher is not None:
+                    logger.info("✓ Perceptual hashing enabled (pHash)")
+                    self.use_perceptual_hash = True
+                else:
+                    logger.warning(
+                        "cv2.img_hash.PHash_create() returned None. "
+                        "Perceptual hashing disabled. Falling back to SSIM."
+                    )
+                    self.use_perceptual_hash = False
+            else:
+                logger.warning(
+                    "cv2.img_hash.PHash_create not found. "
+                    "Perceptual hashing disabled. Falling back to SSIM."
+                )
+                self.use_perceptual_hash = False
         except AttributeError:
-            logger.warning("opencv-contrib-python not installed, falling back to SSIM")
+            logger.warning(
+                "cv2.img_hash module or PHash_create not available. "
+                "Ensure opencv-contrib-python is correctly installed. "
+                "Perceptual hashing disabled. Falling back to SSIM."
+            )
             self.use_perceptual_hash = False
-            self.hasher = None
+        except Exception as e:
+            logger.error(f"Unexpected error initializing perceptual hasher: {e}")
+            self.use_perceptual_hash = False
+
+        if self.hasher is None:
+            if self.use_perceptual_hash:
+                logger.warning("Hasher is None, forcing use_perceptual_hash to False.")
+            self.use_perceptual_hash = False
 
     def align_audio(self, bg_audio_path: str, fg_audio_path: str) -> float:
         """Compute temporal offset using audio cross-correlation.
@@ -304,26 +330,17 @@ class TemporalAligner:
             mask: Optional binary mask to restrict comparison to specific regions
         """
         if mask is not None:
-            # Apply mask before comparison
             frame1 = self._apply_mask_to_frame(frame1, mask)
             frame2 = self._apply_mask_to_frame(frame2, mask)
 
         if self.use_perceptual_hash and self.hasher is not None:
-            # Use perceptual hash for fast comparison
             hash1 = self._compute_frame_hash(frame1)
             hash2 = self._compute_frame_hash(frame2)
-
-            # Compute Hamming distance
             distance = cv2.norm(hash1, hash2, cv2.NORM_HAMMING)
-
-            # Convert to similarity score (0-1)
-            # pHash produces 64-bit hash (8 bytes)
-            max_distance = 64  # Maximum possible Hamming distance
+            max_distance = 64
             similarity = 1.0 - (distance / max_distance)
-
             return float(similarity)
         else:
-            # Fallback to SSIM
             return self._compute_ssim_similarity(frame1, frame2)
 
     def _compute_ssim_similarity(self, frame1: np.ndarray, frame2: np.ndarray) -> float:
@@ -1026,52 +1043,94 @@ class TemporalAligner:
         trim: bool = False,
         mask: np.ndarray | None = None,
     ) -> TemporalAlignment:
-        """Align videos using frame content matching with optional mask.
-
-        This method is similar to align_frames but supports masked similarity comparison
-        for border-based matching.
-
-        Args:
-            bg_info: Background video metadata
-            fg_info: Foreground video metadata
-            trim: Whether to trim to overlapping segment
-            mask: Optional mask for limiting similarity comparison to specific regions
-
-        Returns:
-            TemporalAlignment with frame mappings
-        """
-        logger.info("Starting frame-based temporal alignment with mask")
-
-        # Store mask for use in similarity calculation
         self._current_mask = mask
 
-        # Use DTW if enabled (default)
-        if self.use_dtw:
-            return self._align_frames_dtw(bg_info, fg_info, trim)
+        original_use_dtw = self.use_dtw
+        original_use_perceptual_hash = self.use_perceptual_hash
 
-        # Otherwise use original keyframe matching with mask support
-        keyframe_matches = self._find_keyframe_matches_with_mask(bg_info, fg_info, mask)
+        effective_use_dtw = self.use_dtw
+        effective_use_perceptual_hash = self.use_perceptual_hash
 
-        if not keyframe_matches:
-            logger.warning("No keyframe matches found, using direct mapping")
-            # Fallback to simple frame mapping
-            return self._create_direct_mapping(bg_info, fg_info)
+        if mask is not None:
+            logger.info("Border mode active for temporal alignment.")
+            if self.use_dtw:
+                logger.warning(
+                    "Border mode forces classic (keyframe/SSIM) alignment to ensure "
+                    "mask is respected, even if DTW is selected. DTW with perceptual "
+                    "hashing does not yet support masked regions effectively."
+                )
+                effective_use_dtw = False
 
-        # Build complete frame alignment preserving all FG frames
-        frame_alignments = self._build_frame_alignments(
-            bg_info, fg_info, keyframe_matches, trim
-        )
+            if not effective_use_dtw and self.use_perceptual_hash:
+                logger.info(
+                    "In border mode (classic path), forcing SSIM comparison (disabling "
+                    "perceptual hash) to ensure mask is applied."
+                )
+                self.use_perceptual_hash = False
+                effective_use_perceptual_hash = False
+            elif not effective_use_dtw and not self.use_perceptual_hash:
+                effective_use_perceptual_hash = False
 
-        # Calculate overall temporal offset
-        first_match = keyframe_matches[0]
-        offset_seconds = (first_match[0] / bg_info.fps) - (first_match[1] / fg_info.fps)
+        alignment_result: TemporalAlignment
+        try:
+            # Attempt to initialize fingerprinter for DTW if needed and not already done
+            if effective_use_dtw and self.fingerprinter is None:
+                try:
+                    self.fingerprinter = FrameFingerprinter()
+                except Exception as e:
+                    logger.error(f"Failed to init FrameFingerprinter for DTW: {e}")
+                    logger.warning("Falling back to classic alignment.")
+                    effective_use_dtw = False
+                    self.use_perceptual_hash = original_use_perceptual_hash
+                    effective_use_perceptual_hash = original_use_perceptual_hash
 
-        return TemporalAlignment(
-            offset_seconds=offset_seconds,
-            frame_alignments=frame_alignments,
-            method_used="border" if mask is not None else "frames",
-            confidence=self._calculate_alignment_confidence(keyframe_matches),
-        )
+            if effective_use_dtw and self.fingerprinter is not None:
+                logger.info("Using DTW-based temporal alignment (full frame).")
+                alignment_result = self._align_frames_dtw(bg_info, fg_info, trim)
+            else:
+                log_hash_status = (
+                    "Enabled"
+                    if self.use_perceptual_hash and self.hasher
+                    else "Disabled (SSIM)"
+                )
+                logger.info(
+                    f"Using classic (keyframe-based) temporal alignment. "
+                    f"Hash/SSIM: {log_hash_status}."
+                )
+                keyframe_matches = self._find_keyframe_matches(bg_info, fg_info)
+
+                if not keyframe_matches:
+                    logger.warning("No keyframe matches found, using direct mapping.")
+                    alignment_result = self._create_direct_mapping(bg_info, fg_info)
+                else:
+                    frame_alignments = self._build_frame_alignments(
+                        bg_info, fg_info, keyframe_matches, trim
+                    )
+                    first_match = keyframe_matches[0]
+                    offset_seconds = (first_match[0] / bg_info.fps) - (
+                        first_match[1] / fg_info.fps
+                    )
+                    confidence = self._calculate_alignment_confidence(keyframe_matches)
+
+                    method_detail = (
+                        "hash"
+                        if effective_use_perceptual_hash and self.hasher
+                        else "SSIM"
+                    )
+                    base_method_str = "border" if mask is not None else "frames"
+                    method_used_str = f"{base_method_str} (classic/{method_detail})"
+
+                    alignment_result = TemporalAlignment(
+                        offset_seconds=offset_seconds,
+                        frame_alignments=frame_alignments,
+                        method_used=method_used_str,
+                        confidence=confidence,
+                    )
+            return alignment_result
+        finally:
+            self._current_mask = None
+            self.use_dtw = original_use_dtw
+            self.use_perceptual_hash = original_use_perceptual_hash
 
     def _find_keyframe_matches_with_mask(
         self, bg_info: VideoInfo, fg_info: VideoInfo, mask: np.ndarray | None = None

@@ -1,54 +1,49 @@
 ---
-description: Technical specification for video alignment and synchronization algorithms in vidkompy
-globs: src/vidkompy/core/alignment_engine.py,src/vidkompy/core/spatial_alignment.py,src/vidkompy/core/temporal_alignment.py
+description: Documents video alignment algorithms for spatial/temporal synchronization and frame matching implementations
+globs: src/vidkompy/core/alignment*.py,src/vidkompy/core/dtw*.py,src/vidkompy/core/temporal*.py,src/vidkompy/core/spatial*.py
 alwaysApply: false
 ---
 
 
 # alignment-algorithms
 
-## Spatial Alignment (Importance: 95)
-- Template Matching Algorithm
-  - Precise pixel-level matching for exact overlay positioning
-  - Intelligent sub-region detection within background frame
-  - Confidence scoring based on match quality
+## Spatial Alignment Core (90/100)
+- Advanced template matching using OpenCV for precise sub-region detection
+- Two-phase alignment approach:
+  1. Initial coarse positioning using feature detection (ORB) 
+  2. Fine-tuning using normalized cross-correlation
+- Compensates for compression artifacts and brightness variations
+- Automatic position optimization within background frame bounds
 
-- Feature Matching Algorithm
-  - ORB keypoint detection for robust positioning
-  - Median displacement calculation for overlay coordinates
-  - Fallback to center alignment below confidence threshold
+## Temporal Synchronization Engine (95/100)
+- Dynamic Time Warping (DTW) implementation for frame sequence alignment
+- Perceptual hash-based frame fingerprinting for robust matching
+- Adaptive keyframe selection with confidence-based early termination
+- Multi-modal alignment combining audio and visual cues
+- Zero-drift frame interpolation maintaining foreground timing integrity
 
-## Temporal Alignment (Importance: 90) 
-- Audio-Based Synchronization
-  - Cross-correlation of audio streams to determine optimal offset
-  - Preserves foreground audio timing as reference
-  - Match quality validation through confidence scoring
+## Frame Matching System (85/100)
+- Combined perceptual hash algorithms (pHash, ColorMoment) for frame signatures
+- Progressive refinement matching:
+  1. Quick hash-based candidate identification
+  2. Structural similarity validation
+  3. Content-aware position adjustment
+- Maintains foreground frame sequence while adapting background timing
 
-- Frame-Based Alignment
-  - Structural similarity analysis between frame pairs
-  - Dynamic frame mapping to handle timing variations
-  - Monotonic progression enforcement for timeline consistency
-  - Adaptive keyframe sampling based on content changes
-
-## Core Business Rules
-- Foreground Frame Integrity
-  - All foreground frames must be preserved without modification
-  - Background frames can be stretched/modified to match
-  - Output maintains foreground timing as reference
-
-- Synchronization Priority
-  - Audio matching takes precedence when available
-  - Falls back to frame matching for silent videos
-  - Duration-based centering as final fallback
-
-- Resolution Constraints
-  - Foreground must fit within background dimensions
-  - Aspect ratios preserved during any scaling
-  - Automatic position adjustment for optimal overlay
+## Audio-Visual Integration (80/100)
+- Cross-correlation based audio track alignment
+- Fallback chain for temporal synchronization:
+  1. Audio track correlation
+  2. Frame content matching
+  3. Duration-based centering
+- Intelligent audio source selection prioritizing foreground quality
 
 Relevant Files:
-- src/vidkompy/core/alignment_engine.py
-- src/vidkompy/core/spatial_alignment.py
-- src/vidkompy/core/temporal_alignment.py
+```
+src/vidkompy/core/alignment_engine.py
+src/vidkompy/core/dtw_aligner.py 
+src/vidkompy/core/spatial_alignment.py
+src/vidkompy/core/temporal_alignment.py
+```
 
 $END$

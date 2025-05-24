@@ -202,3 +202,74 @@ The project uses pytest with minimal test coverage currently (only version check
 - Place tests in `tests/` directory
 - Use pytest markers for categorization (unit, integration, benchmark)
 - Run with `hatch run test` or `hatch run test-cov` for coverage
+
+START SPECIFICATION:
+---
+description: Apply when documenting high-level business logic and domain-specific implementations for video overlay and alignment systems, specifically for intelligent video composition tools that require precise spatial and temporal synchronization
+globs: *.py,*.md
+alwaysApply: false
+---
+
+
+# main-overview
+
+## Development Guidelines
+
+- Only modify code directly relevant to the specific request. Avoid changing unrelated functionality.
+- Never replace code with placeholders like `# ... rest of the processing ...`. Always include complete code.
+- Break problems into smaller steps. Think through each step separately before implementing.
+- Always provide a complete PLAN with REASONING based on evidence from code and logs before making changes.
+- Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
+
+
+vidkompy is an intelligent video overlay system focused on precision alignment of video content. The core business logic revolves around automatically synchronizing and compositing video streams with different characteristics.
+
+## Core Business Components
+
+### Video Alignment Engine (Importance: 95)
+- Automatic detection of optimal spatial positioning for foreground overlay
+- Temporal synchronization using frame content or audio signals
+- Smart handling of FPS and duration differences between videos
+- File: src/vidkompy/vidkompy_old.py
+
+### Temporal Alignment Methods (Importance: 90)
+Three distinct alignment strategies:
+- Audio-based cross-correlation for sound-driven synchronization
+- Duration-based centering for simple timeline alignment
+- Frame-based content matching for precise visual synchronization
+- File: src/vidkompy/vidkompy_old.py
+
+### Spatial Alignment Methods (Importance: 85)
+Two precision-focused positioning approaches:
+- Template matching for exact region identification
+- Feature matching for compression-tolerant alignment
+- File: src/vidkompy/vidkompy_old.py
+
+### Quality Preservation Logic (Importance: 80)
+- Foreground video quality preservation as primary directive
+- Intelligent frame selection to maintain temporal integrity
+- Dynamic background adaptation to match foreground timing
+- File: src/vidkompy/vidkompy_old.py
+
+### Audio Management (Importance: 75)
+- Intelligent audio track selection between sources
+- Audio-based synchronization when available
+- Preservation of high-quality audio source
+- File: src/vidkompy/vidkompy_old.py
+
+## Workflow Integration
+
+### Command Interface (Importance: 70)
+- Intelligent default behaviors for minimal user intervention
+- Automatic output filename generation
+- Configurable alignment methods
+- File: src/vidkompy/vidkompy_old.py
+
+### Process Control (Importance: 65)
+- Progress tracking and logging
+- Error handling with user guidance
+- Automatic fallback strategies
+- File: src/vidkompy/vidkompy_old.py
+
+$END$
+END SPECIFICATION

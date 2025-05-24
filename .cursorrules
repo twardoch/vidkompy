@@ -205,7 +205,7 @@ The project uses pytest with minimal test coverage currently (only version check
 
 START SPECIFICATION:
 ---
-description: Create high-level documentation for video processing systems that handle intelligent alignment and overlay of video content with automatic spatial and temporal synchronization
+description: Apply when documenting high-level business logic and domain-specific implementations for video overlay and alignment systems, specifically for intelligent video composition tools that require precise spatial and temporal synchronization
 globs: *.py,*.md
 alwaysApply: false
 ---
@@ -222,41 +222,54 @@ alwaysApply: false
 - Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
 
 
-vidkompy is an intelligent video overlay system that automatically aligns and composites foreground videos onto background videos while preserving content integrity.
+vidkompy is an intelligent video overlay system focused on precision alignment of video content. The core business logic revolves around automatically synchronizing and compositing video streams with different characteristics.
 
-Core Business Components:
+## Core Business Components
 
-1. Alignment Engine (90/100)
-- Coordinates spatial and temporal video alignment 
-- Maintains foreground frame integrity
-- Handles mismatched video properties
-- Selects optimal alignment methods based on content
+### Video Alignment Engine (Importance: 95)
+- Automatic detection of optimal spatial positioning for foreground overlay
+- Temporal synchronization using frame content or audio signals
+- Smart handling of FPS and duration differences between videos
+- File: src/vidkompy/vidkompy_old.py
 
-2. Temporal Synchronization (85/100)
-Three primary methods:
-- Audio alignment using cross-correlation
-- Frame-based matching with dynamic mapping
-- Duration-based centering as fallback
-- Preserves all foreground frames without modification
+### Temporal Alignment Methods (Importance: 90)
+Three distinct alignment strategies:
+- Audio-based cross-correlation for sound-driven synchronization
+- Duration-based centering for simple timeline alignment
+- Frame-based content matching for precise visual synchronization
+- File: src/vidkompy/vidkompy_old.py
 
-3. Spatial Positioning (80/100)
-- Template matching for precise pixel alignment
-- Feature matching for robust positioning
-- Automatic positioning validation
-- Center alignment fallback mechanism
+### Spatial Alignment Methods (Importance: 85)
+Two precision-focused positioning approaches:
+- Template matching for exact region identification
+- Feature matching for compression-tolerant alignment
+- File: src/vidkompy/vidkompy_old.py
 
-4. Video Composition Rules (75/100)
-- Uses higher FPS between inputs
-- Preserves foreground timing and quality
-- Adapts background content to match foreground
-- Intelligent audio source selection
+### Quality Preservation Logic (Importance: 80)
+- Foreground video quality preservation as primary directive
+- Intelligent frame selection to maintain temporal integrity
+- Dynamic background adaptation to match foreground timing
+- File: src/vidkompy/vidkompy_old.py
 
-Business Logic Highlights:
-- Never modifies foreground content
-- Background can be stretched/modified
-- Automatic method selection
-- Smart fallbacks at each stage
-- Focus on precision over performance
+### Audio Management (Importance: 75)
+- Intelligent audio track selection between sources
+- Audio-based synchronization when available
+- Preservation of high-quality audio source
+- File: src/vidkompy/vidkompy_old.py
+
+## Workflow Integration
+
+### Command Interface (Importance: 70)
+- Intelligent default behaviors for minimal user intervention
+- Automatic output filename generation
+- Configurable alignment methods
+- File: src/vidkompy/vidkompy_old.py
+
+### Process Control (Importance: 65)
+- Progress tracking and logging
+- Error handling with user guidance
+- Automatic fallback strategies
+- File: src/vidkompy/vidkompy_old.py
 
 $END$
 END SPECIFICATION
