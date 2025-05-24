@@ -39,9 +39,21 @@ class DTWAligner:
 
         Args:
             window_constraint: Maximum deviation from diagonal path
-                              (Sakoe-Chiba band width)
+                              (Sakoe-Chiba band width). Set to 0 to use default.
         """
         self.window = window_constraint
+        self.default_window = 100
+
+    def set_window(self, window: int):
+        """Set the window constraint for DTW alignment.
+
+        Args:
+            window: Window size for sliding frame matching. 0 means use default.
+        """
+        if window > 0:
+            self.window = window
+        else:
+            self.window = self.default_window
 
     def align_videos(
         self,

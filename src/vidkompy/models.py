@@ -14,6 +14,7 @@ from enum import Enum
 class MatchTimeMode(Enum):
     """Temporal alignment modes."""
 
+    BORDER = "border"  # Border-based matching (new default)
     FAST = "fast"  # Try audio first, fallback to frames
     PRECISE = "precise"  # Use frame-based matching
 
@@ -116,3 +117,6 @@ class ProcessingOptions:
     trim: bool
     max_keyframes: int = 2000
     verbose: bool = False
+    border_thickness: int = 8
+    blend: bool = False
+    window: int = 0

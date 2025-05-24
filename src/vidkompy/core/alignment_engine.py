@@ -79,6 +79,9 @@ class AlignmentEngine:
         temporal_method: TemporalMethod,
         skip_spatial: bool,
         trim: bool,
+        border_thickness: int = 8,
+        blend: bool = False,
+        window: int = 0,
     ):
         """Process video overlay with alignment.
 
@@ -91,6 +94,9 @@ class AlignmentEngine:
             temporal_method: Temporal algorithm to use (DTW or classic)
             skip_spatial: Skip spatial alignment
             trim: Trim to overlapping segment
+            border_thickness: Border thickness for border matching mode
+            blend: Enable smooth blending at frame edges
+            window: Sliding window size for frame matching
         """
         with Progress(
             SpinnerColumn(),
@@ -124,7 +130,7 @@ class AlignmentEngine:
             # Temporal alignment
             task = progress.add_task("Computing temporal alignment...", total=None)
             temporal_alignment = self._compute_temporal_alignment(
-                bg_info, fg_info, time_mode, temporal_method, trim
+                bg_info, fg_info, time_mode, temporal_method, trim, spatial_alignment, border_thickness, window
             )
             progress.update(task, completed=True)
 
@@ -145,6 +151,8 @@ class AlignmentEngine:
                 spatial_alignment,
                 temporal_alignment,
                 trim,
+                blend,
+                border_thickness,
             )
             progress.update(task, completed=True)
 
@@ -219,10 +227,14 @@ class AlignmentEngine:
         mode: MatchTimeMode,
         temporal_method: TemporalMethod,
         trim: bool,
+        spatial_alignment: SpatialAlignment,
+        border_thickness: int,
+        window: int,
     ) -> TemporalAlignment:
         """Compute temporal alignment based on mode.
 
         Why we have multiple modes:
+        - BORDER: Border-based matching focusing on frame edges (new default)
         - PRECISE: Frame-based matching for maximum accuracy
         - FAST: Audio-based when available, falls back to frames
 
@@ -236,9 +248,20 @@ class AlignmentEngine:
         - Audio might be out of sync with video
         - Frame matching handles all cases
         """
-        # Configure temporal aligner based on method
+        # Configure temporal aligner based on method and window
         self.temporal_aligner.use_dtw = temporal_method == TemporalMethod.DTW
-        if mode == MatchTimeMode.PRECISE:
+        if window > 0:
+            self.temporal_aligner.dtw_aligner.set_window(window)
+
+        if mode == MatchTimeMode.BORDER:
+            # Use border-based alignment with mask
+            logger.info(f"Using border-based temporal alignment (border thickness: {border_thickness}px)")
+            border_mask = self.temporal_aligner.create_border_mask(
+                spatial_alignment, fg_info, bg_info, border_thickness
+            )
+            return self.temporal_aligner.align_frames_with_mask(bg_info, fg_info, trim, border_mask)
+
+        elif mode == MatchTimeMode.PRECISE:
             # Always use frame-based alignment
             return self.temporal_aligner.align_frames(bg_info, fg_info, trim)
 
@@ -325,6 +348,8 @@ class AlignmentEngine:
         spatial: SpatialAlignment,
         temporal: TemporalAlignment,
         trim: bool,
+        blend: bool = False,
+        border_thickness: int = 8,
     ):
         """Compose the final output video.
 
@@ -346,7 +371,7 @@ class AlignmentEngine:
             temp_video = Path(tmpdir) / "temp_silent.mp4"
 
             self._compose_with_opencv(
-                bg_info, fg_info, str(temp_video), spatial, temporal.frame_alignments
+                bg_info, fg_info, str(temp_video), spatial, temporal.frame_alignments, blend, border_thickness
             )
 
             # Add audio
@@ -390,6 +415,8 @@ class AlignmentEngine:
         output_path: str,
         spatial: SpatialAlignment,
         alignments: list[FrameAlignment],
+        blend: bool = False,
+        border_thickness: int = 8,
     ):
         """Compose video using sequential reads for maximum performance.
 
@@ -425,6 +452,14 @@ class AlignmentEngine:
         frames_written = 0
         total_frames = len(alignments)
 
+        # Create blend mask if needed
+        blend_mask = None
+        if blend:
+            blend_mask = self.temporal_aligner.create_blend_mask(
+                spatial, fg_info, bg_info, border_thickness
+            )
+            logger.info(f"Using blend mode with {border_thickness}px gradient")
+
         try:
             # Log progress instead of using nested Progress
             logger.info(f"Composing {total_frames} frames...")
@@ -455,7 +490,7 @@ class AlignmentEngine:
 
                 # We now have the correct pair of frames
                 composite = self._overlay_frames(
-                    current_bg_frame, current_fg_frame, spatial
+                    current_bg_frame, current_fg_frame, spatial, blend_mask
                 )
                 writer.write(composite)
                 frames_written += 1
@@ -474,9 +509,9 @@ class AlignmentEngine:
             logger.info(f"Wrote {frames_written} frames to {output_path}")
 
     def _overlay_frames(
-        self, bg_frame: np.ndarray, fg_frame: np.ndarray, spatial: SpatialAlignment
+        self, bg_frame: np.ndarray, fg_frame: np.ndarray, spatial: SpatialAlignment, blend_mask: np.ndarray | None = None
     ) -> np.ndarray:
-        """Overlay foreground on background with spatial alignment."""
+        """Overlay foreground on background with spatial alignment and optional blending."""
         composite = bg_frame.copy()
 
         # Apply scaling if needed
@@ -486,6 +521,11 @@ class AlignmentEngine:
             fg_frame = cv2.resize(
                 fg_frame, (new_w, new_h), interpolation=cv2.INTER_AREA
             )
+            # Also scale blend mask if provided
+            if blend_mask is not None:
+                blend_mask = cv2.resize(
+                    blend_mask, (new_w, new_h), interpolation=cv2.INTER_AREA
+                )
 
         fg_h, fg_w = fg_frame.shape[:2]
         bg_h, bg_w = bg_frame.shape[:2]
@@ -504,9 +544,25 @@ class AlignmentEngine:
 
         # Overlay
         if x_end > x_start and y_end > y_start:
-            composite[y_start:y_end, x_start:x_end] = fg_frame[
-                fg_y_start:fg_y_end, fg_x_start:fg_x_end
-            ]
+            fg_crop = fg_frame[fg_y_start:fg_y_end, fg_x_start:fg_x_end]
+            bg_slice = composite[y_start:y_end, x_start:x_end]
+
+            if blend_mask is not None:
+                # Apply alpha blending using the blend mask
+                mask_crop = blend_mask[fg_y_start:fg_y_end, fg_x_start:fg_x_end]
+
+                # Ensure mask has same dimensions for broadcasting
+                if len(fg_crop.shape) == 3:  # Color image
+                    mask_crop = np.stack([mask_crop] * 3, axis=2)
+
+                # Alpha blend: result = fg * alpha + bg * (1 - alpha)
+                composite[y_start:y_end, x_start:x_end] = (
+                    fg_crop.astype(np.float32) * mask_crop +
+                    bg_slice.astype(np.float32) * (1.0 - mask_crop)
+                ).astype(np.uint8)
+            else:
+                # Simple overlay (original behavior)
+                composite[y_start:y_end, x_start:x_end] = fg_crop
 
         return composite
 

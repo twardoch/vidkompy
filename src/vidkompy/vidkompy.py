@@ -28,13 +28,16 @@ def main(
     bg: str,
     fg: str,
     output: str | None = None,
-    match_time: str = "precise",
+    match_time: str = "border",
     match_space: str = "precise",
     temporal_align: str = "dtw",
     skip_spatial_align: bool = False,
     trim: bool = True,
     verbose: bool = False,
     max_keyframes: int = 2000,
+    border: int = 8,
+    blend: bool = False,
+    window: int = 0,
 ):
     """Overlay foreground video onto background video with intelligent alignment.
 
@@ -42,13 +45,16 @@ def main(
         bg: Background video path
         fg: Foreground video path
         output: Output video path (auto-generated if not provided)
-        match_time: Temporal alignment - 'fast' (audio then frames) or 'precise' (frames)
+        match_time: Temporal alignment - 'border' (border matching, default), 'fast' (audio then frames), or 'precise' (frames)
         match_space: Spatial alignment - 'precise' (template) or 'fast' (feature)
         temporal_align: Temporal algorithm - 'dtw' (new default) or 'classic'
         skip_spatial_align: Skip spatial alignment, center foreground
         trim: Trim output to overlapping segments only
         verbose: Enable verbose logging
         max_keyframes: Maximum keyframes for frame-based alignment
+        border: Border thickness for border matching mode (default: 8)
+        blend: Enable smooth blending at frame edges
+        window: Sliding window size for frame matching (0 = no window)
     """
     # Setup logging
     logger.remove()
@@ -95,7 +101,7 @@ def main(
     try:
         time_mode = MatchTimeMode(match_time)
     except ValueError:
-        logger.error(f"Invalid match_time mode: {match_time}. Use 'fast' or 'precise'")
+        logger.error(f"Invalid match_time mode: {match_time}. Use 'border', 'fast', or 'precise'")
         return
 
     # Validate match_space mode
@@ -151,6 +157,9 @@ def main(
             temporal_method=temporal_method,
             skip_spatial=skip_spatial_align,
             trim=trim,
+            border_thickness=border,
+            blend=blend,
+            window=window,
         )
     except Exception as e:
         logger.error(f"Processing failed: {e}")
