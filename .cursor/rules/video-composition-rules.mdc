@@ -1,0 +1,56 @@
+---
+description: Documents core video composition rules and constraints for overlaying foreground onto background videos while preserving quality and timing
+globs: src/vidkompy/core/*.py,src/vidkompy/models.py
+alwaysApply: false
+---
+
+
+# video-composition-rules
+
+## Core Composition Rules (Importance: 95)
+
+1. Foreground Video Preservation
+- All foreground frames must be preserved without modification
+- Foreground timing cannot be altered or resampled
+- Foreground audio takes precedence when available
+
+2. Background Video Adaptation
+- Background frames can be stretched/modified to match foreground
+- Frame selection optimized to maintain consistent motion
+- Automatic spatial offset calculation when foreground is smaller
+
+3. Audio Handling
+- Prioritize foreground audio track
+- Use audio cross-correlation for temporal alignment when available
+- Fallback to frame matching if audio unavailable/mismatched
+
+## Quality Thresholds (Importance: 85)
+
+1. Spatial Alignment
+- Template matching confidence threshold: 0.6
+- Minimum feature points for matching: 4
+- Automatic fallback to center alignment below thresholds
+
+2. Temporal Alignment
+- Frame similarity minimum threshold for keyframe pairs
+- Maximum allowed frame drift before correction
+- Monotonic progression enforcement in frame mapping
+
+3. Output Requirements
+- Always use highest input FPS for output
+- Maintain foreground aspect ratio
+- Trim to optimal overlapping segment
+
+## Frame Rate Management (Importance: 80)
+
+1. FPS Handling
+- Higher FPS input determines output frame rate
+- Background frames interpolated/dropped to match foreground
+- Frame timing preserved for foreground content
+
+2. Duration Reconciliation
+- Find optimal start/end points for overlay
+- Trim excess frames from longer video
+- Center shorter video if no better match found
+
+$END$

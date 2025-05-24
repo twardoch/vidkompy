@@ -1,0 +1,54 @@
+---
+description: Technical specification for video alignment and synchronization algorithms in vidkompy
+globs: src/vidkompy/core/alignment_engine.py,src/vidkompy/core/spatial_alignment.py,src/vidkompy/core/temporal_alignment.py
+alwaysApply: false
+---
+
+
+# alignment-algorithms
+
+## Spatial Alignment (Importance: 95)
+- Template Matching Algorithm
+  - Precise pixel-level matching for exact overlay positioning
+  - Intelligent sub-region detection within background frame
+  - Confidence scoring based on match quality
+
+- Feature Matching Algorithm
+  - ORB keypoint detection for robust positioning
+  - Median displacement calculation for overlay coordinates
+  - Fallback to center alignment below confidence threshold
+
+## Temporal Alignment (Importance: 90) 
+- Audio-Based Synchronization
+  - Cross-correlation of audio streams to determine optimal offset
+  - Preserves foreground audio timing as reference
+  - Match quality validation through confidence scoring
+
+- Frame-Based Alignment
+  - Structural similarity analysis between frame pairs
+  - Dynamic frame mapping to handle timing variations
+  - Monotonic progression enforcement for timeline consistency
+  - Adaptive keyframe sampling based on content changes
+
+## Core Business Rules
+- Foreground Frame Integrity
+  - All foreground frames must be preserved without modification
+  - Background frames can be stretched/modified to match
+  - Output maintains foreground timing as reference
+
+- Synchronization Priority
+  - Audio matching takes precedence when available
+  - Falls back to frame matching for silent videos
+  - Duration-based centering as final fallback
+
+- Resolution Constraints
+  - Foreground must fit within background dimensions
+  - Aspect ratios preserved during any scaling
+  - Automatic position adjustment for optimal overlay
+
+Relevant Files:
+- src/vidkompy/core/alignment_engine.py
+- src/vidkompy/core/spatial_alignment.py
+- src/vidkompy/core/temporal_alignment.py
+
+$END$

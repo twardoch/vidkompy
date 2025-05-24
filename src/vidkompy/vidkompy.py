@@ -1,79 +1,146 @@
-#!/usr/bin/env python3
-"""vidkompy: 
+#!/usr/bin/env -S uv run -s
+# /// script
+# dependencies = ["fire", "rich", "loguru", "opencv-python", "numpy", "scipy", "ffmpeg-python", "soundfile", "scikit-image"]
+# ///
+# this_file: src/vidkompy/vidkompy.py
 
-Created by Adam Twardoch
+"""
+Intelligent video overlay tool with automatic spatial and temporal alignment.
+
+This tool overlays foreground videos onto background videos with smart alignment:
+- Preserves all foreground frames without retiming
+- Finds optimal background frames for each foreground frame
+- Supports audio-based and frame-based temporal alignment
+- Automatic spatial alignment with template/feature matching
 """
 
-from dataclasses import dataclass
+import sys
+import fire
+from loguru import logger
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
-import logging
+from typing import Optional
 
-__version__ = "0.1.0"
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+from .core.video_processor import VideoProcessor
+from .core.alignment_engine import AlignmentEngine
+from .models import MatchTimeMode
 
 
-@dataclass
-class Config:
-    """Configuration settings for vidkompy."""
-    name: str
-    value: Union[str, int, float]
-    options: Optional[Dict[str, Any]] = None
+def main(
+    bg: str,
+    fg: str,
+    output: Optional[str] = None,
+    match_time: str = "precise",
+    match_space: str = "precise",
+    skip_spatial_align: bool = False,
+    trim: bool = True,
+    verbose: bool = False,
+    max_keyframes: int = 2000,
+):
+    """Overlay foreground video onto background video with intelligent alignment.
 
-
-def process_data(
-    data: List[Any],
-    config: Optional[Config] = None,
-    *,
-    debug: bool = False
-) -> Dict[str, Any]:
-    """Process the input data according to configuration.
-    
     Args:
-        data: Input data to process
-        config: Optional configuration settings
-        debug: Enable debug mode
-        
-    Returns:
-        Processed data as a dictionary
-        
-    Raises:
-        ValueError: If input data is invalid
+        bg: Background video path
+        fg: Foreground video path
+        output: Output video path (auto-generated if not provided)
+        match_time: Temporal alignment - 'fast' (audio then frames) or 'precise' (frames)
+        match_space: Spatial alignment - 'precise' (template) or 'fast' (feature)
+        skip_spatial_align: Skip spatial alignment, center foreground
+        trim: Trim output to overlapping segments only
+        verbose: Enable verbose logging
+        max_keyframes: Maximum keyframes for frame-based alignment
     """
-    if debug:
-        logger.setLevel(logging.DEBUG)
-        logger.debug("Debug mode enabled")
-        
-    if not data:
-        raise ValueError("Input data cannot be empty")
-        
-    # TODO: Implement data processing logic
-    result: Dict[str, Any] = {}
-    return result
-
-
-def main() -> None:
-    """Main entry point for vidkompy."""
-    try:
-        # Example usage
-        config = Config(
-            name="default",
-            value="test",
-            options={"key": "value"}
+    # Setup logging
+    logger.remove()
+    if verbose:
+        logger.add(
+            sys.stderr,
+            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{function}</cyan> - <level>{message}</level>",
+            level="DEBUG",
         )
-        result = process_data([], config=config)
-        logger.info("Processing completed: %s", result)
-        
+    else:
+        logger.add(
+            sys.stderr,
+            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+            level="INFO",
+        )
+
+    # Validate inputs
+    bg_path = Path(bg)
+    fg_path = Path(fg)
+
+    if not bg_path.exists():
+        logger.error(f"Background video not found: {bg}")
+        return
+
+    if not fg_path.exists():
+        logger.error(f"Foreground video not found: {fg}")
+        return
+
+    # Generate output path if needed
+    if output is None:
+        output = f"{bg_path.stem}_overlay_{fg_path.stem}.mp4"
+        logger.info(f"Output path: {output}")
+
+    # Validate output path
+    output_path = Path(output)
+    if output_path.exists():
+        logger.warning(f"Output file already exists: {output}")
+        logger.warning("It will be overwritten")
+
+    # Ensure output directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Validate match_time mode
+    try:
+        time_mode = MatchTimeMode(match_time)
+    except ValueError:
+        logger.error(f"Invalid match_time mode: {match_time}. Use 'fast' or 'precise'")
+        return
+
+    # Validate match_space mode
+    valid_space_methods = ["precise", "template", "fast", "feature"]
+    if match_space not in valid_space_methods:
+        logger.error(
+            f"Invalid match_space mode: {match_space}. Use one of: {', '.join(valid_space_methods)}"
+        )
+        return
+
+    # Normalize space method names
+    if match_space == "precise":
+        match_space = "template"
+    elif match_space == "fast":
+        match_space = "feature"
+
+    # Validate max_keyframes
+    if max_keyframes < 10:
+        logger.error(f"max_keyframes must be at least 10, got {max_keyframes}")
+        return
+    elif max_keyframes > 10000:
+        logger.warning(
+            f"max_keyframes is very high ({max_keyframes}), this may be slow"
+        )
+
+    # Create processor and engine
+    processor = VideoProcessor()
+    engine = AlignmentEngine(
+        processor=processor, verbose=verbose, max_keyframes=max_keyframes
+    )
+
+    # Process the videos
+    try:
+        engine.process(
+            bg_path=str(bg_path),
+            fg_path=str(fg_path),
+            output_path=output,
+            time_mode=time_mode,
+            space_method=match_space,
+            skip_spatial=skip_spatial_align,
+            trim=trim,
+        )
     except Exception as e:
-        logger.error("An error occurred: %s", str(e))
+        logger.error(f"Processing failed: {e}")
         raise
 
 
 if __name__ == "__main__":
-    main() 
+    fire.Fire(main)

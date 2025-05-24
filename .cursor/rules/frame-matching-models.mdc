@@ -1,0 +1,48 @@
+---
+description: Technical specification for video frame matching and scoring algorithms used in intelligent video overlay alignment
+globs: src/vidkompy/core/frame_matching/**,src/vidkompy/models/frame.py,src/vidkompy/core/temporal_alignment.py
+alwaysApply: false
+---
+
+
+# frame-matching-models
+
+## Frame Matching Core Logic (Importance: 95)
+
+- Two-phase frame matching system for temporal alignment:
+  1. Keyframe selection using structural similarity (SSIM) scoring
+  2. Dynamic frame mapping between foreground and background videos 
+
+- Frame scoring criteria:
+  - Content similarity between frames
+  - Temporal consistency with adjacent matches
+  - Monotonic progression enforcement
+  - Confidence thresholds for match acceptance
+
+## Temporal Frame Mapping (Importance: 90)
+
+- Maintains foreground frame integrity while adjusting background frames
+- Handles mismatched frame rates by:
+  - Using highest input FPS for output
+  - Creating dynamic frame mappings
+  - Interpolating between keyframe matches
+  - Preventing timeline inconsistencies
+
+## Frame Selection Logic (Importance: 85)
+
+- Keyframe sampling with configurable density (max 2000 frames)
+- Frame quality assessment:
+  - Minimum similarity threshold: 0.6
+  - Local maxima detection for optimal matches
+  - Frame drift detection and correction
+  - Automatic rejection of low-confidence matches
+
+## Frame Rate Handling (Importance: 80)
+
+- Intelligent FPS management:
+  - Always uses highest input frame rate
+  - Preserves foreground frame timing
+  - Dynamically adjusts background frame selection
+  - Maintains smooth playback despite rate differences
+
+$END$

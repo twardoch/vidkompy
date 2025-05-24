@@ -1,7 +1,7 @@
 # TODO for vidoverlay.py
 
 <problem>
-`vidoverlay.py` is a Python CLI (Fire) tool that lets me overlay two videos: --bg (background) and --fg (foreground), and saves the result to --output (name is built automatically if not provided).
+`vidkompy` is a Python CLI (Fire) tool that lets me overlay two videos: --bg (background) and --fg (foreground), and saves the result to --output (name is built automatically if not provided).
 
 The tool needs to be robust and smart.
 

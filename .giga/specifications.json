@@ -1,0 +1,22 @@
+[
+  {
+    "fileName": "main-overview.mdc",
+    "description": "Complete system overview covering the video overlay architecture, key components, and processing pipeline flow"
+  },
+  {
+    "fileName": "alignment-algorithms.mdc",
+    "description": "Detailed documentation of the spatial and temporal alignment algorithms, including template matching, feature matching, and frame/audio synchronization techniques"
+  },
+  {
+    "fileName": "video-processing-flow.mdc",
+    "description": "End-to-end data flow documentation covering video ingestion, frame processing, alignment calculations, overlay composition, and output generation"
+  },
+  {
+    "fileName": "frame-matching-models.mdc",
+    "description": "Technical specifications for frame matching and mapping models, including similarity scoring, keyframe selection, and frame rate handling logic"
+  },
+  {
+    "fileName": "video-composition-rules.mdc",
+    "description": "Documentation of the business rules and constraints for video composition, including foreground preservation, audio handling, and quality thresholds"
+  }
+]
