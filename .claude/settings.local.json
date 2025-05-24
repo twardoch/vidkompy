@@ -10,7 +10,8 @@
       "Bash(rm:*)",
       "Bash(mkdir:*)",
       "Bash(grep:*)",
-      "Bash(time python:*)"
+      "Bash(time python:*)",
+      "Bash(find:*)"
     ],
     "deny": []
   }
