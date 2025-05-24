@@ -866,7 +866,11 @@ class TemporalAligner:
         )
 
     def create_border_mask(
-        self, spatial_alignment, fg_info: VideoInfo, bg_info: VideoInfo, border_thickness: int = 8
+        self,
+        spatial_alignment,
+        fg_info: VideoInfo,
+        bg_info: VideoInfo,
+        border_thickness: int = 8,
     ) -> np.ndarray:
         """Create border mask for border-based temporal alignment.
 
@@ -952,7 +956,11 @@ class TemporalAligner:
         return masked
 
     def create_blend_mask(
-        self, spatial_alignment, fg_info: VideoInfo, bg_info: VideoInfo, border_thickness: int = 8
+        self,
+        spatial_alignment,
+        fg_info: VideoInfo,
+        bg_info: VideoInfo,
+        border_thickness: int = 8,
     ) -> np.ndarray:
         """Create blend mask for smooth edge transitions.
 
@@ -1012,7 +1020,11 @@ class TemporalAligner:
         return mask
 
     def align_frames_with_mask(
-        self, bg_info: VideoInfo, fg_info: VideoInfo, trim: bool = False, mask: np.ndarray | None = None
+        self,
+        bg_info: VideoInfo,
+        fg_info: VideoInfo,
+        trim: bool = False,
+        mask: np.ndarray | None = None,
     ) -> TemporalAlignment:
         """Align videos using frame content matching with optional mask.
 

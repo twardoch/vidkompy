@@ -101,7 +101,9 @@ def main(
     try:
         time_mode = MatchTimeMode(match_time)
     except ValueError:
-        logger.error(f"Invalid match_time mode: {match_time}. Use 'border', 'fast', or 'precise'")
+        logger.error(
+            f"Invalid match_time mode: {match_time}. Use 'border', 'fast', or 'precise'"
+        )
         return
 
     # Validate match_space mode

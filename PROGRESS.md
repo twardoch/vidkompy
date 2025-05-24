@@ -9,26 +9,29 @@
 - [x] Frame preservation guaranteed
 - [x] Basic functionality verified
 
-## Current Round: Compositing Performance Optimization ✓ COMPLETED
+## Current Round: Progress Reporting Improvements ✓ COMPLETED
 
-### Critical Performance Issue Fixed ✓ COMPLETED
+### Progress UI Cleanup ✓ COMPLETED
+- [x] **Removed Spinner Progress**: Eliminated annoying spinner displays for quick tasks
+- [x] **Simple Logging**: Quick tasks (video analysis, spatial alignment) now use simple logger.info messages
+- [x] **Proper Progress Bars**: Frame composition now shows detailed progress bar with percentage, frame count, and time remaining
+- [x] **Maintained Existing Progress**: Kept meaningful progress bars for time-intensive operations (DTW, cost matrix building)
+
+### Previous Round: Compositing Performance Optimization ✓ COMPLETED
 - [x] **Compositing Speedup**: Implemented sequential reading with generators 
 - [x] **Progress Context Fix**: Resolved "Only one live display may be active at once" error
 - [x] **Verification**: Confirmed 10-100x speedup potential by eliminating random seeks
-
-### Previous Tasks ✓ COMPLETED
 - [x] Add spatial alignment result logging in non-verbose mode
 - [x] Add temporal alignment result logging in non-verbose mode  
 - [x] Fix progress indicator flickering issue (removed spinner conflicts)
 - [x] Add detailed docstrings explaining the why
 - [x] Create varia/SPEC4.md with improvement plan
 
-### Summary of Changes:
-1. **Improved Logging**: Spatial and temporal alignment results now display in non-verbose mode
-2. **Fixed UI**: Progress indicators no longer conflict - spinners removed from inner progress bars
-3. **Enhanced Documentation**: All core modules now have detailed docstrings explaining design decisions
-4. **Performance Plan**: SPEC4.md provides comprehensive roadmap for 10-50x speedup
-5. **Code Formatting**: All Python files reformatted with ruff
+### Summary of Recent Changes:
+1. **Improved Progress UX**: Removed annoying spinners, kept useful progress bars for substantial tasks
+2. **Better Information Density**: Frame composition now shows frame count and time estimates
+3. **Cleaner Logging**: Quick operations use simple logging instead of progress displays
+4. **Previous Improvements**: Sequential frame reading, improved logging, enhanced documentation
 
 ## Next Round: Performance Optimization (from SPEC2.md)
 

@@ -16,8 +16,9 @@ from pathlib import Path
 from loguru import logger
 from rich.progress import (
     Progress,
-    SpinnerColumn,
+    BarColumn,
     TextColumn,
+    TimeRemainingColumn,
 )
 from rich.console import Console
 
@@ -98,65 +99,62 @@ class AlignmentEngine:
             blend: Enable smooth blending at frame edges
             window: Sliding window size for frame matching
         """
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-            transient=True,
-        ) as progress:
-            # Analyze videos
-            task = progress.add_task("Analyzing videos...", total=None)
-            bg_info = self.processor.get_video_info(bg_path)
-            fg_info = self.processor.get_video_info(fg_path)
-            progress.update(task, completed=True)
+        # Analyze videos - quick task, use simple logging
+        logger.info("Analyzing videos...")
+        bg_info = self.processor.get_video_info(bg_path)
+        fg_info = self.processor.get_video_info(fg_path)
 
-            # Log compatibility
-            self._log_compatibility(bg_info, fg_info)
+        # Log compatibility
+        self._log_compatibility(bg_info, fg_info)
 
-            # Spatial alignment
-            task = progress.add_task("Computing spatial alignment...", total=None)
-            spatial_alignment = self._compute_spatial_alignment(
-                bg_info, fg_info, space_method, skip_spatial
-            )
-            progress.update(task, completed=True)
+        # Spatial alignment - quick task, use simple logging
+        logger.info("Computing spatial alignment...")
+        spatial_alignment = self._compute_spatial_alignment(
+            bg_info, fg_info, space_method, skip_spatial
+        )
 
-            # Log spatial alignment results in non-verbose mode too
-            if not skip_spatial:
-                logger.info(
-                    f"Spatial alignment result: offset=({spatial_alignment.x_offset}, {spatial_alignment.y_offset}), "
-                    f"scale={spatial_alignment.scale_factor:.3f}, confidence={spatial_alignment.confidence:.3f}"
-                )
-
-            # Temporal alignment
-            task = progress.add_task("Computing temporal alignment...", total=None)
-            temporal_alignment = self._compute_temporal_alignment(
-                bg_info, fg_info, time_mode, temporal_method, trim, spatial_alignment, border_thickness, window
-            )
-            progress.update(task, completed=True)
-
-            # Log temporal alignment results
+        # Log spatial alignment results in non-verbose mode too
+        if not skip_spatial:
             logger.info(
-                f"Temporal alignment result: method={temporal_alignment.method_used}, "
-                f"offset={temporal_alignment.offset_seconds:.3f}s, "
-                f"frames={len(temporal_alignment.frame_alignments)}, "
-                f"confidence={temporal_alignment.confidence:.3f}"
+                f"Spatial alignment result: offset=({spatial_alignment.x_offset}, {spatial_alignment.y_offset}), "
+                f"scale={spatial_alignment.scale_factor:.3f}, confidence={spatial_alignment.confidence:.3f}"
             )
 
-            # Compose final video
-            task = progress.add_task("Composing output video...", total=None)
-            self._compose_video(
-                bg_info,
-                fg_info,
-                output_path,
-                spatial_alignment,
-                temporal_alignment,
-                trim,
-                blend,
-                border_thickness,
-            )
-            progress.update(task, completed=True)
+        # Temporal alignment - potentially time-intensive, use progress tracking
+        logger.info("Computing temporal alignment...")
+        temporal_alignment = self._compute_temporal_alignment(
+            bg_info,
+            fg_info,
+            time_mode,
+            temporal_method,
+            trim,
+            spatial_alignment,
+            border_thickness,
+            window,
+        )
 
-            logger.info(f"✅ Processing complete: {output_path}")
+        # Log temporal alignment results
+        logger.info(
+            f"Temporal alignment result: method={temporal_alignment.method_used}, "
+            f"offset={temporal_alignment.offset_seconds:.3f}s, "
+            f"frames={len(temporal_alignment.frame_alignments)}, "
+            f"confidence={temporal_alignment.confidence:.3f}"
+        )
+
+        # Compose final video - time-intensive, use progress tracking
+        logger.info("Composing output video...")
+        self._compose_video(
+            bg_info,
+            fg_info,
+            output_path,
+            spatial_alignment,
+            temporal_alignment,
+            trim,
+            blend,
+            border_thickness,
+        )
+
+        logger.info(f"✅ Processing complete: {output_path}")
 
     def _log_compatibility(self, bg_info: VideoInfo, fg_info: VideoInfo):
         """Log video compatibility information.
@@ -255,11 +253,15 @@ class AlignmentEngine:
 
         if mode == MatchTimeMode.BORDER:
             # Use border-based alignment with mask
-            logger.info(f"Using border-based temporal alignment (border thickness: {border_thickness}px)")
+            logger.info(
+                f"Using border-based temporal alignment (border thickness: {border_thickness}px)"
+            )
             border_mask = self.temporal_aligner.create_border_mask(
                 spatial_alignment, fg_info, bg_info, border_thickness
             )
-            return self.temporal_aligner.align_frames_with_mask(bg_info, fg_info, trim, border_mask)
+            return self.temporal_aligner.align_frames_with_mask(
+                bg_info, fg_info, trim, border_mask
+            )
 
         elif mode == MatchTimeMode.PRECISE:
             # Always use frame-based alignment
@@ -371,7 +373,13 @@ class AlignmentEngine:
             temp_video = Path(tmpdir) / "temp_silent.mp4"
 
             self._compose_with_opencv(
-                bg_info, fg_info, str(temp_video), spatial, temporal.frame_alignments, blend, border_thickness
+                bg_info,
+                fg_info,
+                str(temp_video),
+                spatial,
+                temporal.frame_alignments,
+                blend,
+                border_thickness,
             )
 
             # Add audio
@@ -461,46 +469,51 @@ class AlignmentEngine:
             logger.info(f"Using blend mode with {border_thickness}px gradient")
 
         try:
-            # Log progress instead of using nested Progress
-            logger.info(f"Composing {total_frames} frames...")
+            # Use proper progress bar for video composition
+            with Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TextColumn("({task.completed}/{task.total} frames)"),
+                TimeRemainingColumn(),
+                console=console,
+                transient=False,
+            ) as progress:
+                task = progress.add_task("Composing frames", total=total_frames)
 
-            for i, alignment in enumerate(alignments):
-                needed_fg_idx = alignment.fg_frame_idx
-                needed_bg_idx = alignment.bg_frame_idx
+                for i, alignment in enumerate(alignments):
+                    needed_fg_idx = alignment.fg_frame_idx
+                    needed_bg_idx = alignment.bg_frame_idx
 
-                # Advance foreground generator to the needed frame
-                while current_fg_idx < needed_fg_idx:
-                    try:
-                        current_fg_idx, current_fg_frame = next(fg_gen)
-                    except StopIteration:
-                        logger.error("Reached end of foreground video unexpectedly")
+                    # Advance foreground generator to the needed frame
+                    while current_fg_idx < needed_fg_idx:
+                        try:
+                            current_fg_idx, current_fg_frame = next(fg_gen)
+                        except StopIteration:
+                            logger.error("Reached end of foreground video unexpectedly")
+                            break
+
+                    # Advance background generator to the needed frame
+                    while current_bg_idx < needed_bg_idx:
+                        try:
+                            current_bg_idx, current_bg_frame = next(bg_gen)
+                        except StopIteration:
+                            logger.error("Reached end of background video unexpectedly")
+                            break
+
+                    if current_fg_frame is None or current_bg_frame is None:
+                        logger.error("Frame generator did not yield a frame. Aborting.")
                         break
 
-                # Advance background generator to the needed frame
-                while current_bg_idx < needed_bg_idx:
-                    try:
-                        current_bg_idx, current_bg_frame = next(bg_gen)
-                    except StopIteration:
-                        logger.error("Reached end of background video unexpectedly")
-                        break
-
-                if current_fg_frame is None or current_bg_frame is None:
-                    logger.error("Frame generator did not yield a frame. Aborting.")
-                    break
-
-                # We now have the correct pair of frames
-                composite = self._overlay_frames(
-                    current_bg_frame, current_fg_frame, spatial, blend_mask
-                )
-                writer.write(composite)
-                frames_written += 1
-
-                # Log progress every 10% of frames
-                if i % max(1, total_frames // 10) == 0:
-                    progress_pct = (i + 1) * 100 // total_frames
-                    logger.info(
-                        f"Composing progress: {progress_pct}% ({i + 1}/{total_frames} frames)"
+                    # We now have the correct pair of frames
+                    composite = self._overlay_frames(
+                        current_bg_frame, current_fg_frame, spatial, blend_mask
                     )
+                    writer.write(composite)
+                    frames_written += 1
+
+                    # Update progress bar
+                    progress.update(task, advance=1)
 
         except StopIteration:
             logger.warning("Reached end of a video stream unexpectedly.")
@@ -509,7 +522,11 @@ class AlignmentEngine:
             logger.info(f"Wrote {frames_written} frames to {output_path}")
 
     def _overlay_frames(
-        self, bg_frame: np.ndarray, fg_frame: np.ndarray, spatial: SpatialAlignment, blend_mask: np.ndarray | None = None
+        self,
+        bg_frame: np.ndarray,
+        fg_frame: np.ndarray,
+        spatial: SpatialAlignment,
+        blend_mask: np.ndarray | None = None,
     ) -> np.ndarray:
         """Overlay foreground on background with spatial alignment and optional blending."""
         composite = bg_frame.copy()
@@ -557,8 +574,8 @@ class AlignmentEngine:
 
                 # Alpha blend: result = fg * alpha + bg * (1 - alpha)
                 composite[y_start:y_end, x_start:x_end] = (
-                    fg_crop.astype(np.float32) * mask_crop +
-                    bg_slice.astype(np.float32) * (1.0 - mask_crop)
+                    fg_crop.astype(np.float32) * mask_crop
+                    + bg_slice.astype(np.float32) * (1.0 - mask_crop)
                 ).astype(np.uint8)
             else:
                 # Simple overlay (original behavior)
