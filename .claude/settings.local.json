@@ -8,7 +8,9 @@
       "Bash(ffprobe:*)",
       "Bash(cp:*)",
       "Bash(rm:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(grep:*)",
+      "Bash(time python:*)"
     ],
     "deny": []
   }

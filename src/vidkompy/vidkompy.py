@@ -22,7 +22,7 @@ from typing import Optional
 
 from .core.video_processor import VideoProcessor
 from .core.alignment_engine import AlignmentEngine
-from .models import MatchTimeMode
+from .models import MatchTimeMode, TemporalMethod
 
 
 def main(
@@ -31,6 +31,7 @@ def main(
     output: Optional[str] = None,
     match_time: str = "precise",
     match_space: str = "precise",
+    temporal_align: str = "dtw",
     skip_spatial_align: bool = False,
     trim: bool = True,
     verbose: bool = False,
@@ -44,6 +45,7 @@ def main(
         output: Output video path (auto-generated if not provided)
         match_time: Temporal alignment - 'fast' (audio then frames) or 'precise' (frames)
         match_space: Spatial alignment - 'precise' (template) or 'fast' (feature)
+        temporal_align: Temporal algorithm - 'dtw' (new default) or 'classic'
         skip_spatial_align: Skip spatial alignment, center foreground
         trim: Trim output to overlapping segments only
         verbose: Enable verbose logging
@@ -111,6 +113,19 @@ def main(
     elif match_space == "fast":
         match_space = "feature"
 
+    # Validate temporal_align
+    try:
+        temporal_method = TemporalMethod(temporal_align)
+    except ValueError:
+        # Try common aliases
+        if temporal_align in ["frames", "keyframes"]:
+            temporal_method = TemporalMethod.CLASSIC
+        else:
+            logger.error(
+                f"Invalid temporal_align: {temporal_align}. Use 'dtw' or 'classic'"
+            )
+            return
+
     # Validate max_keyframes
     if max_keyframes < 10:
         logger.error(f"max_keyframes must be at least 10, got {max_keyframes}")
@@ -134,6 +149,7 @@ def main(
             output_path=output,
             time_mode=time_mode,
             space_method=match_space,
+            temporal_method=temporal_method,
             skip_spatial=skip_spatial_align,
             trim=trim,
         )

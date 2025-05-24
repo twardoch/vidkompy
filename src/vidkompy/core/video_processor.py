@@ -13,7 +13,13 @@ import numpy as np
 from pathlib import Path
 from typing import List, Optional, Tuple
 from loguru import logger
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TimeRemainingColumn,
+)
 from rich.console import Console
 
 from ..models import VideoInfo
@@ -22,38 +28,63 @@ console = Console()
 
 
 class VideoProcessor:
-    """Handles core video processing operations."""
-    
+    """Handles core video processing operations.
+
+    This module provides the foundation for all video I/O operations.
+    It abstracts away the complexity of video codecs and formats.
+
+    Why separate video processing:
+    - Isolates platform-specific code
+    - Makes testing easier (can mock video I/O)
+    - Single place for optimization
+    - Handles codec compatibility issues
+
+    Why both OpenCV and FFmpeg:
+    - OpenCV: Frame-accurate reading, computer vision operations
+    - FFmpeg: Audio handling, codec support, fast encoding
+    """
+
     def get_video_info(self, video_path: str) -> VideoInfo:
         """Extract video metadata using ffprobe.
-        
+
+        Why ffprobe instead of OpenCV:
+        - More reliable metadata extraction
+        - Handles all video formats
+        - Provides accurate duration/framerate
+        - Detects audio streams properly
+
+        Why we need this info:
+        - FPS determines temporal alignment strategy
+        - Resolution needed for spatial alignment
+        - Duration for progress estimation
+        - Audio presence for alignment method selection
+
         Args:
             video_path: Path to video file
-            
+
         Returns:
             VideoInfo object with metadata
-            
+
         Raises:
             ValueError: If video cannot be probed
         """
         logger.debug(f"Probing video: {video_path}")
-        
+
         try:
             probe = ffmpeg.probe(video_path)
-            
+
             # Find video stream
             video_stream = next(
-                (s for s in probe["streams"] if s["codec_type"] == "video"), 
-                None
+                (s for s in probe["streams"] if s["codec_type"] == "video"), None
             )
-            
+
             if not video_stream:
                 raise ValueError(f"No video stream found in {video_path}")
-            
+
             # Extract properties
             width = int(video_stream["width"])
             height = int(video_stream["height"])
-            
+
             # Parse frame rate
             fps_str = video_stream.get("r_frame_rate", "0/1")
             if "/" in fps_str:
@@ -61,28 +92,27 @@ class VideoProcessor:
                 fps = num / den if den != 0 else 0
             else:
                 fps = float(fps_str)
-            
+
             duration = float(probe["format"].get("duration", 0))
-            
+
             # Calculate frame count
             frame_count = int(video_stream.get("nb_frames", 0))
             if frame_count == 0 and duration > 0 and fps > 0:
                 frame_count = int(duration * fps)
-            
+
             # Check audio
             audio_stream = next(
-                (s for s in probe["streams"] if s["codec_type"] == "audio"),
-                None
+                (s for s in probe["streams"] if s["codec_type"] == "audio"), None
             )
-            
+
             has_audio = audio_stream is not None
             audio_sample_rate = None
             audio_channels = None
-            
+
             if audio_stream:
                 audio_sample_rate = int(audio_stream.get("sample_rate", 0))
                 audio_channels = int(audio_stream.get("channels", 0))
-            
+
             info = VideoInfo(
                 width=width,
                 height=height,
@@ -92,63 +122,75 @@ class VideoProcessor:
                 has_audio=has_audio,
                 audio_sample_rate=audio_sample_rate,
                 audio_channels=audio_channels,
-                path=video_path
+                path=video_path,
             )
-            
+
             logger.info(
                 f"Video info for {Path(video_path).name}: "
                 f"{width}x{height}, {fps:.2f} fps, {duration:.2f}s, "
                 f"{frame_count} frames, audio: {'yes' if has_audio else 'no'}"
             )
-            
+
             return info
-            
+
         except Exception as e:
             logger.error(f"Failed to probe video {video_path}: {e}")
             raise
-    
+
     def extract_frames(
-        self, 
-        video_path: str, 
-        frame_indices: List[int],
-        resize_factor: float = 1.0
+        self, video_path: str, frame_indices: List[int], resize_factor: float = 1.0
     ) -> List[np.ndarray]:
         """Extract specific frames from video.
-        
+
+        Why selective frame extraction:
+        - Loading full video would exhaust memory
+        - We only need specific frames for matching
+        - Random access is fast with modern codecs
+
+        Why resize option:
+        - Faster processing on smaller frames
+        - SSIM works fine at lower resolution
+        - Reduces memory usage significantly
+
+        Why progress bar for large extractions:
+        - Frame seeking can be slow on some codecs
+        - Users need feedback for long operations
+        - Helps identify performance issues
+
         Args:
             video_path: Path to video file
             frame_indices: List of frame indices to extract
             resize_factor: Factor to resize frames (for performance)
-            
+
         Returns:
             List of frames as numpy arrays
         """
         frames = []
         cap = cv2.VideoCapture(video_path)
-        
+
         if not cap.isOpened():
             logger.error(f"Failed to open video: {video_path}")
             return frames
-        
+
         try:
             # Only show progress for large frame extractions
             if len(frame_indices) > 50:
                 with Progress(
-                    SpinnerColumn(),
                     TextColumn("[progress.description]{task.description}"),
                     BarColumn(),
+                    TimeRemainingColumn(),
                     console=console,
-                    transient=True
+                    transient=True,
                 ) as progress:
                     task = progress.add_task(
-                        f"Extracting {len(frame_indices)} frames...",
-                        total=len(frame_indices)
+                        f"    Extracting {len(frame_indices)} frames...",
+                        total=len(frame_indices),
                     )
-                    
+
                     for idx in frame_indices:
                         cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
                         ret, frame = cap.read()
-                        
+
                         if ret:
                             if resize_factor != 1.0:
                                 height, width = frame.shape[:2]
@@ -157,15 +199,17 @@ class VideoProcessor:
                                 frame = cv2.resize(frame, (new_width, new_height))
                             frames.append(frame)
                         else:
-                            logger.warning(f"Failed to read frame {idx} from {video_path}")
-                        
+                            logger.warning(
+                                f"Failed to read frame {idx} from {video_path}"
+                            )
+
                         progress.update(task, advance=1)
             else:
                 # No progress bar for small extractions
                 for idx in frame_indices:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
                     ret, frame = cap.read()
-                    
+
                     if ret:
                         if resize_factor != 1.0:
                             height, width = frame.shape[:2]
@@ -175,44 +219,44 @@ class VideoProcessor:
                         frames.append(frame)
                     else:
                         logger.warning(f"Failed to read frame {idx} from {video_path}")
-                    
+
         finally:
             cap.release()
-            
+
         return frames
-    
+
     def extract_frame_range(
         self,
         video_path: str,
         start_frame: int,
         end_frame: int,
         step: int = 1,
-        resize_factor: float = 1.0
+        resize_factor: float = 1.0,
     ) -> List[Tuple[int, np.ndarray]]:
         """Extract a range of frames with their indices.
-        
+
         Args:
             video_path: Path to video
             start_frame: Starting frame index
             end_frame: Ending frame index (exclusive)
             step: Frame step size
             resize_factor: Resize factor for frames
-            
+
         Returns:
             List of (frame_index, frame) tuples
         """
         frames = []
         cap = cv2.VideoCapture(video_path)
-        
+
         if not cap.isOpened():
             logger.error(f"Failed to open video: {video_path}")
             return frames
-        
+
         try:
             for idx in range(start_frame, end_frame, step):
                 cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
                 ret, frame = cap.read()
-                
+
                 if ret:
                     if resize_factor != 1.0:
                         height, width = frame.shape[:2]
@@ -222,30 +266,27 @@ class VideoProcessor:
                     frames.append((idx, frame))
                 else:
                     break
-                    
+
         finally:
             cap.release()
-            
+
         return frames
-    
+
     def extract_audio(
-        self, 
-        video_path: str, 
-        output_path: str,
-        sample_rate: int = 16000
+        self, video_path: str, output_path: str, sample_rate: int = 16000
     ) -> bool:
         """Extract audio from video to WAV file.
-        
+
         Args:
             video_path: Input video path
             output_path: Output WAV path
             sample_rate: Target sample rate
-            
+
         Returns:
             True if extraction successful
         """
         logger.debug(f"Extracting audio from {video_path}")
-        
+
         try:
             stream = ffmpeg.input(video_path)
             stream = ffmpeg.output(
@@ -254,39 +295,45 @@ class VideoProcessor:
                 acodec="pcm_s16le",
                 ac=1,  # Mono
                 ar=sample_rate,
-                loglevel="error"
+                loglevel="error",
             )
             ffmpeg.run(stream, overwrite_output=True)
             return True
-            
+
         except ffmpeg.Error as e:
             logger.error(f"Audio extraction failed: {e.stderr.decode()}")
             return False
-    
+
     def create_video_writer(
-        self,
-        output_path: str,
-        width: int,
-        height: int,
-        fps: float,
-        codec: str = "mp4v"
+        self, output_path: str, width: int, height: int, fps: float, codec: str = "mp4v"
     ) -> cv2.VideoWriter:
         """Create OpenCV video writer.
-        
+
+        Why H.264/mp4v codec:
+        - Universal compatibility
+        - Good compression ratio
+        - Hardware acceleration available
+        - Supports high resolutions
+
+        Why we write silent video first:
+        - OpenCV VideoWriter doesn't handle audio
+        - Gives us perfect frame control
+        - Audio added later with FFmpeg
+
         Args:
             output_path: Output video path
             width: Video width
-            height: Video height  
+            height: Video height
             fps: Frame rate
             codec: Video codec (default mp4v)
-            
+
         Returns:
             VideoWriter object
         """
         fourcc = cv2.VideoWriter_fourcc(*codec)
         writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        
+
         if not writer.isOpened():
             raise ValueError(f"Failed to create video writer for {output_path}")
-            
+
         return writer
