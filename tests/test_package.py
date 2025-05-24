@@ -1,6 +1,6 @@
-"""Test suite for vidkompo."""
+"""Test suite for vidkompy."""
 
 def test_version():
     """Verify package exposes version."""
-    import vidkompo
-    assert vidkompo.__version__
+    import vidkompy
+    assert vidkompy.__version__

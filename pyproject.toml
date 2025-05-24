@@ -1,6 +1,6 @@
 # this_file: pyproject.toml
 [project]
-name = "vidkompo"
+name = "vidkompy"
 dynamic = ["version"]
 description = ""
 readme = "README.md"
@@ -40,7 +40,7 @@ all = [
 ]
 
 [project.scripts]
-# CLINAME = "vidkompo.__main__:main"
+# CLINAME = "vidkompy.__main__:main"
 
 
 
@@ -49,9 +49,9 @@ name = "Adam Twardoch"
 email = "adam+github@twardoch.com"
 
 [project.urls]
-Documentation = "https://github.com/twardoch/vidkompo#readme"
-Issues = "https://github.com/twardoch/vidkompo/issues"
-Source = "https://github.com/twardoch/vidkompo"
+Documentation = "https://github.com/twardoch/vidkompy#readme"
+Issues = "https://github.com/twardoch/vidkompy/issues"
+Source = "https://github.com/twardoch/vidkompy"
 
 
 [build-system]
@@ -63,8 +63,8 @@ requires = [
 
 
 [tool.coverage.paths]
-vidkompo = ["src/vidkompo", "*/vidkompo/src/vidkompo"]
-tests = ["tests", "*/vidkompo/tests"]
+vidkompy = ["src/vidkompy", "*/vidkompy/src/vidkompy"]
+tests = ["tests", "*/vidkompy/tests"]
 
 
 
@@ -76,21 +76,21 @@ exclude_lines = [
 ]
 
 [tool.coverage.run]
-source_pkgs = ["vidkompo", "tests"]
+source_pkgs = ["vidkompy", "tests"]
 branch = true
 parallel = true
 omit = [
-    "src/vidkompo/__about__.py",
+    "src/vidkompy/__about__.py",
 ]
 
 
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/vidkompo/__version__.py"
+version-file = "src/vidkompy/__version__.py"
 
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/vidkompo"]
+packages = ["src/vidkompy"]
 
 
 
@@ -104,10 +104,10 @@ python = ["3.10", "3.11", "3.12"]
 
 [tool.hatch.envs.default.scripts]
 test = "pytest {args:tests}"
-test-cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=src/vidkompo --cov=tests {args:tests}"
-type-check = "mypy src/vidkompo tests"
-lint = ["ruff check src/vidkompo tests", "ruff format --respect-gitignore src/vidkompo tests"]
-fix = ["ruff check  --fix --unsafe-fixes src/vidkompo tests", "ruff format --respect-gitignore src/vidkompo tests"]
+test-cov = "pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=src/vidkompy --cov=tests {args:tests}"
+type-check = "mypy src/vidkompy tests"
+lint = ["ruff check src/vidkompy tests", "ruff format --respect-gitignore src/vidkompy tests"]
+fix = ["ruff check  --fix --unsafe-fixes src/vidkompy tests", "ruff format --respect-gitignore src/vidkompy tests"]
 
 
 
@@ -118,7 +118,7 @@ dependencies = [
 
 
 [tool.hatch.envs.lint.scripts]
-typing = "mypy --install-types --non-interactive {args:src/vidkompo tests}"
+typing = "mypy --install-types --non-interactive {args:src/vidkompy tests}"
 style = ["ruff check {args:.}", "ruff format --respect-gitignore {args:.}"]
 fmt = ["ruff format --respect-gitignore {args:.}", "ruff check --fix {args:.}"]
 all = ["style", "typing"]
@@ -130,7 +130,7 @@ dependencies = [
 
 [tool.hatch.envs.test.scripts]
 test = "python -m pytest -n auto -p no:briefcase {args:tests}"
-test-cov = "python -m pytest -n auto -p no:briefcase --cov-report=term-missing --cov-config=pyproject.toml --cov=src/vidkompo --cov=tests {args:tests}"
+test-cov = "python -m pytest -n auto -p no:briefcase --cov-report=term-missing --cov-config=pyproject.toml --cov=src/vidkompy --cov=tests {args:tests}"
 bench = "python -m pytest -v -p no:briefcase tests/test_benchmark.py --benchmark-only"
 bench-save = "python -m pytest -v -p no:briefcase tests/test_benchmark.py --benchmark-only --benchmark-json=benchmark/results.json"
 

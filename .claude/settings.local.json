@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(fd:*)",
+      "Bash(chmod:*)",
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "Bash(ffprobe:*)",
+      "Bash(cp:*)",
+      "Bash(rm:*)",
+      "Bash(./vidoverlay.py --bg vlveo-buenos-diego3_cloud_apo8_prob4.mp4 --fg vlveo-buenos-diego2.mp4 --spatial_method template --temporal_align frames -o test2-template-frames-improved.mp4 --verbose)"
+    ],
+    "deny": []
+  }
+}

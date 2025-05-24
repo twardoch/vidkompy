@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vidkompo: 
+"""vidkompy: 
 
 Created by Adam Twardoch
 """
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Config:
-    """Configuration settings for vidkompo."""
+    """Configuration settings for vidkompy."""
     name: str
     value: Union[str, int, float]
     options: Optional[Dict[str, Any]] = None
@@ -59,7 +59,7 @@ def process_data(
 
 
 def main() -> None:
-    """Main entry point for vidkompo."""
+    """Main entry point for vidkompy."""
     try:
         # Example usage
         config = Config(
