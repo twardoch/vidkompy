@@ -1,55 +1,55 @@
 ---
-description: Documentation for spatial and temporal video alignment algorithms used in automatic video overlay positioning
-globs: src/vidkompy/*align*.py,src/vidkompy/matching/*.py
+description: Algorithms for spatial and temporal alignment of video frames during synchronization and overlay processing
+globs: src/vidkompy/core/alignment_engine.py,src/vidkompy/core/dtw_aligner.py,src/vidkompy/core/frame_fingerprint.py,src/vidkompy/core/spatial_alignment.py
 alwaysApply: false
 ---
 
 
 # alignment-algorithms
 
-## Temporal Alignment (Importance: 95)
+## Frame Fingerprinting System (Importance: 95)
 
-Three main temporal alignment strategies:
+Multi-algorithm perceptual hashing combining:
+- pHash for frequency domain analysis
+- AverageHash for mean color patterns 
+- ColorMomentHash for color distribution stats
+- MarrHildrethHash for edge/shape detection
 
-1. Audio Alignment
-- Cross-correlation of audio tracks between foreground and background videos
-- Identifies optimal temporal offset by matching audio signatures
-- Primary method when both videos contain sound
+Weighted similarity scoring prioritizes structural matches over color variations.
 
-2. Duration-Based Alignment
-- Centers foreground video within background video duration
-- Basic fallback method when other alignment methods unavailable
-- Assumes linear temporal relationship between videos
+File: src/vidkompy/core/frame_fingerprint.py
 
-3. Frame-Based Alignment
-- Advanced frame-by-frame content matching
-- Builds dynamic mapping between foreground and background frames
-- Handles variable frame rates and frame dropping/duplication
-- Limited to max_keyframes (default 2000) for processing efficiency
-- Known issue with drift-and-catchup artifacts in background portions
+## Temporal Alignment Engine (Importance: 98)
 
-## Spatial Alignment (Importance: 90)
+Dynamic Time Warping (DTW) implementation with:
+- Sakoe-Chiba band constraint to prevent extreme warping
+- Adaptive keyframe density based on FPS differences
+- Monotonic frame mapping enforcement
+- Linear interpolation between key matches
+- Target of 200 keyframes for drift prevention
 
-Two spatial alignment methods for positioning foreground video within background:
+File: src/vidkompy/core/dtw_aligner.py
 
-1. Template Matching (Precise)
-- Default method for exact spatial alignment
-- Uses OpenCV template matching to find exact sub-regions
-- Identifies optimal offset position for foreground overlay
-- Most accurate for similar video content
+## Spatial Positioning System (Importance: 92)
 
-2. Feature Matching (Fast)
-- Uses ORB (Oriented FAST and Rotated BRIEF) feature detection
-- More robust for videos with significant differences
-- Trades precision for speed and flexibility
-- Better handles modified or processed video content
+Template matching with:
+- Mid-point frame sampling strategy
+- Normalized cross-correlation scoring
+- Dynamic scale factor handling
+- Border-based matching mode
+- Edge blending support
 
-## Integration Logic (Importance: 85)
+File: src/vidkompy/core/spatial_alignment.py
 
-- Automatic detection of video dimensions ensures foreground fits within background
-- Handles mismatched frame rates by using higher FPS for output
-- Supports combined spatial and temporal alignment
-- Trims output to aligned segments when trim=True
-- Skip_spatial_align flag forces center positioning
+## Core Alignment Rules (Importance: 96)
+
+Video compositing policies:
+- Foreground frame preservation guarantee
+- Background warping to match foreground timing
+- Intelligent audio source selection
+- Frame sequence validation
+- Progressive frame processing
+
+File: src/vidkompy/core/alignment_engine.py
 
 $END$

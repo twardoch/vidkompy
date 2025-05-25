@@ -1,208 +1,226 @@
-# vidkompy
+# `vidkompy`
 
-`vidkompy` is an intelligent command-line tool designed to overlay a foreground video onto a background video with high-precision automatic alignment. The system is engineered to handle differences in resolution, frame rate, duration, and audio, prioritizing content integrity and accuracy over raw processing speed.
+**Intelligent Video Overlay and Synchronization**
 
-The core philosophy is to treat the **foreground video as the definitive source of quality and timing**. All its frames are preserved without modification or retiming. The background video is dynamically adapted—stretched, retimed, and selectively sampled—to synchronize perfectly with the foreground content.
+`vidkompy` is a powerful command-line tool engineered to overlay a foreground video onto a background video with exceptional precision and automatic alignment. The system intelligently handles discrepancies in resolution, frame rate, duration, and audio, prioritizing content integrity and synchronization accuracy over raw processing speed.
 
----
-
-## How It Works: The Processing Pipeline
-
-The alignment and composition process is orchestrated by the `AlignmentEngine` and follows a meticulous, multi-stage pipeline:
-
-1.  **Video Analysis**: The process begins by probing both background and foreground videos using `ffprobe` to extract essential metadata. This includes resolution, frames per second (FPS), duration, frame count, and audio presence. This information is used to check for compatibility and inform subsequent alignment decisions.
-
-2.  **Spatial Alignment**: The engine determines the optimal (x, y) coordinates to place the foreground video on top of the background. A sample frame from the middle of each video is used for this calculation, and the system computes the offset needed to position the foreground video correctly within the background frame.
-
-3.  **Temporal Alignment**: This is the most critical phase, where the videos are synchronized in time. `vidkompy` finds the perfect background frame to match _every single_ foreground frame, ensuring the foreground's timing is flawlessly preserved. This creates a detailed frame-by-frame mapping using advanced algorithms like Dynamic Time Warping.
-
-4.  **Video Composition**: With alignment data computed, the final video is composed:
-
-- First, a silent video is created using OpenCV. The engine iterates through the frame alignment map, reads the corresponding frames from each video, overlays them using the spatial offset, and writes the composite frame to a temporary file. The output FPS is set to the foreground video's FPS to ensure no foreground frames are dropped.
-- Next, an audio track is added using FFmpeg. The tool intelligently selects the audio source, **prioritizing the foreground video's audio**. The audio is synchronized with the composed video, and the final output file is generated.
+The core philosophy of `vidkompy` is to treat the **foreground video as the definitive source of quality and timing**. All its frames are preserved without modification or re-timing. The background video is dynamically adapted—stretched, retimed, and selectively sampled—to synchronize perfectly with every frame of the foreground content, ensuring a seamless and coherent final output.
 
 ---
 
-## Alignment Algorithms in Detail
+## Features
 
-`vidkompy` employs sophisticated algorithms for both temporal and spatial alignment, with different modes to balance speed and precision.
+- **Automatic Spatial Alignment**: Intelligently detects the optimal x/y offset to position the foreground video within the background, even if they are cropped differently.
+- **Advanced Temporal Synchronization**: Aligns videos with different start times, durations, and frame rates, eliminating temporal drift and ensuring content matches perfectly over time.
+- **Foreground-First Principle**: Guarantees that every frame of the foreground video is included in the output, preserving its original timing and quality. The background video is adapted to match the foreground.
+- **Drift-Free Alignment**: Utilizes Dynamic Time Warping (DTW) to create a globally optimal, monotonic alignment, preventing the common "drift-and-catchup" artifacts seen with simpler methods.
+- **High-Performance Processing**: Leverages multi-core processing, perceptual hashing, and optimized video I/O to deliver results quickly.
+- Frame fingerprinting is 100-1000x faster than traditional pixel-wise comparison.
+- Sequential video composition is 10-100x faster than random-access methods.
+- **Smart Audio Handling**: Automatically uses the foreground audio track if available, falling back to the background audio. The audio is correctly synchronized with the final video.
+- **Flexible Operation Modes**: Supports specialized modes like `border` matching for aligning content based on visible background edges, and `smooth` blending for seamless visual integration.
 
-### Temporal Alignment: Finding the Perfect Sync
+## How It Works
 
-Temporal alignment synchronizes the two videos over time. This is the most complex and powerful feature of `vidkompy` .
+The `vidkompy` pipeline is a multi-stage process designed for precision and accuracy:
 
-#### **`--temporal_align dtw`** (Default, Recommended)
+1.  **Video Analysis**: The tool begins by probing both background (BG) and foreground (FG) videos using `ffprobe` to extract essential metadata: resolution, frames per second (FPS), duration, frame count, and audio stream information.
 
-This method uses **Dynamic Time Warping (DTW)** with **Perceptual Hashing** to achieve the most robust and accurate temporal alignment, completely avoiding the timing drift and "catch-up" issues seen in simpler methods.
+2.  **Spatial Alignment**: To determine _where_ to place the foreground on the background, `vidkompy` extracts a sample frame from the middle of each video (where content is most likely to be stable). It then calculates the optimal (x, y) offset.
 
-It creates a unique "fingerprint" for every frame in both videos. Then, it finds the optimal way to stretch and squeeze the background video's timeline to best match the foreground's timeline, guaranteeing a smooth, continuous result.
+3.  **Temporal Alignment**: This is the core of `vidkompy`. To determine _when_ to start the overlay and how to map frames over time, the tool generates "fingerprints" of frames from both videos and uses Dynamic Time Warping (DTW) to find the best alignment path. This ensures every foreground frame is matched to the most suitable background frame.
 
-**How it works**:
+4.  **Video Composition**: Once the spatial and temporal alignments are known, `vidkompy` composes the final video. It reads both video streams sequentially (for maximum performance) and, for each foreground frame, fetches the corresponding background frame as determined by the alignment map. The foreground is then overlaid at the correct spatial position.
 
-1.  **Frame Fingerprinting**: Instead of comparing raw pixels (which is slow), the system first computes a "perceptual fingerprint" for a sample of frames from each video. It uses a combination of multiple hashing algorithms (pHash, AverageHash, ColorMomentHash) that capture different visual aspects like structure, brightness, and color distribution. This results in a compact and robust representation of each frame.
-2.  **Cost Matrix**: It builds a cost matrix where each cell `(i, j)` represents the "distance" (dissimilarity) between the fingerprint of foreground frame `i` and background frame `j`.
-3.  **Dynamic Time Warping**: The DTW algorithm then finds the lowest-cost path through this matrix from start to finish. This path represents the optimal "warping" of the background's timeline to match the foreground's. A **Sakoe-Chiba band** constraint is used to keep the alignment within a reasonable time window, dramatically speeding up the calculation from O(N²) to O(N).
-4.  **Interpolation**: The final alignment map for _every single_ foreground frame is generated by interpolating between the points on the optimal DTW path. This ensures that every foreground frame has a corresponding background frame, resulting in perfectly smooth motion.
+5.  **Audio Integration**: After the silent video is composed, `vidkompy` adds the appropriate audio track (preferring the foreground's audio) with the correct offset to ensure it's perfectly synchronized with the video content.
 
-#### **`--temporal_align classic`**
+## The Algorithms
 
-This is the legacy frame-matching method. It can be faster for some content but is susceptible to temporal drift.
+`vidkompy` employs several sophisticated algorithms to achieve its high-precision results.
 
-It finds a few good matching "anchor" frames (keyframes) between the two videos and then guesses the frames in between.
+### Frame Fingerprinting (Perceptual Hashing)
 
-**How it works**:
-
-1.  **Keyframe Matching**: It samples a limited number of frames (keyframes) from both videos and finds the best matches using **Structural Similarity (SSIM)**.
-2.  **Monotonic Filtering**: The matches are filtered to ensure a logical time progression (i.e., time only moves forward).
-3.  **Interpolation**: For all the frames _between_ the keyframes, the corresponding background frame is estimated using simple linear interpolation. This is where drift can occur if the videos have different playback speeds between keyframes.
-
-#### **`--match_time fast`** (Audio-Based)
-
-This mode leverages audio tracks for a very fast initial alignment. It can be used with either `dtw` or `classic` temporal alignment.
-
-It listens to both audio tracks and slides one until they sound perfectly synced up.
-
-**How it works**: The audio from both videos is extracted, and the system computes the **cross-correlation** between them. The peak of the correlation reveals the precise time offset. If successful, this offset is used to create the frame map. If audio is missing or doesn't match, it automatically falls back to the configured frame-based method ( `dtw` or `classic` ).
-
-### Spatial Alignment: Finding the Perfect Position
-
-Spatial alignment determines where the foreground video sits within the larger background frame. If the foreground is larger than the background, it is automatically scaled down to fit while preserving its aspect ratio.
-
-#### ** `--match_space precise` / `template` ** (Default)
-
-It treats the foreground frame like a puzzle piece and finds exactly where it fits inside the background frame.
-
-**How it works**: This method uses **Template Matching**. It takes the entire foreground frame as a template and performs a pixel-by-pixel search across the background frame to find the location with the highest normalized cross-correlation. It's extremely accurate when the foreground is an exact, un-altered crop of the background.
-
-#### ** `--match_space fast` / `feature` **
-
-It finds hundreds of unique interest points (like corners and edges) in both frames and matches them up to figure out the position.
-
-**How it works**: This method uses **Feature Matching** with the **ORB (Oriented FAST and Rotated BRIEF)** algorithm. It detects key feature points in both frames and matches them. This approach is more robust against variations in brightness, contrast, or compression artifacts. If too few features are found, it safely falls back to centering the foreground.
-
-#### **`--skip_spatial_align`**
-
-If this flag is used, all alignment calculations are skipped, and the foreground video is simply centered within the background frame.
+**TLDR:** Instead of comparing the millions of pixels in a frame, `vidkompy` creates a tiny, unique "fingerprint" (a hash) for each frame. Comparing these small fingerprints is thousands of times faster and smart enough to ignore minor changes from video compression.
 
 ---
+
+The `FrameFingerprinter` module is designed for ultra-fast and robust frame comparison. It uses perceptual hashing, which generates a compact representation of a frame's visual structure.
+
+The process works as follows:
+
+1.  **Standardization**: The input frame is resized to a small, standard size (e.g., 64x64 pixels) and converted to grayscale. This ensures consistency and focuses on structural information over color.
+2.  **Multi-Algorithm Hashing**: To improve robustness, `vidkompy` computes several types of perceptual hashes for each frame, as different algorithms are sensitive to different visual features:
+- `pHash` (Perceptual Hash): Analyzes the frequency domain (using DCT), making it robust to changes in brightness, contrast, and gamma correction.
+- `AverageHash`: Computes a hash based on the average color of the frame.
+- `ColorMomentHash`: Captures the color distribution statistics of the frame.
+- `MarrHildrethHash`: Detects edges and shapes, making it sensitive to structural features.
+3.  **Combined Fingerprint**: The results from these hashers, along with a color histogram, are combined into a single "fingerprint" dictionary for the frame.
+4.  **Comparison**: To compare two frames, their fingerprints are compared. The similarity is calculated using a weighted average of the normalized Hamming distance between their hashes and the correlation between their histograms. The weights are tuned based on the reliability of each hash type for video content. This entire process is parallelized across multiple CPU cores for maximum speed.
+
+### Spatial Alignment (Template Matching)
+
+**TLDR:** To find the correct position for the foreground video, the tool takes a screenshot from the middle of it and searches for that exact image within a screenshot from the background video.
+
+---
+
+Spatial alignment determines the `(x, y)` coordinates at which to overlay the foreground frame onto the background. `vidkompy` uses a highly accurate and efficient method based on template matching.
+
+1.  **Frame Selection**: A single frame is extracted from the temporal midpoint of both the foreground and background videos. This is done to get a representative frame, avoiding potential opening/closing titles or black frames.
+2.  **Grayscale Conversion**: The frames are converted to grayscale. This speeds up the matching process by 3x and makes the alignment more robust to minor color variations between the videos.
+3.  **Template Matching**: The core of the alignment is `cv2.matchTemplate` using the `TM_CCOEFF_NORMED` method. This function effectively "slides" the smaller foreground frame image across the larger background frame image and calculates a normalized cross-correlation score at each position.
+4.  **Locating the Best Match**: The position with the highest correlation score (from `cv2.minMaxLoc`) is considered the best match. This location `(x_offset, y_offset)` represents the top-left corner where the foreground should be placed. The confidence of this match is the correlation score itself, which typically approaches `1.0` for a perfect match.
+5.  **Scaling**: The system checks if the foreground video is larger than the background. If so, it is scaled down to fit, and the scale factor is recorded.
+
+### Temporal Alignment (Dynamic Time Warping)
+
+**TLDR:** `vidkompy` aligns the two videos by finding the optimal "path" through time that perfectly syncs the foreground to the background. It intelligently stretches or compresses the background's timeline to match the foreground frame-by-frame, preventing any synchronization drift.
+
+---
+
+Temporal alignment is the most critical and complex part of `vidkompy`. The goal is to create a mapping `FrameAlignment(fg_frame_idx, bg_frame_idx)` for every single foreground frame. This is achieved using **Dynamic Time Warping (DTW)**, a powerful algorithm from time series analysis.
+
+The DTW process is as follows:
+
+1.  **Frame Sampling & Fingerprinting**: The tool samples frames from both videos and computes their perceptual fingerprints using the `FrameFingerprinter`. More frames are sampled from the background video to provide more alignment options.
+2.  **Cost Matrix Construction**: A cost matrix is built where `cost(i, j)` is the "distance" (i.e., `1.0 - similarity`) between the fingerprint of foreground frame `i` and background frame `j`. This matrix represents all possible frame pairings.
+3.  **DTW Recursion**: The DTW algorithm finds the lowest-cost path through this matrix from the start `(0, 0)` to the end `(n, m)`. A key constraint is **monotonicity**: the path can only move forward in time for both videos, never backward. This is what prevents out-of-sync jumps.
+4.  **Sakoe-Chiba Band Constraint**: To make the calculation feasible for long videos (reducing complexity from $$O(N^2)$$to$$O(N \times w)$$), the algorithm only computes costs within a "window" or band around the matrix diagonal. This prevents unrealistic warping, assuming the videos are reasonably aligned to begin with.
+5.  **Optimal Path Backtracking**: Once the cost matrix is filled, the algorithm backtracks from the end to find the sequence of frame pairings that resulted in the lowest total cost. This sequence is the optimal alignment path.
+6.  **Full Alignment Map Generation**: The DTW path provides a sparse set of perfect matches. To get an alignment for _every_ foreground frame, `vidkompy` linearly interpolates the background frame indices between these key matches. This results in a smooth and continuous mapping, ensuring the background video playback speed adjusts dynamically to stay locked with the foreground.
+
+This DTW-based approach guarantees a globally optimal and monotonic alignment, robustly handling speed variations, dropped frames, and other temporal distortions.
 
 ## Usage
 
 ### Prerequisites
 
-You must have the **FFmpeg** binary installed on your system and accessible in your system's PATH. `vidkompy` depends on it for all video and audio processing tasks.
+You must have the **FFmpeg** binary installed on your system and accessible in your system's `PATH`. `vidkompy` depends on it for all video and audio processing tasks.
 
 ### Installation
 
-The tool is a Python package and can be installed locally:
+The tool is a Python package. It is recommended to install it from the repository to get the latest version.
 
 ```bash
-# Clone the repository and install using uv (or pip)
-git clone https://github.com/your-repo/vidkompy.git
+# Clone the repository
+git clone https://github.com/twardoch/vidkompy.git
 cd vidkompy
+
+# Install using uv (or pip)
 uv pip install .
 ```
 
 ### Command-Line Interface (CLI)
 
-The tool is run from the command line. The primary arguments are the paths to the background and foreground videos.
+The tool is run from the command line, providing paths to the background and foreground videos.
+
+**Basic Example:**
 
 ```bash
-python -m vidkompy --bg <background_video> --fg <foreground_video> [OPTIONS]
+python -m vidkompy --bg /path/to/background.mp4 --fg /path/to/foreground.mp4
 ```
 
-**Key Arguments:**
-
-- `--bg` (str): Path to the background video file. **[Required]**
-- `--fg` (str): Path to the foreground video file. **[Required]**
-- `-o`, `--output` (str): Path for the final output video. If not provided, a name is automatically generated (e.g., `bg-stem_overlay_fg-stem.mp4`).
-- `--match_time` (str): The high-level temporal alignment strategy.
-  - `'border'` (default): Uses border regions for temporal matching. Most accurate for videos with visible borders.
-  - `'precise'`: Uses the chosen frame-based method directly for maximum accuracy.
-  - `'fast'`: Attempts audio-based alignment first and falls back to the frame-based method.
-- `--temporal_align` (str): The core algorithm for frame-based temporal alignment.
-  - `'dtw'` (default): Dynamic Time Warping with perceptual hashing. Highly robust and accurate.
-  - `'classic'`: The legacy keyframe matching and interpolation method.
-- `--match_space` (str): The spatial alignment method.
-  - `'precise'` or `'template'` (default): Slower but more exact pixel matching.
-  - `'fast'` or `'feature'`: Faster, more robust feature-based matching.
-- `--trim` (bool): If `True` (default), the output video is trimmed to the duration of the aligned segment.
-- `--skip_spatial_align` (bool): If `True` (default: `False`), skips spatial alignment and centers the foreground video.
-- `--verbose` (bool): Enables detailed debug logging for troubleshooting.
-- `--max_keyframes` (int): Sets the approximate number of frames to sample for temporal alignment (default: 200). Higher values can increase accuracy but also memory usage and processing time.
-- `--border` (int): Thickness of border region in pixels for border-based matching (default: 8).
-- `--blend` (bool): Enable smooth alpha blending at foreground edges (default: False).
-- `--window` (int): Window size for sliding window refinement in temporal alignment (default: 0, auto-determined).
-
-## Performance Improvements
-
-Recent updates have significantly improved vidkompy's performance and accuracy:
-
-### Drift Elimination
-- **Adaptive Keyframe Density**: The tool now automatically adjusts the number of keyframes based on FPS differences between videos, preventing temporal drift
-- **Default Keyframes**: Reduced from 2000 to 200 for optimal balance between speed and accuracy
-
-### Border Mode Enhancements  
-- **DTW + Masked Perceptual Hashing**: Border mode now works with DTW alignment using masked fingerprints, providing both speed and accuracy
-- **Smart Border Detection**: Only processes visible border regions, optimizing performance
-
-### Processing Speed
-- **Parallel Cost Matrix Building**: Multi-threaded computation for frame similarity comparisons
-- **Sequential Frame Reading**: Eliminated random seeks for 10-100x speedup in video composition
-- **Perceptual Hashing**: Fast frame fingerprinting that's 100-1000x faster than pixel comparison
-
-### Benchmarking
-A benchmark script is included to test various configurations:
-
-```bash
-python benchmark.py
-```
-
-This will run vidkompy with different settings and report performance metrics.
-
+**CLI Help:**
 
 ```
-INFO: Showing help with the command '__main__.py -- --help'.
+$ python -m vidkompy -- --help
+INFO: Showing help with the command 'vidkompy.py -- --help'.
 
 NAME
-    __main__.py - Overlay foreground video onto background video with intelligent alignment.
+vidkompy.py - Overlay foreground video onto background video with intelligent alignment.
 
 SYNOPSIS
-    __main__.py BG FG <flags>
+vidkompy.py BG FG <flags>
 
 DESCRIPTION
-    Overlay foreground video onto background video with intelligent alignment.
+Overlay foreground video onto background video with intelligent alignment.
 
 POSITIONAL ARGUMENTS
-    BG
-        Type: str
-        Background video path
-    FG
-        Type: str
-        Foreground video path
+BG
+    Type: str | pathlib.Path
+    Background video path
+FG
+    Type: str | pathlib.Path
+    Foreground video path
 
 FLAGS
-    -o, --output=OUTPUT
-        Type: Optional[str | None]
-        Default: None
-        Output video path (auto-generated if not provided)
-    --border=BORDER
-        Type: int
-        Default: 8
-        Border thickness for border matching mode (default: 8)
-    --blend=BLEND
-        Type: bool
-        Default: False
-        Enable smooth blending at frame edges
-    -g, --gpu=GPU
-        Type: bool
-        Default: False
-        Enable GPU acceleration (future feature)
-    -v, --verbose=VERBOSE
-        Type: bool
-        Default: False
-        Enable verbose logging
+-o, --output=OUTPUT
+    Type: Optional[str | pathlib...
+    Default: None
+    Output video path (auto-generated if not provided)
+-m, --margin=MARGIN
+    Type: int
+    Default: 8
+    Border thickness for border matching mode (default: 8)
+-s, --smooth=SMOOTH
+    Type: bool
+    Default: False
+    Enable smooth blending at frame edges
+-g, --gpu=GPU
+    Type: bool
+    Default: False
+    Enable GPU acceleration (future feature)
+-v, --verbose=VERBOSE
+    Type: bool
+    Default: False
+    Enable verbose logging
 
 NOTES
-    You can also use flags syntax for POSITIONAL ARGUMENTS
+You can also use flags syntax for POSITIONAL ARGUMENTS
 ```
+
+## Performance
+
+Recent updates have significantly improved `vidkompy`'s performance and accuracy:
+
+- **Drift Elimination**: An adaptive keyframe density calculation based on FPS differences prevents temporal drift, and the default keyframe target has been lowered from 2000 to 200 for a better speed/accuracy balance.
+- **Optimized Compositing**: The video writing process was re-engineered to use sequential frame reading instead of random access, yielding a **10-100x speedup** in the final composition stage.
+- **Parallel Processing**: The most computationally expensive tasks, like building the similarity cost matrix, are parallelized to leverage all available CPU cores.
+- **Benchmarking**: The project includes a `benchmark.py` script to test various configurations and measure performance metrics, ensuring continuous improvement.
+
+## Development
+
+To contribute to `vidkompy`, set up a development environment using `hatch`.
+
+### Setup
+
+1.  Clone the repository.
+2.  Ensure you have `hatch` installed (`pip install hatch`).
+3.  The project is managed through `hatch` environments defined in `pyproject.toml`.
+
+### Key Commands
+
+Run these commands from the root of the repository.
+
+- **Run Tests**:
+
+```bash
+hatch run test
+```
+
+- **Run Tests with Coverage Report**:
+
+```bash
+hatch run test-cov
+```
+
+- **Run Type Checking**:
+
+```bash
+hatch run type-check
+```
+
+- **Check Formatting and Linting**:
+
+```bash
+hatch run lint
+```
+
+- **Automatically Fix Formatting and Linting Issues**:
+
+```bash
+hatch run fix
+```
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.

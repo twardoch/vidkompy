@@ -1,56 +1,65 @@
 ---
-description: Technical flow documentation for video overlay and alignment processing pipeline
-globs: src/vidkompy/vidkompy_old.py,src/vidkompy/core/*.py
+description: Comprehensive guide for video ingestion, processing, alignment and output generation workflow
+globs: 
 alwaysApply: false
 ---
 
 
 # video-processing-flow
 
-## Video Pipeline Stages [Importance: 95]
+## Core Processing Pipeline
 
-1. Video Ingestion
-- Loads background and foreground video files via FFmpeg
-- Extracts audio tracks if present for potential temporal alignment
-- Normalizes frame rates by using the higher FPS between sources
+### Video Ingestion
+- Frame extraction and fingerprinting using multi-algorithm perceptual hashing
+- Parallel processing of frame batches for fingerprint generation
+- Adaptive keyframe sampling based on video characteristics
+- Importance Score: 85
 
-2. Frame Processing 
-- Extracts key frames from both videos for alignment analysis
-- Handles FPS differences through dynamic frame interpolation
-- Maintains temporal consistency during processing
-
-3. Alignment Determination
-- Spatial: Locates optimal position of foreground within background
-- Temporal: Finds start/end frame pairs for perfect overlay
-- Audio-based synchronization when --match_time=audio specified
-
-4. Overlay Composition
-- Creates output frames by combining aligned fg/bg content
-- Preserves foreground audio track if available
-- Trims output to matched segment boundaries
-
-5. Output Generation
-- Renders combined frames to output video
-- Attaches selected audio track
-- Applies specified output parameters (codec, format, etc)
-
-## Key Processing Modes [Importance: 90]
+### Frame Analysis 
+- Multi-stage fingerprint generation combining:
+  - Frequency domain analysis (pHash)
+  - Average color patterns
+  - Color distribution moments
+  - Edge detection via Marr-Hildreth 
+- Border region masking for edge-based alignment
+- Importance Score: 90
 
 ### Temporal Alignment
-- Audio: Cross-correlation of audio waveforms
-- Duration: Centers foreground within background timeline
-- Frames: Dynamic frame-pair matching and mapping
+- DTW-based frame matching with Sakoe-Chiba band constraint
+- Adaptive keyframe density calculation
+- Monotonic frame mapping with interpolation
+- Temporal locality enforcement
+- Importance Score: 95
 
-### Spatial Alignment  
-- Template: Precise OpenCV-based region matching
-- Feature: Fast ORB feature detection and matching
-- Center: Direct overlay without alignment
+### Spatial Positioning
+- Template matching using normalized cross-correlation
+- Dynamic scale factor computation
+- Edge-based positioning for border mode
+- Automatic offset calculation
+- Importance Score: 85
 
-## Data Flow Control [Importance: 85]
+### Composition Engine
+- Sequential frame compositing
+- Foreground frame preservation
+- Dynamic background frame warping
+- Audio stream selection and sync
+- Importance Score: 80
 
-- Frame buffer management for processing efficiency
-- Dynamic frame selection based on content similarity
-- Intelligent trimming of non-overlapping segments
-- Audio/video stream synchronization maintenance
+### Output Generation
+- Progressive frame writing
+- Quality-preserving encoding
+- Audio-video synchronization
+- Metadata retention
+- Importance Score: 75
+
+Key Files:
+```
+src/vidkompy/core/
+  ├── alignment_engine.py     # Main processing orchestrator
+  ├── dtw_aligner.py         # Temporal alignment 
+  ├── frame_fingerprint.py   # Frame analysis
+  ├── spatial_alignment.py   # Position calculation
+  └── video_processor.py     # I/O and composition
+```
 
 $END$

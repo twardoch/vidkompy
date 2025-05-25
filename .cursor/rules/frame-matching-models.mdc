@@ -1,65 +1,76 @@
 ---
-description: Specifications for frame matching and temporal alignment algorithms in video overlay processing
-globs: src/vidkompy/*matching*.py,src/vidkompy/framemap.py,src/vidkompy/temporal.py
+description: Frame matching models and algorithms for video synchronization and overlay alignment
+globs: src/vidkompy/core/frame_fingerprint.py,src/vidkompy/core/dtw_aligner.py,src/vidkompy/core/spatial_alignment.py
 alwaysApply: false
 ---
 
 
 # frame-matching-models
 
-## Frame Matching Core Components
+## Frame Fingerprinting Models
 
-The system implements intelligent frame mapping between foreground and background videos through multiple alignment methods:
+Implements multi-algorithm perceptual hashing to create unique frame signatures:
 
-### Temporal Alignment Models
-importance: 95
+1. Core Hash Combination
+- pHash: DCT-based frequency domain analysis
+- AverageHash: Mean pixel intensity patterns 
+- ColorMomentHash: Statistical color distribution
+- MarrHildrethHash: Edge and contour detection
 
-Three primary temporal alignment strategies:
+2. Frame Similarity Model
+- Weighted combination of hash distances
+- Color histogram correlation scoring
+- Border region masking for edge-based matching
 
-1. Audio-based matching
-- Uses cross-correlation of audio tracks to determine optimal temporal offset
-- Primary method when both videos contain sound
+## Temporal Alignment Model 
 
-2. Duration-based matching
-- Centers foreground content within background duration
-- Fallback method when audio matching is unavailable
+DTW-based frame mapping system with constraints:
 
-3. Frame content matching
-- Analyzes frame content to create dynamic mapping
-- Uses up to 2000 keyframes (configurable via max_keyframes parameter)
-- Handles videos with different frame rates by targeting higher FPS
+1. Frame Sequence Mapping
+- Monotonic path finding through similarity matrix
+- Sakoe-Chiba band limiting maximum temporal offset
+- Keyframe interpolation for continuous mapping
 
-### Frame Selection Logic
-importance: 85
+2. Matching Modes
+- Full frame comparison for precise alignment
+- Border region analysis for edge-based sync
+- Classic keyframe matching fallback
 
-The system determines optimal start/end frame pairs through:
+## Spatial Positioning Model
 
-- Perfect frame pair identification for START frame
-- Perfect frame pair identification for END frame
-- Intelligent frame dropping at start/end when needed
-- Dynamic trimming to match overlapping segments
+Template matching system for overlay positioning:
 
-### Similarity Models
-importance: 80
+1. Position Detection
+- Normalized cross-correlation scoring
+- Mid-point frame sampling strategy
+- Scale factor computation for size mismatches
 
-Two spatial alignment methods for frame matching:
+2. Alignment Confidence
+- Match quality scoring
+- Position validation checks
+- Fallback positioning rules
 
-1. Template Matching (precise)
-- Default method
-- Uses OpenCV template matching
-- Identifies exact sub-regions
+## Integration Rules
 
-2. Feature Matching (fast)
-- Uses ORB feature detection
-- More flexible for modified content
-- Handles stretched/modified frame content
+1. Frame Selection Logic
+- Foreground frame preservation priority
+- Background frame warping/adaptation
+- Keyframe density calculation
 
-### Frame Rate Handling
-importance: 75
+2. Quality Control
+- Alignment confidence thresholds
+- Match validation rules
+- Fallback behavior triggers
 
-- Automatically selects higher FPS between sources for output
-- Compensates for temporal drift between sources
-- Manages frame interpolation when FPS differs
-- Handles frame dropping/duplication scenarios
+3. Mode Selection
+- Border vs full-frame analysis
+- Temporal sync method determination
+- Spatial alignment strategy choice
+
+Importance Scores:
+- Frame Fingerprinting Models: 95 (Core matching capability)
+- Temporal Alignment Model: 90 (Critical sync logic)
+- Spatial Positioning Model: 85 (Key overlay functionality)
+- Integration Rules: 75 (Important workflow control)
 
 $END$

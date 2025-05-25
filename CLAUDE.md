@@ -205,7 +205,7 @@ The project uses pytest with minimal test coverage currently (only version check
 
 START SPECIFICATION:
 ---
-description: Apply when documenting high-level business logic and domain-specific implementations for video overlay and alignment systems, specifically for intelligent video composition tools that require precise spatial and temporal synchronization
+description: Create overview documentation for projects focused on video processing, synchronization, and alignment, particularly when dealing with foreground/background video composition and intelligent temporal matching
 globs: *.py,*.md
 alwaysApply: false
 ---
@@ -222,54 +222,49 @@ alwaysApply: false
 - Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
 
 
-vidkompy is an intelligent video overlay system focused on precision alignment of video content. The core business logic revolves around automatically synchronizing and compositing video streams with different characteristics.
+The vidkompy system implements intelligent video overlay and synchronization with three core business domains:
 
-## Core Business Components
+## Frame Analysis System (Importance: 95)
+- Perceptual hashing engine combines multiple algorithms:
+  - Frequency domain analysis (pHash)
+  - Brightness patterns (AverageHash) 
+  - Color distribution statistics (ColorMomentHash)
+  - Edge detection (MarrHildrethHash)
+- Weighted fingerprint generation for optimal frame matching
+- Border region masking for edge-based alignment
 
-### Video Alignment Engine (Importance: 95)
-- Automatic detection of optimal spatial positioning for foreground overlay
-- Temporal synchronization using frame content or audio signals
-- Smart handling of FPS and duration differences between videos
-- File: src/vidkompy/vidkompy_old.py
+## Temporal Alignment Engine (Importance: 98)
+- Dynamic Time Warping (DTW) implementation with:
+  - Sakoe-Chiba band constraints
+  - Monotonic frame mapping
+  - Keyframe interpolation
+- Adaptive keyframe density calculation
+- Foreground-first preservation principle
+- Frame sequence validation
 
-### Temporal Alignment Methods (Importance: 90)
-Three distinct alignment strategies:
-- Audio-based cross-correlation for sound-driven synchronization
-- Duration-based centering for simple timeline alignment
-- Frame-based content matching for precise visual synchronization
-- File: src/vidkompy/vidkompy_old.py
+## Spatial Positioning System (Importance: 92)
+- Template matching with normalized correlation
+- Auto-scaling for resolution mismatches
+- Border mode alignment options
+- Position confidence scoring
+- Center alignment fallback
 
-### Spatial Alignment Methods (Importance: 85)
-Two precision-focused positioning approaches:
-- Template matching for exact region identification
-- Feature matching for compression-tolerant alignment
-- File: src/vidkompy/vidkompy_old.py
+## Video Composition Rules (Importance: 85)
+- Foreground frame preservation guarantee
+- Background frame warping/adaptation
+- Audio stream selection logic
+- Quality-based decision system
+- Temporal drift prevention
 
-### Quality Preservation Logic (Importance: 80)
-- Foreground video quality preservation as primary directive
-- Intelligent frame selection to maintain temporal integrity
-- Dynamic background adaptation to match foreground timing
-- File: src/vidkompy/vidkompy_old.py
-
-### Audio Management (Importance: 75)
-- Intelligent audio track selection between sources
-- Audio-based synchronization when available
-- Preservation of high-quality audio source
-- File: src/vidkompy/vidkompy_old.py
-
-## Workflow Integration
-
-### Command Interface (Importance: 70)
-- Intelligent default behaviors for minimal user intervention
-- Automatic output filename generation
-- Configurable alignment methods
-- File: src/vidkompy/vidkompy_old.py
-
-### Process Control (Importance: 65)
-- Progress tracking and logging
-- Error handling with user guidance
-- Automatic fallback strategies
-- File: src/vidkompy/vidkompy_old.py
+Core Integration Points:
+```
+src/vidkompy/
+  ├── core/
+  │   ├── alignment_engine.py    # Orchestration logic
+  │   ├── dtw_aligner.py        # Temporal matching
+  │   ├── frame_fingerprint.py  # Frame analysis
+  │   └── spatial_alignment.py  # Position detection
+```
 
 $END$
 END SPECIFICATION
