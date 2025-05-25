@@ -1,60 +1,56 @@
 ---
-description: Defines core business rules for video composition, foreground preservation, and quality thresholds in video overlaying operations
-globs: src/vidkompy/core/video_processor.py,src/vidkompy/core/alignment_engine.py,src/vidkompy/models/composition.py
+description: Rules and constraints governing video composition, overlay, and synchronization behavior
+globs: src/vidkompy/*.py,tests/*.py
 alwaysApply: false
 ---
 
 
 # video-composition-rules
 
-## Core Composition Rules (Importance: 95)
-1. Foreground video prioritization:
-   - Foreground video is preserved as the "better quality" source
-   - Never re-time or modify foreground video frames
-   - Foreground frames dictate the output FPS
-   - Foreground audio track takes precedence when both sources have audio
+## Core Composition Rules [Importance: 95]
 
-2. Background video adaptations:
-   - Background video can be dynamically stretched/modified
-   - Frame dropping/interpolation allowed for background synchronization
-   - Background spatial position adjusted to accommodate foreground overlay
+1. Foreground Preservation
+- Foreground video quality must be preserved as the primary source
+- Foreground timing alignment is considered authoritative
+- Foreground audio track takes precedence when both sources have audio
 
-## Audio Handling Rules (Importance: 85)
-1. Audio source selection:
-   - If both videos have audio: Use foreground audio
-   - If only one has audio: Use available audio track
-   - Audio tracks used for temporal alignment when --match_time audio specified
+2. Video Size Constraints
+- Background video dimensions must be >= foreground video
+- Foreground is never scaled/resized during composition
+- Tool automatically finds optimal spatial offset for overlay
 
-2. Audio synchronization:
-   - Audio track alignment determines frame timing
-   - Audio cross-correlation used to find optimal time offset
-   - Audio fallback to frame-based methods if unusable
+3. Frame Rate Handling
+- Output uses highest FPS between foreground and background
+- Frame interpolation applies only to lower FPS source
+- Frame timing must maintain synchronization between sources
 
-## Quality and Resolution Rules (Importance: 90)
-1. Resolution constraints:
-   - Foreground video never larger than background video
-   - Background video must fully contain foreground overlay
-   - Output resolution matches background video dimensions
+4. Duration Management
+- Tool identifies optimal start/end frame pairs for overlay
+- Content outside optimal frame pairs is trimmed
+- Handles duration mismatches by finding best temporal alignment
 
-2. Frame preservation:
-   - No quality loss allowed in foreground frames
-   - Background frames may be transformed to match foreground timing
-   - Output uses highest FPS between sources
+## Audio Rules [Importance: 85]
 
-## Temporal Alignment Rules (Importance: 88)
-1. Frame selection:
-   - Find optimal start/end frame pairs
-   - Trim output to best matching segment
-   - Drop non-matching frames from start/end
-   - Preserve foreground frame sequence integrity
+1. Track Selection
+- Use foreground audio if both sources have sound
+- Fall back to background audio if foreground is silent
+- Audio can guide temporal alignment via cross-correlation
 
-2. Duration handling:
-   - Handle different video durations
-   - Find best temporal offset for overlay
-   - Trim to overlapping segments when --trim enabled
+2. Synchronization
+- Audio alignment takes precedence over frame alignment when specified
+- Temporal offset determined by audio matching carries to video tracks
+- Audio tracks must maintain phase alignment during composition
 
-Relevant files:
-- src/vidkompy/core/video_processor.py
-- src/vidkompy/core/alignment_engine.py
+## Quality Thresholds [Importance: 80]
+
+1. Content Matching
+- Background content may be compressed/modified version of foreground
+- Tool must handle non-identical but similar frame contents
+- Frame matching uses dynamic thresholds for alignment
+
+2. Frame Selection
+- Maximum 2000 keyframes used for temporal alignment
+- Frame pairs selected based on content similarity metrics
+- Edge frames may be dropped to optimize alignment quality
 
 $END$

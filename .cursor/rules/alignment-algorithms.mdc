@@ -1,49 +1,55 @@
 ---
-description: Documents video alignment algorithms for spatial/temporal synchronization and frame matching implementations
-globs: src/vidkompy/core/alignment*.py,src/vidkompy/core/dtw*.py,src/vidkompy/core/temporal*.py,src/vidkompy/core/spatial*.py
+description: Documentation for spatial and temporal video alignment algorithms used in automatic video overlay positioning
+globs: src/vidkompy/*align*.py,src/vidkompy/matching/*.py
 alwaysApply: false
 ---
 
 
 # alignment-algorithms
 
-## Spatial Alignment Core (90/100)
-- Advanced template matching using OpenCV for precise sub-region detection
-- Two-phase alignment approach:
-  1. Initial coarse positioning using feature detection (ORB) 
-  2. Fine-tuning using normalized cross-correlation
-- Compensates for compression artifacts and brightness variations
-- Automatic position optimization within background frame bounds
+## Temporal Alignment (Importance: 95)
 
-## Temporal Synchronization Engine (95/100)
-- Dynamic Time Warping (DTW) implementation for frame sequence alignment
-- Perceptual hash-based frame fingerprinting for robust matching
-- Adaptive keyframe selection with confidence-based early termination
-- Multi-modal alignment combining audio and visual cues
-- Zero-drift frame interpolation maintaining foreground timing integrity
+Three main temporal alignment strategies:
 
-## Frame Matching System (85/100)
-- Combined perceptual hash algorithms (pHash, ColorMoment) for frame signatures
-- Progressive refinement matching:
-  1. Quick hash-based candidate identification
-  2. Structural similarity validation
-  3. Content-aware position adjustment
-- Maintains foreground frame sequence while adapting background timing
+1. Audio Alignment
+- Cross-correlation of audio tracks between foreground and background videos
+- Identifies optimal temporal offset by matching audio signatures
+- Primary method when both videos contain sound
 
-## Audio-Visual Integration (80/100)
-- Cross-correlation based audio track alignment
-- Fallback chain for temporal synchronization:
-  1. Audio track correlation
-  2. Frame content matching
-  3. Duration-based centering
-- Intelligent audio source selection prioritizing foreground quality
+2. Duration-Based Alignment
+- Centers foreground video within background video duration
+- Basic fallback method when other alignment methods unavailable
+- Assumes linear temporal relationship between videos
 
-Relevant Files:
-```
-src/vidkompy/core/alignment_engine.py
-src/vidkompy/core/dtw_aligner.py 
-src/vidkompy/core/spatial_alignment.py
-src/vidkompy/core/temporal_alignment.py
-```
+3. Frame-Based Alignment
+- Advanced frame-by-frame content matching
+- Builds dynamic mapping between foreground and background frames
+- Handles variable frame rates and frame dropping/duplication
+- Limited to max_keyframes (default 2000) for processing efficiency
+- Known issue with drift-and-catchup artifacts in background portions
+
+## Spatial Alignment (Importance: 90)
+
+Two spatial alignment methods for positioning foreground video within background:
+
+1. Template Matching (Precise)
+- Default method for exact spatial alignment
+- Uses OpenCV template matching to find exact sub-regions
+- Identifies optimal offset position for foreground overlay
+- Most accurate for similar video content
+
+2. Feature Matching (Fast)
+- Uses ORB (Oriented FAST and Rotated BRIEF) feature detection
+- More robust for videos with significant differences
+- Trades precision for speed and flexibility
+- Better handles modified or processed video content
+
+## Integration Logic (Importance: 85)
+
+- Automatic detection of video dimensions ensures foreground fits within background
+- Handles mismatched frame rates by using higher FPS for output
+- Supports combined spatial and temporal alignment
+- Trims output to aligned segments when trim=True
+- Skip_spatial_align flag forces center positioning
 
 $END$

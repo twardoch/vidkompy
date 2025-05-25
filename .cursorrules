@@ -205,7 +205,7 @@ The project uses pytest with minimal test coverage currently (only version check
 
 START SPECIFICATION:
 ---
-description: Apply when documenting high-level business logic and domain-specific implementations for video overlay and alignment systems, specifically for intelligent video composition tools that require precise spatial and temporal synchronization
+description: Overview documentation for a video overlay tool that intelligently aligns and combines foreground/background videos with automatic spatial and temporal matching
 globs: *.py,*.md
 alwaysApply: false
 ---
@@ -222,54 +222,52 @@ alwaysApply: false
 - Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
 
 
-vidkompy is an intelligent video overlay system focused on precision alignment of video content. The core business logic revolves around automatically synchronizing and compositing video streams with different characteristics.
+Core functionality revolves around intelligent video overlay processing with automatic alignment capabilities.
 
-## Core Business Components
+## Primary Features {score: 95}
+1. Spatial Alignment
+- Automatically detects optimal positioning of foreground video within larger background
+- Uses template matching for precise alignment or feature matching for speed
 
-### Video Alignment Engine (Importance: 95)
-- Automatic detection of optimal spatial positioning for foreground overlay
-- Temporal synchronization using frame content or audio signals
-- Smart handling of FPS and duration differences between videos
-- File: src/vidkompy/vidkompy_old.py
+2. Temporal Synchronization
+- Matches videos with different framerates by using higher FPS for output
+- Finds optimal frame pairs for start/end points
+- Supports audio-based synchronization
+- Handles videos of different durations
 
-### Temporal Alignment Methods (Importance: 90)
-Three distinct alignment strategies:
-- Audio-based cross-correlation for sound-driven synchronization
-- Duration-based centering for simple timeline alignment
-- Frame-based content matching for precise visual synchronization
-- File: src/vidkompy/vidkompy_old.py
+3. Audio Processing
+- Uses audio tracks for temporal alignment when available 
+- Preserves foreground audio in output when both sources have audio
+- Falls back to single audio source when only one is present
 
-### Spatial Alignment Methods (Importance: 85)
-Two precision-focused positioning approaches:
-- Template matching for exact region identification
-- Feature matching for compression-tolerant alignment
-- File: src/vidkompy/vidkompy_old.py
+## Key Components {score: 90}
 
-### Quality Preservation Logic (Importance: 80)
-- Foreground video quality preservation as primary directive
-- Intelligent frame selection to maintain temporal integrity
-- Dynamic background adaptation to match foreground timing
-- File: src/vidkompy/vidkompy_old.py
+Main Implementation (src/vidkompy/vidkompy_old.py):
+- Handles core video overlay logic
+- Manages temporal alignment modes:
+  - Audio correlation
+  - Duration-based centering  
+  - Frame content matching
+- Implements spatial alignment methods:
+  - Template matching for exact positioning
+  - ORB feature detection for faster alignment
 
-### Audio Management (Importance: 75)
-- Intelligent audio track selection between sources
-- Audio-based synchronization when available
-- Preservation of high-quality audio source
-- File: src/vidkompy/vidkompy_old.py
+## Processing Flow {score: 85}
 
-## Workflow Integration
+1. Input Processing
+- Accepts background and foreground video paths
+- Validates video properties and compatibility
 
-### Command Interface (Importance: 70)
-- Intelligent default behaviors for minimal user intervention
-- Automatic output filename generation
-- Configurable alignment methods
-- File: src/vidkompy/vidkompy_old.py
+2. Alignment Phase
+- Determines optimal spatial offset
+- Calculates temporal synchronization points
+- Identifies frame mapping strategy
 
-### Process Control (Importance: 65)
-- Progress tracking and logging
-- Error handling with user guidance
-- Automatic fallback strategies
-- File: src/vidkompy/vidkompy_old.py
+3. Output Generation
+- Combines videos using calculated offsets
+- Applies audio track selection
+- Handles frame rate differences
+- Trims output to aligned segment
 
 $END$
 END SPECIFICATION

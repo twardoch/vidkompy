@@ -265,6 +265,61 @@ class TemporalAligner:
 
         return hashes
 
+    def _precompute_masked_video_fingerprints(
+        self,
+        video_path: str,
+        frame_indices: list[int],
+        mask: np.ndarray,
+        resize_factor: float = 0.25,
+    ) -> dict[int, dict[str, np.ndarray]]:
+        """Pre-compute masked fingerprints for video frames.
+
+        Args:
+            video_path: Path to video file
+            frame_indices: List of frame indices to process
+            mask: Binary mask for border regions
+            resize_factor: Factor to resize frames before fingerprinting
+
+        Returns:
+            Dictionary mapping frame indices to fingerprints
+        """
+        if self.fingerprinter is None:
+            raise RuntimeError("Fingerprinter not initialized")
+
+        logger.debug(f"Computing masked fingerprints for {len(frame_indices)} frames")
+        start_time = time.time()
+
+        # Extract frames
+        frames = self.processor.extract_frames(video_path, frame_indices, resize_factor)
+
+        # Compute masked fingerprints
+        fingerprints = {}
+        for idx, frame in zip(frame_indices, frames, strict=False):
+            if frame is not None:
+                # Resize mask to match frame size if needed
+                if frame.shape[:2] != mask.shape[:2]:
+                    resized_mask = cv2.resize(
+                        mask.astype(np.float32),
+                        (frame.shape[1], frame.shape[0]),
+                        interpolation=cv2.INTER_LINEAR,
+                    )
+                    resized_mask = (resized_mask > 0.5).astype(np.uint8)
+                else:
+                    resized_mask = mask
+
+                # Compute masked fingerprint
+                fingerprint = self.fingerprinter.compute_masked_fingerprint(
+                    frame, resized_mask
+                )
+                fingerprints[idx] = fingerprint
+
+        elapsed = time.time() - start_time
+        logger.debug(
+            f"Computed {len(fingerprints)} masked fingerprints in {elapsed:.2f}s"
+        )
+
+        return fingerprints
+
     def _find_keyframe_matches(
         self, bg_info: VideoInfo, fg_info: VideoInfo
     ) -> list[tuple[int, int, float]]:
@@ -426,6 +481,88 @@ class TemporalAligner:
         # Compute SSIM
         score, _ = ssim(gray1, gray2, full=True)
         return float(score)
+
+    def _precompute_masked_frame_hashes(
+        self, video_path: str, frame_indices: list[int], resize_factor: float = 0.125
+    ) -> dict[int, np.ndarray]:
+        """Pre-compute masked perceptual hashes for frames in parallel."""
+        if not self.use_perceptual_hash or self.hasher is None or self._current_mask is None:
+            return {}
+
+        logger.debug(f"Pre-computing masked hashes for {len(frame_indices)} frames")
+        start_time = time.time()
+
+        # Extract frames
+        frames = self.processor.extract_frames(video_path, frame_indices, resize_factor)
+
+        # Compute masked hashes in parallel
+        hashes = {}
+        with ThreadPoolExecutor(max_workers=mp.cpu_count()) as executor:
+            future_to_idx = {
+                executor.submit(self._compute_masked_frame_hash, frame, self._current_mask): idx
+                for idx, frame in zip(frame_indices, frames, strict=False)
+                if frame is not None
+            }
+
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    hash_value = future.result()
+                    if hash_value is not None:
+                        hashes[idx] = hash_value
+                except Exception as e:
+                    logger.warning(f"Failed to compute masked hash for frame {idx}: {e}")
+
+        elapsed = time.time() - start_time
+        logger.debug(f"Computed {len(hashes)} masked hashes in {elapsed:.2f}s")
+
+        return hashes
+
+    def _compute_masked_frame_hash(self, frame: np.ndarray, mask: np.ndarray) -> np.ndarray | None:
+        """Compute perceptual hash for masked frame."""
+        if frame is None or self.hasher is None:
+            return None
+
+        # Resize mask to match frame if needed
+        if frame.shape[:2] != mask.shape[:2]:
+            resized_mask = cv2.resize(
+                mask.astype(np.float32),
+                (frame.shape[1], frame.shape[0]),
+                interpolation=cv2.INTER_LINEAR,
+            )
+            resized_mask = (resized_mask > 0.5).astype(np.uint8)
+        else:
+            resized_mask = mask
+
+        # Apply mask to frame
+        if len(frame.shape) == 3:
+            masked = frame.copy()
+            for c in range(frame.shape[2]):
+                masked[:, :, c] = frame[:, :, c] * resized_mask
+        else:
+            masked = frame * resized_mask
+
+        # Crop to bounding box of mask
+        rows = np.any(resized_mask, axis=1)
+        cols = np.any(resized_mask, axis=0)
+        
+        if not np.any(rows) or not np.any(cols):
+            # Empty mask, compute hash on original
+            resized = cv2.resize(frame, (32, 32))
+        else:
+            rmin, rmax = np.where(rows)[0][[0, -1]]
+            cmin, cmax = np.where(cols)[0][[0, -1]]
+            cropped = masked[rmin:rmax+1, cmin:cmax+1]
+            
+            # Resize for hashing
+            resized = cv2.resize(cropped, (32, 32))
+
+        # Convert to grayscale if needed
+        if len(resized.shape) == 3:
+            resized = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+        
+        hash_value = self.hasher.compute(resized)
+        return hash_value
 
     def _compute_frame_hash(self, frame: np.ndarray) -> np.ndarray:
         """Compute perceptual hash of a frame."""
@@ -919,13 +1056,22 @@ class TemporalAligner:
         # Compute fingerprints for sampled frames
         logger.info("Computing frame fingerprints...")
 
-        fg_fingerprints = self.fingerprinter.precompute_video_fingerprints(
-            fg_info.path, fg_indices, self.processor, resize_factor=0.25
-        )
-
-        bg_fingerprints = self.fingerprinter.precompute_video_fingerprints(
-            bg_info.path, bg_indices, self.processor, resize_factor=0.25
-        )
+        # Check if we need to use masked fingerprints
+        if self._current_mask is not None:
+            logger.info("Using masked fingerprints for border mode DTW alignment")
+            fg_fingerprints = self._precompute_masked_video_fingerprints(
+                fg_info.path, fg_indices, self._current_mask, resize_factor=0.25
+            )
+            bg_fingerprints = self._precompute_masked_video_fingerprints(
+                bg_info.path, bg_indices, self._current_mask, resize_factor=0.25
+            )
+        else:
+            fg_fingerprints = self.fingerprinter.precompute_video_fingerprints(
+                fg_info.path, fg_indices, self.processor, resize_factor=0.25
+            )
+            bg_fingerprints = self.fingerprinter.precompute_video_fingerprints(
+                bg_info.path, bg_indices, self.processor, resize_factor=0.25
+            )
 
         if not fg_fingerprints or not bg_fingerprints:
             logger.error("Failed to compute fingerprints")
@@ -1168,12 +1314,11 @@ class TemporalAligner:
         if mask is not None:
             logger.info("Border mode active for temporal alignment.")
             if self.use_dtw:
-                logger.warning(
-                    "Border mode forces classic (keyframe/SSIM) alignment to ensure "
-                    "mask is respected, even if DTW is selected. DTW with perceptual "
-                    "hashing does not yet support masked regions effectively."
+                logger.info(
+                    "Border mode with DTW enabled using masked perceptual hashing."
                 )
-                effective_use_dtw = False
+                # DTW now supports masked perceptual hashing
+                effective_use_dtw = True
 
             # In border mode, we can now use masked perceptual hashing
             if not effective_use_dtw and self.use_perceptual_hash:

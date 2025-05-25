@@ -1,38 +1,65 @@
 ---
-description: Specifications for frame matching, similarity scoring, and temporal mapping models in video overlay system
-globs: src/vidkompy/core/frame_fingerprint.py,src/vidkompy/core/temporal_alignment.py,src/vidkompy/core/dtw_aligner.py
+description: Specifications for frame matching and temporal alignment algorithms in video overlay processing
+globs: src/vidkompy/*matching*.py,src/vidkompy/framemap.py,src/vidkompy/temporal.py
 alwaysApply: false
 ---
 
 
 # frame-matching-models
 
-Core frame matching and temporal alignment models implementing the intelligent video overlay system.
+## Frame Matching Core Components
 
-## Frame Fingerprinting System (Importance: 95)
-- Perceptual hash generation for efficient frame comparison
-- Multi-hash approach combining pHash, AverageHash and ColorMomentHash 
-- Frame similarity scoring using custom Hamming distance thresholds
-- Adaptive keyframe detection and extraction
+The system implements intelligent frame mapping between foreground and background videos through multiple alignment methods:
 
-## Temporal Mapping Models (Importance: 90)
-- Dynamic Time Warping (DTW) alignment for optimal frame-to-frame mapping
-- Zero-drift temporal synchronization preserving foreground frame timing
-- Sakoe-Chiba band constraint implementation for restricted warping paths
-- Keyframe interpolation system for smooth transitions
+### Temporal Alignment Models
+importance: 95
 
-## Frame Matching Engine (Importance: 85) 
-- Template-based precise matching for exact frame alignment
-- Feature-based fast matching using ORB detection
-- Confidence scoring for match quality assessment
-- Adaptive search window optimization
+Three primary temporal alignment strategies:
 
-## Key Implementation Files:
-```
-src/vidkompy/core/
-├── frame_fingerprint.py    # Frame hash generation and comparison
-├── temporal_alignment.py   # Frame mapping and synchronization
-└── dtw_aligner.py         # Dynamic time warping implementation
-```
+1. Audio-based matching
+- Uses cross-correlation of audio tracks to determine optimal temporal offset
+- Primary method when both videos contain sound
+
+2. Duration-based matching
+- Centers foreground content within background duration
+- Fallback method when audio matching is unavailable
+
+3. Frame content matching
+- Analyzes frame content to create dynamic mapping
+- Uses up to 2000 keyframes (configurable via max_keyframes parameter)
+- Handles videos with different frame rates by targeting higher FPS
+
+### Frame Selection Logic
+importance: 85
+
+The system determines optimal start/end frame pairs through:
+
+- Perfect frame pair identification for START frame
+- Perfect frame pair identification for END frame
+- Intelligent frame dropping at start/end when needed
+- Dynamic trimming to match overlapping segments
+
+### Similarity Models
+importance: 80
+
+Two spatial alignment methods for frame matching:
+
+1. Template Matching (precise)
+- Default method
+- Uses OpenCV template matching
+- Identifies exact sub-regions
+
+2. Feature Matching (fast)
+- Uses ORB feature detection
+- More flexible for modified content
+- Handles stretched/modified frame content
+
+### Frame Rate Handling
+importance: 75
+
+- Automatically selects higher FPS between sources for output
+- Compensates for temporal drift between sources
+- Manages frame interpolation when FPS differs
+- Handles frame dropping/duplication scenarios
 
 $END$
