@@ -398,8 +398,8 @@ This project is licensed under the MIT License. See the [LICENSE](https://www.go
 
 START SPECIFICATION:
 ---
-description: Overview documentation for video overlay synchronization systems that intelligently align and composite video content while preserving timing and quality
-globs: *.py,*.md,*.toml
+description: Creating business logic overview documentation for video synchronization and overlay systems, focused on frame analysis, temporal alignment, and content-aware composition algorithms
+globs: *.py,*.md
 alwaysApply: false
 ---
 
@@ -415,50 +415,58 @@ alwaysApply: false
 - Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
 
 
-The vidkompy system implements intelligent video overlay synchronization through several core business components:
+## Core Business Components
 
-## Frame Fingerprinting Engine (90)
-Essential video content matching system using:
-- Multi-algorithm perceptual hash combination
-- Weighted similarity scoring
-- Content-aware region detection
-- Adaptive feature extraction
+### Frame Analysis Engine
+- Multi-algorithm perceptual hashing combines frequency domain analysis, brightness patterns, color distribution, and edge detection
+- Weighted fingerprint generation adapts to video content characteristics
+- Masked region processing for letterboxed/pillarboxed content analysis
 
-Key Location: src/vidkompy/core/frame_fingerprint.py
+### Temporal Alignment System 
+- Dynamic Time Warping (DTW) with foreground frame preservation guarantees
+- Two-tier alignment modes:
+  - Full frame comparison for maximum accuracy
+  - Border-aware matching for letterboxed content
+- Sliding window refinement with monotonicity constraints
+- Bidirectional drift correction using polynomial regression
 
-## Temporal Alignment System (95)
-Video sequence synchronization implementing:
-- Dynamic Time Warping with Sakoe-Chiba constraints
-- Multi-resolution temporal pyramid refinement
-- Polynomial drift correction models
-- Foreground-first frame preservation principle
+### Spatial Positioning Logic
+- Template matching with normalized correlation scoring
+- Content-aware refinement for video border detection
+- Automatic scale factor calculation for resolution differences
+- Position confidence validation with fallback strategies
 
-Key Location: src/vidkompy/core/alignment_engine.py
+### Video Composition Orchestration
+- Foreground-first frame preservation policy
+- Dynamic background frame adaptation and warping
+- Audio stream selection based on quality metrics
+- Content integrity validation rules
 
-## Spatial Position Detection (85) 
-Intelligent overlay positioning using:
-- Template matching with confidence scoring
-- Border region analysis modes
-- Automatic scale factor calculation
-- Content-aware region masking
+## Integration Architecture
 
-Key Location: src/vidkompy/core/spatial_alignment.py
+### Processing Pipeline
+1. Content Analysis Phase
+- Video characteristic detection
+- Alignment strategy selection
+- Border mask generation
 
-## Video Processing Orchestration (80)
-Manages the complete alignment workflow:
-1. Initial spatial position detection
-2. Temporal sequence matching
-3. Frame-level synchronization
-4. Audio stream selection and timing
+2. Alignment Phase  
+- Spatial position determination
+- Temporal synchronization
+- Frame mapping validation
 
-Key Location: src/vidkompy/core/video_processor.py
+3. Composition Phase
+- Frame sequence preservation
+- Background adaptation
+- Audio integration
+- Quality assurance
 
-## Core Business Rules
-- Foreground video frames must be preserved exactly
-- Background content adapts to match foreground timing
-- Strict monotonicity in temporal alignments
-- Maximum allowed drift of 1 frame per 100 frames
-- Audio selection prioritizes foreground source
+### Business Rules
+- All foreground frames must be preserved exactly
+- Background timing adapts to match foreground
+- Frame sequences must maintain temporal order
+- Quality metrics drive processing decisions
+- Content boundaries determine spatial positioning
 
 $END$
 END SPECIFICATION

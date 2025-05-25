@@ -1,64 +1,49 @@
 ---
-description: Documents the video processing workflow, frame analysis, and synchronization logic for video overlay composition
-globs: src/vidkompy/core/*.py,src/vidkompy/models.py,src/vidkompy/vidkompy.py
+description: Documents the core business logic for video frame processing, synchronization and overlay composition
+globs: src/vidkompy/core/*.py,src/vidkompy/video/*.py,src/vidkompy/models.py
 alwaysApply: false
 ---
 
 
 # video-processing-flow
 
-## Core Processing Pipeline
+## Frame Processing Pipeline (90)
+- Frame fingerprinting using perceptual hash combination
+  - pHash for frequency domain analysis 
+  - AverageHash for brightness patterns
+  - ColorMomentHash for color distribution
+  - MarrHildrethHash for edge detection
+- Weighted fingerprint fusion based on content type
+- Masked region handling for letterboxed content
 
-### Frame Analysis (Importance: 95)
-- Multi-algorithm perceptual hashing for frame fingerprinting
-- Weighted combination of pHash, AverageHash, ColorMoments and MarrHildreth algorithms
-- Custom similarity scoring using normalized hash distances and histogram correlation
-- Adaptive fingerprint generation based on content characteristics
+## Temporal Alignment Engine (95) 
+- Dynamic Time Warping with video-specific constraints
+- Foreground frame preservation with background warping
+- Progressive multi-resolution refinement
+- Drift correction through polynomial regression
+- Bidirectional refinement with confidence scoring
 
-### Temporal Alignment (Importance: 98) 
-- Dynamic Time Warping with Sakoe-Chiba band constraint
-- Foreground-first frame preservation policy
-- Progressive multi-resolution refinement strategy
-- Polynomial drift correction with keyframe anchoring
-- Bidirectional path finding with confidence scoring
+## Spatial Positioning System (85)
+- Template matching with normalized correlation
+- Content-aware refinement for letterboxed videos
+- Automatic scale factor determination
+- Position confidence validation
+- Border region handling
 
-### Spatial Positioning (Importance: 90)
-- Template matching for optimal overlay placement
-- Border region analysis for edge alignment
-- Automatic scale factor calculation
-- Confidence-based positioning fallbacks
-- Masked region comparison for letterboxed content
+## Composition Orchestration (80)
+- Frame sequence validation
+- Audio stream selection policy
+- Quality threshold enforcement
+- Drift prevention mechanisms
+- Content integrity verification
 
-### Video Composition (Importance: 92)
-- Background frame adaptation to match foreground timing
-- Monotonic frame sequence enforcement
-- Audio stream selection hierarchy:
-  1. Foreground audio (primary)
-  2. Background audio (fallback)
-  3. Silent output (last resort)
-- Synchronized audio placement with drift compensation
-
-## Alignment Strategies
-
-### Fast Engine (Importance: 85)
-- Direct frame mapping with strict 1:1 correspondence
-- Immediate drift correction through forced alignment
-- Simplified fingerprint comparison for speed
-
-### Precise Engine (Importance: 88)
-- Hierarchical temporal pyramid approach
-- Active drift monitoring and correction
-- Confidence-weighted bidirectional alignment
-- Automatic keyframe detection and anchoring
-
-### Masked Engine (Importance: 82)
-- Content-aware region detection
-- Non-black area prioritization
-- Aspect ratio handling for letterboxed videos
-
-### Tunnel Engine (Importance: 80)
-- Sliding window frame comparison
-- Forward/backward pass consolidation
-- Early match optimization
+File Paths:
+```
+src/vidkompy/core/
+  ├── frame_fingerprint.py
+  ├── temporal_alignment.py 
+  ├── spatial_alignment.py
+  └── video_processor.py
+```
 
 $END$

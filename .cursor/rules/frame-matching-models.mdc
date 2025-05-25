@@ -1,55 +1,46 @@
 ---
-description: Technical specification for frame matching algorithms and temporal alignment models in video processing
-globs: src/vidkompy/core/frame_fingerprint.py,src/vidkompy/core/dtw_aligner.py,src/vidkompy/core/alignment_engine.py
+description: Technical specifications for frame matching and mapping models in video overlay synchronization
+globs: src/vidkompy/core/frame_fingerprint.py,src/vidkompy/core/temporal_alignment.py,src/vidkompy/core/multi_resolution_aligner.py
 alwaysApply: false
 ---
 
 
 # frame-matching-models
 
-## Frame Fingerprinting System (Importance: 95)
-- Multi-algorithm perceptual hash fusion combining:
-  - pHash for frequency domain analysis 
-  - AverageHash for luminance patterns
-  - ColorMomentHash for color distribution
-  - MarrHildrethHash for edge structure detection
-- Weighted fingerprint scoring based on content type reliability
-- Border region prioritization for letterboxed content matching
+## Frame Fingerprinting System
+Importance: 95
 
-## Temporal Alignment Models (Importance: 98)
-- Dynamic Time Warping (DTW) with Sakoe-Chiba band constraint
-- Foreground-first frame preservation principle
-- Bidirectional alignment with confidence-weighted path merging
-- Keyframe anchoring for drift prevention
-- Polynomial drift correction with adaptive window sizes
+Multi-algorithm frame fingerprinting combines four perceptual hashing approaches:
+- pHash: Analyzes frequency domain patterns using DCT transform
+- AverageHash: Computes brightness distribution signatures 
+- ColorMomentHash: Captures color distribution statistics
+- MarrHildrethHash: Edge detection for structural features
 
-## Frame Mapping Engines (Importance: 92)
-- Fast Engine:
-  - Direct 1:1 frame correspondence
-  - Forced monotonic progression
-  - Early stopping on perfect matches
-- Precise Engine:
-  - Multi-resolution temporal pyramid
-  - Progressive refinement through resolution levels
-  - Local neighborhood search within alignment bands
-- Masked Engine:
-  - Content-aware region detection
-  - Border-based alignment for letterboxed videos
-  - Selective feature matching on visible regions
+Weighted fingerprint fusion adapts to content characteristics based on hash reliability scoring.
 
-## Synchronization Orchestration (Importance: 88)
-- Frame selection policies:
-  1. Preserve all foreground frames
-  2. Adapt background timing to match
-  3. Apply drift correction at keyframes
-- Audio alignment rules:
-  - Foreground audio priority
-  - Background audio fallback
-  - Timing synchronization with composed video
+Location: src/vidkompy/core/frame_fingerprint.py
 
-Key Implementation Files:
-- /src/vidkompy/core/frame_fingerprint.py
-- /src/vidkompy/core/dtw_aligner.py
-- /src/vidkompy/core/alignment_engine.py
+## Temporal Alignment Engine  
+Importance: 90
+
+Dynamic Time Warping (DTW) implementation specialized for video frame sequences:
+- Monotonic path constraints preserve temporal ordering
+- Sakoe-Chiba band optimization prevents extreme warping
+- Foreground-first principle maintains source frame integrity
+- Background frame warping adapts to match foreground timing
+
+Location: src/vidkompy/core/temporal_alignment.py
+
+## Multi-Resolution Matcher
+Importance: 85
+
+Progressive frame matching system using resolution pyramids:
+- Starts at 1/16 resolution for initial alignment
+- Refines matches through increasing resolution levels
+- Uses confidence thresholds at each level
+- Dynamic keyframe density based on FPS differences
+- Sliding window refinement for local optimization
+
+Location: src/vidkompy/core/multi_resolution_aligner.py
 
 $END$

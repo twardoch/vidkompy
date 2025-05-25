@@ -1,66 +1,71 @@
 ---
-description: Documents spatial and temporal alignment algorithms for video synchronization and overlay
-globs: src/vidkompy/core/dtw_aligner.py,src/vidkompy/core/frame_fingerprint.py,src/vidkompy/core/multi_resolution_aligner.py,src/vidkompy/core/spatial_alignment.py
+description: Technical specification for video frame alignment and synchronization algorithms
+globs: src/vidkompy/core/alignment_*.py,src/vidkompy/core/temporal_*.py,src/vidkompy/core/spatial_*.py
 alwaysApply: false
 ---
 
 
 # alignment-algorithms
 
-## Frame Fingerprinting System (Importance: 95)
-`src/vidkompy/core/frame_fingerprint.py`
+## Frame Fingerprinting Engine
+**Importance: 95**
 
-Multi-algorithm perceptual hash generation:
-- pHash analyzes frequency domain features
-- AverageHash captures luminance patterns  
-- ColorMomentHash measures color distribution
-- MarrHildrethHash detects structural edges
+Location: src/vidkompy/core/frame_fingerprint.py
 
-Weighted similarity scoring combines normalized Hamming distances with color histogram correlation for robust frame matching.
+Multi-algorithm perceptual hashing system combining:
+- Frequency domain analysis (pHash)
+- Brightness distribution (AverageHash) 
+- Color statistics (ColorMomentHash)
+- Edge/shape detection (MarrHildrethHash)
 
-## Temporal Alignment Engine (Importance: 98)
-`src/vidkompy/core/dtw_aligner.py`
+Custom weighting system adjusts hash influence based on content reliability.
 
-Custom Dynamic Time Warping implementation:
-- Sakoe-Chiba band constraint maintains temporal coherence
-- Monotonic frame mapping prevents out-of-order alignments
-- Keyframe anchoring eliminates drift
-- Bidirectional path finding with confidence scoring
+## Dynamic Time Warping Alignment
+**Importance: 98**
 
-## Multi-Resolution Framework (Importance: 92) 
-`src/vidkompy/core/multi_resolution_aligner.py`
+Location: src/vidkompy/core/dtw_aligner.py
 
-Hierarchical video alignment:
-- Progressive refinement through resolution levels
-- Dynamic resolution selection based on content
-- Polynomial drift correction between keyframes
-- Confidence-weighted blending of alignment paths
+Video-specific DTW implementation with:
+- Foreground frame preservation guarantee
+- Monotonic path constraints
+- Sakoe-Chiba band optimization
+- Adaptive window sizing
+- Bidirectional refinement passes
 
-## Spatial Position Detection (Importance: 90)
-`src/vidkompy/core/spatial_alignment.py`
+## Spatial Position Detection
+**Importance: 92**
 
-Template matching with specialized modes:
-- Standard: Full frame correlation
-- Border: Edge region analysis (8px default)
-- Center: Fallback for low confidence matches
+Location: src/vidkompy/core/spatial_alignment.py
 
-Automatic scaling handles resolution mismatches while preserving content aspect ratios.
+Template matching specialized for video overlay:
+- Border region analysis
+- Masked correlation scoring
+- Resolution mismatch handling
+- Automatic scale factor detection
+- Position confidence metrics
 
-## Core Business Rules
+## Multi-Resolution Alignment
+**Importance: 88**
 
-1. Foreground Preservation
-- All foreground frames maintained without modification
-- Background frames adapt to match foreground timing
-- No frame dropping or interpolation allowed
+Location: src/vidkompy/core/multi_resolution_aligner.py
 
-2. Temporal Consistency  
-- Strict monotonicity in frame mappings
-- Maximum allowed drift: 1 frame per 100 frames
-- Forced alignment at scene change keyframes
+Hierarchical refinement process:
+- Progressive resolution scaling
+- Confidence thresholding at each level
+- Frame sequence validation
+- Drift correction mechanisms
+- Quality-driven fallback paths
 
-3. Quality Controls
-- Minimum match confidence: 0.85
-- Border width: 8-24 pixels
-- Template correlation threshold: 0.90
+## Frame Mapping Engine
+**Importance: 85**
+
+Location: src/vidkompy/core/temporal_alignment.py
+
+Frame sequence mapping with:
+- Keyframe anchoring strategy
+- Dynamic density calculation
+- FPS difference compensation
+- Monotonicity enforcement
+- Global alignment optimization
 
 $END$
