@@ -27,6 +27,7 @@ def main(
     bg: str | Path,
     fg: str | Path,
     output: str | Path | None = None,
+    engine: str = "fast",
     margin: int = 8,
     smooth: bool = False,
     gpu: bool = False,  # Future GPU acceleration support
@@ -38,6 +39,7 @@ def main(
         bg: Background video path
         fg: Foreground video path
         output: Output video path (auto-generated if not provided)
+        engine: Temporal alignment engine - 'fast' (current) or 'precise' (coming soon) (default: 'fast')
         margin: Border thickness for border matching mode (default: 8)
         smooth: Enable smooth blending at frame edges
         gpu: Enable GPU acceleration (future feature)
@@ -84,25 +86,41 @@ def main(
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Hotfix: Use direct mapping for reliable temporal alignment
-    # Both DTW and CLASSIC are failing on this video pair
-    time_mode = MatchTimeMode.PRECISE
-    space_method = "template"
-    temporal_method = TemporalMethod.CLASSIC
-    max_keyframes = 1  # Force fallback to direct mapping
+    # Validate engine parameter
+    if engine not in ["fast", "precise"]:
+        logger.error(f"Invalid engine: {engine}. Must be 'fast' or 'precise'")
+        return
+
+    if engine == "precise":
+        logger.error("Precise engine not yet implemented. Please use 'fast' for now.")
+        return
+
+    # Configure based on engine choice
+    if engine == "fast":
+        # Current implementation - force direct mapping due to drift issues
+        time_mode = MatchTimeMode.PRECISE
+        space_method = "template"
+        temporal_method = TemporalMethod.CLASSIC
+        max_keyframes = 1  # Force fallback to direct mapping
+    else:  # engine == "precise" (for future implementation)
+        # Future precise engine configuration
+        time_mode = MatchTimeMode.PRECISE
+        space_method = "template"
+        temporal_method = TemporalMethod.CLASSIC  # Will be replaced with new method
+        max_keyframes = 1000  # Dense sampling
 
     if gpu:
         logger.info("GPU acceleration not yet implemented")
 
-    # Create processor and engine
+    # Create processor and alignment engine
     processor = VideoProcessor()
-    engine = AlignmentEngine(
+    alignment = AlignmentEngine(
         processor=processor, verbose=verbose, max_keyframes=max_keyframes
     )
 
     # Process the videos
     try:
-        engine.process(
+        alignment.process(
             bg_path=str(bg_path),
             fg_path=str(fg_path),
             output_path=output,

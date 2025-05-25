@@ -1,158 +1,30 @@
 # Progress: vidkompy Performance Improvements
 
-## Previous Rounds Complete
+## Completed Tasks
 
-### Phase 1-6: Core Architecture ✓
-- [x] Modular architecture implemented
-- [x] Spatial alignment (template/feature) working
-- [x] Temporal alignment (audio/frames) working
-- [x] Frame preservation guaranteed
-- [x] Basic functionality verified
+### Temporal Alignment Research & Design
+- [x] Analyzed current temporal alignment implementation and identified drift issues
+- [x] Researched best practices for precise video synchronization
+- [x] Created SPEC.md with detailed design for 'precise' engine
+- [x] Added --engine CLI parameter to support multiple alignment engines
 
-## Current Round: Performance Optimizations from SPEC5 ✓ COMPLETED
+## Future Optimizations (Not Yet Implemented)
 
-### Quick Fixes Implementation ✓ COMPLETED
-- [x] **Default keyframes reduced**: Changed from 2000 to 200 for better drift prevention
-- [x] **Parallel cost matrix**: Already implemented with ThreadPoolExecutor
-- [x] **Masked perceptual hashing**: Enabled DTW with border mode using masked fingerprints
-- [x] **Adaptive keyframe calculation**: Implemented to prevent drift based on FPS differences
-- [x] **Benchmark script**: Created benchmark.py for performance testing
+### Performance Enhancements
+- [ ] GPU acceleration with CuPy for phase correlation
+- [ ] FAISS integration for fast similarity search
+- [ ] Replace OpenCV with PyAV for faster video I/O
+- [ ] Implement sliding window refinement for drift correction
+- [ ] Hierarchical multi-resolution matching
 
-### Key Improvements Made:
-1. **Border Mode + DTW**: Now supports masked perceptual hashing for fast border mode alignment
-2. **Adaptive Density**: Keyframe density adjusts based on video characteristics
-3. **Performance Testing**: Comprehensive benchmark suite for measuring improvements
+### Architecture Improvements  
+- [ ] Replace template matching with phase correlation for spatial alignment
+- [ ] Use neural embeddings (MobileNet) instead of perceptual hashes
+- [ ] Implement proper fallback strategies for edge cases
+- [ ] Add caching for repeated video pairs
 
-## Implementation Complete: SPEC4 & SPEC5 ✓
-
-### What Was Actually Implemented
-
-#### From SPEC5 (Performance & Drift Elimination) ✓ COMPLETED
-- [x] Adaptive keyframe density calculation
-- [x] Default keyframes reduced to 200
-- [x] Parallel cost matrix building
-- [x] Masked perceptual hashing for border mode
-- [x] DTW enabled with border mode
-- [x] Benchmark script created
-
-#### From SPEC4 (Code Thinning) ✓ COMPLETED
-- [x] Removed audio alignment completely
-- [x] Removed feature-based spatial alignment
-- [x] Removed FAST temporal mode
-- [x] Simplified CLI to minimal parameters
-- [x] Fixed configuration approach
-
-### What Was Not Implemented (Future Work)
-
-#### Advanced Performance Features
-- [ ] FAISS integration for similarity search
-- [ ] GPU acceleration with CuPy
-- [ ] PyAV for video I/O
-- [ ] Phase correlation for spatial alignment
-- [ ] Neural embeddings instead of perceptual hashes
-
-#### Architecture Changes
-- [ ] Complete removal of classic temporal alignment methods
-- [ ] DTWAligner merge into TemporalAligner
-- [ ] Sliding window refinement
-
-### Final Status
-
-The implementation focused on practical improvements rather than the complete architectural overhaul proposed in SPEC4. This approach:
-- Achieved significant performance improvements (10-50x for composition)
-- Eliminated temporal drift through adaptive keyframes
-- Simplified the codebase by ~40%
-- Maintained stability and compatibility
-- Created a solid foundation for future GPU/FAISS optimizations
-
-The tool is now production-ready with excellent performance and simplified maintenance.
-
-## Previous Completed Rounds:
-
-### Progress Reporting Improvements ✓ COMPLETED
-- [x] **Removed Spinner Progress**: Eliminated annoying spinner displays for quick tasks
-- [x] **Simple Logging**: Quick tasks (video analysis, spatial alignment) now use simple logger.info messages
-- [x] **Proper Progress Bars**: Frame composition now shows detailed progress bar with percentage, frame count, and time remaining
-- [x] **Maintained Existing Progress**: Kept meaningful progress bars for time-intensive operations (DTW, cost matrix building)
-
-### Compositing Performance Optimization ✓ COMPLETED
-- [x] **Compositing Speedup**: Implemented sequential reading with generators 
-- [x] **Progress Context Fix**: Resolved "Only one live display may be active at once" error
-- [x] **Verification**: Confirmed 10-100x speedup potential by eliminating random seeks
-- [x] Add spatial alignment result logging in non-verbose mode
-- [x] Add temporal alignment result logging in non-verbose mode  
-- [x] Fix progress indicator flickering issue (removed spinner conflicts)
-- [x] Add detailed docstrings explaining the why
-- [x] Create varia/SPEC4.md with improvement plan
-
-## Next Round: Performance Optimization (from SPEC2.md)
-
-### Phase 7: Fast Frame Similarity Metrics
-
-- [ ] Install opencv-contrib-python for img_hash module
-- [x] **Partially Addressed**: For SSIM path (used in border mode), drastically reduced keyframe sampling to improve performance. Perceptual hashing is used by default for DTW/non-border modes.
-- [ ] Implement perceptual hashing (pHash/dHash) for frame fingerprinting (FrameFingerprinter exists, but integration with classic keyframe matching needs review if hashes are to be used there beyond DTW)
-- [ ] Pre-compute hashes for all frames at video load (FrameFingerprinter does this on demand for DTW)
-- [ ] Create hash-based similarity function replacing SSIM
-- [ ] Use Hamming distance for fast similarity checks
-- [ ] Keep SSIM as fallback for low-confidence matches
-- [ ] Benchmark hash vs SSIM performance
-
-### Phase 8: Optimize Keyframe Matching
-
-- [ ] Implement adaptive search windows based on previous matches
-- [ ] Add confidence-based early termination
-- [ ] Reduce initial downsampling from 0.25 to 0.125 for speed
-- [ ] Cache extracted frames to avoid redundant reads
-- [ ] Implement dynamic keyframe sampling (coarse → fine)
-- [ ] Add temporal consistency checks
-
-### Phase 9: Advanced Temporal Alignment (DTW)
-
-- [ ] Implement Dynamic Time Warping algorithm
-- [ ] Create cost matrix using perceptual hash distances
-- [ ] Add Sakoe-Chiba band constraint for O(N) complexity
-- [ ] Provide DTW as optional "drift-free" alignment mode
-- [ ] Compare DTW vs keyframe interpolation accuracy
-- [ ] Handle edge cases (extra footage, gaps)
-
-### Phase 10: Performance Optimizations
-
-- [ ] Add multiprocessing.Pool for frame hash computations
-- [ ] Parallelize similarity matrix calculations
-- [ ] Implement batched frame extraction with threading
-- [ ] Add detailed progress reporting with time estimates
-- [ ] Profile and optimize memory usage
-- [ ] Consider numba JIT for critical loops
-
-### Phase 11: Testing & Validation
-
+### Code Quality
+- [ ] Add comprehensive unit tests
 - [ ] Create performance benchmark suite
-- [ ] Test with tests/bg.mp4 and tests/fg.mp4
-- [ ] Measure speedup: target 10-20x improvement
-- [ ] Validate zero drift with DTW mode
-- [ ] Test various video scenarios (different fps, durations)
-- [ ] Add unit tests for new hash/DTW components
-
-### Phase 12: Integration & Documentation
-
-- [ ] Update CLI with new options (--temporal_align dtw)
-- [ ] Update CHANGELOG.md with performance improvements
-- [ ] Document new alignment modes in README.md
-- [ ] Add performance tuning guide
-- [ ] Clean up and optimize imports
-- [ ] Run final formatting/linting
-
-## Performance Targets
-
-- Current: ~2-5 fps for frame matching (8s video times out)
-- Target: 40-80 fps (process 8s video in <1s)
-- Zero temporal drift with DTW mode
-- Memory usage < 1GB for 1080p videos
-
-## Implementation Priority
-
-1. **Perceptual hashing** (Phase 7) - Biggest impact, easiest
-2. **Adaptive windows** (Phase 8) - Quick win, moderate effort
-3. **Parallelization** (Phase 10) - Good speedup, moderate effort
-4. **DTW** (Phase 9) - Eliminates drift, complex but valuable
+- [ ] Add type hints throughout
+- [ ] Improve error handling and recovery

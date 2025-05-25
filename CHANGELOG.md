@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Multi-Engine Architecture**: Added --engine CLI parameter to support multiple temporal alignment engines
+- **Precise Engine Specification**: Created comprehensive SPEC.md for future 'precise' temporal alignment engine
+- **Engine Validation**: Added proper validation and error messages for engine selection
+
 ### Major Refactoring: Code Simplification & Performance
 
 ### Removed

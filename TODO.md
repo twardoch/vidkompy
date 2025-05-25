@@ -1,53 +1,50 @@
 # TODO
 
-## Completed from SPEC5 (Performance & Drift Elimination) ✓
-- [x] Adaptive keyframe density calculation to prevent drift
-- [x] Default keyframes reduced from 2000 to 200  
-- [x] Parallel cost matrix building with ThreadPoolExecutor
-- [x] Masked perceptual hashing for border mode
-- [x] Enable DTW with border mode
-- [x] Create benchmark script for performance testing
+The tool works OK now, way better than ever before. 
 
-## Completed from SPEC4 (Code Thinning) ✓
-- [x] Remove audio alignment functionality
-- [x] Remove feature-based spatial alignment (ORB)
-- [x] Remove FAST temporal alignment mode
-- [x] Simplify CLI to essential parameters only
-- [x] Fixed configuration: border mode + DTW + template matching
+When I run `python -m vidkompy -b tests/bg.mp4 -f tests/fg.mp4 -o tests/test.mp4 -m 1`, we get: 
 
-## Future Optimizations (Not Yet Implemented)
+```
+13:34:31 | INFO     | ✓ Perceptual hashing enabled (pHash)
+13:34:31 | INFO     | Analyzing videos...
+13:34:31 | INFO     | Video info for bg.mp4: 1920x1080, 60.00 fps, 7.85s, 472 frames, audio: yes
+13:34:31 | INFO     | Video info for fg.mp4: 1920x870, 60.89 fps, 8.04s, 483 frames, audio: yes
+13:34:31 | INFO     | Video compatibility check:
+13:34:31 | INFO     |   Resolution: 1920x1080 vs 1920x870
+13:34:31 | INFO     |   FPS: 60.00 vs 60.89
+13:34:31 | INFO     |   Duration: 7.85s vs 8.04s
+13:34:31 | INFO     |   Audio: yes vs yes
+13:34:31 | INFO     | Computing spatial alignment...
+13:34:32 | INFO     | Template match found at (0, 0) with confidence 0.941
+13:34:32 | INFO     | Spatial alignment result: offset=(0, 0), scale=1.000, confidence=0.941
+13:34:32 | INFO     | Computing temporal alignment...
+13:34:32 | INFO     | Starting frame-based temporal alignment
+13:34:32 | INFO     | Adaptive calculation suggests 50 keyframes
+13:34:32 | INFO     | Using 1 keyframes (clamped by max_keyframes=1)
+13:34:32 | INFO     | Perceptual hashing mode active. Target keyframes: 1
+13:34:32 | INFO     | Sampling every 483 frames for keyframe matching
+13:34:32 | INFO     | Sampling 2 FG frames and 2 BG frames
+13:34:32 | INFO     | Pre-computing perceptual hashes...
+13:34:32 | INFO     | Building cost matrix for dynamic programming alignment...
+13:34:32 | WARNING  | Only found 0 matches, attempting refinement...
+13:34:32 | INFO     | Found 0 monotonic keyframe matches
+13:34:32 | INFO     | ✓ Perceptual hashing provided significant speedup
+13:34:32 | WARNING  | No keyframe matches found, using direct mapping
+13:34:32 | INFO     | Temporal alignment result: method=direct, offset=0.000s, frames=483, confidence=0.300
+13:34:32 | INFO     | Composing output video...
+13:34:32 | INFO     | Composing video with direct temporal alignment
+Composing frames ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100% (483/483 frames) 0:00:00
+13:34:41 | INFO     | Wrote 483 frames to /var/folders/05/clcynl0509ldxltl599hhhx40000gn/T/tmpmrnzk6ox/temp_silent.mp4
+13:34:41 | INFO     | Using foreground audio track
+13:34:41 | INFO     | ✅ Processing complete: tests/test.mp4
+```
 
-### Performance Enhancements
-- [ ] GPU acceleration with CuPy for phase correlation
-- [ ] FAISS integration for fast similarity search
-- [ ] Replace OpenCV with PyAV for faster video I/O
-- [ ] Implement sliding window refinement for drift correction
-- [ ] Hierarchical multi-resolution matching
+The result still has some drift. 
 
-### Architecture Improvements  
-- [ ] Replace template matching with phase correlation for spatial alignment
-- [ ] Use neural embeddings (MobileNet) instead of perceptual hashes
-- [ ] Implement proper fallback strategies for edge cases
-- [ ] Add caching for repeated video pairs
+Analyze the entire codebase. It’s good to keep the current implementation, let’s add a CLI param `--engine` and the current implementation is the `fast` engine. 
 
-### Code Quality
-- [ ] Add comprehensive unit tests
-- [ ] Create performance benchmark suite
-- [ ] Add type hints throughout
-- [ ] Improve error handling and recovery
+Let’s implement a 2nd engine, `precise`, which would use a much more detailed temporal alignment. 
 
-## Current Implementation Status
+First research the best way to do this. 
 
-The codebase has been significantly simplified:
-- Single temporal alignment path (DTW with perceptual hashing)
-- Single spatial alignment path (template matching)
-- Minimal CLI with sensible defaults
-- ~40% code reduction from removing alternative implementations
-
-Performance improvements achieved:
-- 10-50x faster frame composition (sequential reading)
-- Drift elimination through adaptive keyframe density
-- Parallel processing for cost matrix computation
-- Masked fingerprinting for efficient border mode
-
-The tool is now production-ready with good performance and accuracy.
+Then write a `SPEC.md` file that describes the new engine. 

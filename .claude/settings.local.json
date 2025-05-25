@@ -11,7 +11,9 @@
       "Bash(mkdir:*)",
       "Bash(grep:*)",
       "Bash(time python:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "mcp__search1api__search",
+      "mcp__search1api__crawl"
     ],
     "deny": []
   }
