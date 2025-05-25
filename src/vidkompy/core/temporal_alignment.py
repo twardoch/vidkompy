@@ -4,14 +4,12 @@
 """
 Temporal alignment module for synchronizing videos.
 
-Implements audio-based and frame-based temporal alignment with
-emphasis on preserving all foreground frames without retiming.
+Implements frame-based temporal alignment with emphasis on
+preserving all foreground frames without retiming.
 """
 
 import cv2
 import numpy as np
-import soundfile as sf
-from scipy import signal
 from skimage.metrics import structural_similarity as ssim
 from loguru import logger
 from rich.progress import (
@@ -128,49 +126,6 @@ class TemporalAligner:
 
         # Clamp to reasonable range
         return max(50, min(required_keyframes, fg_info.frame_count // 2))
-
-    def align_audio(self, bg_audio_path: str, fg_audio_path: str) -> float:
-        """Compute temporal offset using audio cross-correlation.
-
-        Args:
-            bg_audio_path: Background audio WAV file
-            fg_audio_path: Foreground audio WAV file
-
-        Returns:
-            Offset in seconds (positive means FG starts later)
-        """
-        logger.debug("Computing audio cross-correlation")
-
-        # Load audio
-        bg_audio, bg_sr = sf.read(bg_audio_path)
-        fg_audio, fg_sr = sf.read(fg_audio_path)
-
-        if bg_sr != fg_sr:
-            logger.warning(f"Sample rates differ: {bg_sr} vs {fg_sr}")
-            return 0.0
-
-        # Compute cross-correlation
-        correlation = signal.correlate(bg_audio, fg_audio, mode="full", method="fft")
-
-        # Find peak
-        peak_idx = np.argmax(np.abs(correlation))
-
-        # Convert to time offset
-        center = len(bg_audio) - 1
-        lag_samples = peak_idx - center
-        offset_seconds = lag_samples / bg_sr
-
-        # Calculate confidence
-        peak_value = np.abs(correlation[peak_idx])
-        avg_value = np.mean(np.abs(correlation))
-        confidence = peak_value / avg_value if avg_value > 0 else 0
-
-        logger.info(
-            f"Audio alignment: offset={offset_seconds:.3f}s, "
-            f"confidence={confidence:.2f}"
-        )
-
-        return offset_seconds
 
     def align_frames(
         self, bg_info: VideoInfo, fg_info: VideoInfo, trim: bool = False
@@ -486,7 +441,11 @@ class TemporalAligner:
         self, video_path: str, frame_indices: list[int], resize_factor: float = 0.125
     ) -> dict[int, np.ndarray]:
         """Pre-compute masked perceptual hashes for frames in parallel."""
-        if not self.use_perceptual_hash or self.hasher is None or self._current_mask is None:
+        if (
+            not self.use_perceptual_hash
+            or self.hasher is None
+            or self._current_mask is None
+        ):
             return {}
 
         logger.debug(f"Pre-computing masked hashes for {len(frame_indices)} frames")
@@ -499,7 +458,9 @@ class TemporalAligner:
         hashes = {}
         with ThreadPoolExecutor(max_workers=mp.cpu_count()) as executor:
             future_to_idx = {
-                executor.submit(self._compute_masked_frame_hash, frame, self._current_mask): idx
+                executor.submit(
+                    self._compute_masked_frame_hash, frame, self._current_mask
+                ): idx
                 for idx, frame in zip(frame_indices, frames, strict=False)
                 if frame is not None
             }
@@ -511,14 +472,18 @@ class TemporalAligner:
                     if hash_value is not None:
                         hashes[idx] = hash_value
                 except Exception as e:
-                    logger.warning(f"Failed to compute masked hash for frame {idx}: {e}")
+                    logger.warning(
+                        f"Failed to compute masked hash for frame {idx}: {e}"
+                    )
 
         elapsed = time.time() - start_time
         logger.debug(f"Computed {len(hashes)} masked hashes in {elapsed:.2f}s")
 
         return hashes
 
-    def _compute_masked_frame_hash(self, frame: np.ndarray, mask: np.ndarray) -> np.ndarray | None:
+    def _compute_masked_frame_hash(
+        self, frame: np.ndarray, mask: np.ndarray
+    ) -> np.ndarray | None:
         """Compute perceptual hash for masked frame."""
         if frame is None or self.hasher is None:
             return None
@@ -545,22 +510,22 @@ class TemporalAligner:
         # Crop to bounding box of mask
         rows = np.any(resized_mask, axis=1)
         cols = np.any(resized_mask, axis=0)
-        
+
         if not np.any(rows) or not np.any(cols):
             # Empty mask, compute hash on original
             resized = cv2.resize(frame, (32, 32))
         else:
             rmin, rmax = np.where(rows)[0][[0, -1]]
             cmin, cmax = np.where(cols)[0][[0, -1]]
-            cropped = masked[rmin:rmax+1, cmin:cmax+1]
-            
+            cropped = masked[rmin : rmax + 1, cmin : cmax + 1]
+
             # Resize for hashing
             resized = cv2.resize(cropped, (32, 32))
 
         # Convert to grayscale if needed
         if len(resized.shape) == 3:
             resized = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
-        
+
         hash_value = self.hasher.compute(resized)
         return hash_value
 

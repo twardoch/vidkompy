@@ -28,16 +28,10 @@ def main(
     bg: str,
     fg: str,
     output: str | None = None,
-    match_time: str = "border",
-    match_space: str = "precise",
-    temporal_align: str = "dtw",
-    skip_spatial_align: bool = False,
-    trim: bool = True,
-    verbose: bool = False,
-    max_keyframes: int = 200,
     border: int = 8,
     blend: bool = False,
-    window: int = 0,
+    gpu: bool = False,  # Future GPU acceleration support
+    verbose: bool = False,
 ):
     """Overlay foreground video onto background video with intelligent alignment.
 
@@ -45,16 +39,10 @@ def main(
         bg: Background video path
         fg: Foreground video path
         output: Output video path (auto-generated if not provided)
-        match_time: Temporal alignment - 'border' (border matching, default), 'fast' (audio then frames), or 'precise' (frames)
-        match_space: Spatial alignment - 'precise' (template) or 'fast' (feature)
-        temporal_align: Temporal algorithm - 'dtw' (new default) or 'classic'
-        skip_spatial_align: Skip spatial alignment, center foreground
-        trim: Trim output to overlapping segments only
-        verbose: Enable verbose logging
-        max_keyframes: Maximum keyframes for frame-based alignment
         border: Border thickness for border matching mode (default: 8)
         blend: Enable smooth blending at frame edges
-        window: Sliding window size for frame matching (0 = no window)
+        gpu: Enable GPU acceleration (future feature)
+        verbose: Enable verbose logging
     """
     # Setup logging
     logger.remove()
@@ -97,50 +85,15 @@ def main(
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Validate match_time mode
-    try:
-        time_mode = MatchTimeMode(match_time)
-    except ValueError:
-        logger.error(
-            f"Invalid match_time mode: {match_time}. Use 'border', 'fast', or 'precise'"
-        )
-        return
+    # Fixed configuration based on SPEC4
+    # Always use border mode with DTW and template matching
+    time_mode = MatchTimeMode.BORDER
+    space_method = "template"
+    temporal_method = TemporalMethod.DTW
+    max_keyframes = 200  # Optimal default
 
-    # Validate match_space mode
-    valid_space_methods = ["precise", "template", "fast", "feature"]
-    if match_space not in valid_space_methods:
-        logger.error(
-            f"Invalid match_space mode: {match_space}. Use one of: {', '.join(valid_space_methods)}"
-        )
-        return
-
-    # Normalize space method names
-    if match_space == "precise":
-        match_space = "template"
-    elif match_space == "fast":
-        match_space = "feature"
-
-    # Validate temporal_align
-    try:
-        temporal_method = TemporalMethod(temporal_align)
-    except ValueError:
-        # Try common aliases
-        if temporal_align in ["frames", "keyframes"]:
-            temporal_method = TemporalMethod.CLASSIC
-        else:
-            logger.error(
-                f"Invalid temporal_align: {temporal_align}. Use 'dtw' or 'classic'"
-            )
-            return
-
-    # Validate max_keyframes
-    if max_keyframes < 10:
-        logger.error(f"max_keyframes must be at least 10, got {max_keyframes}")
-        return
-    elif max_keyframes > 10000:
-        logger.warning(
-            f"max_keyframes is very high ({max_keyframes}), this may be slow"
-        )
+    if gpu:
+        logger.info("GPU acceleration not yet implemented")
 
     # Create processor and engine
     processor = VideoProcessor()
@@ -155,13 +108,13 @@ def main(
             fg_path=str(fg_path),
             output_path=output,
             time_mode=time_mode,
-            space_method=match_space,
+            space_method=space_method,
             temporal_method=temporal_method,
-            skip_spatial=skip_spatial_align,
-            trim=trim,
+            skip_spatial=False,  # Always align
+            trim=True,  # Always trim
             border_thickness=border,
             blend=blend,
-            window=window,
+            window=0,  # Auto-determined
         )
     except Exception as e:
         logger.error(f"Processing failed: {e}")

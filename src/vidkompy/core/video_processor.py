@@ -271,38 +271,6 @@ class VideoProcessor:
 
         return frames
 
-    def extract_audio(
-        self, video_path: str, output_path: str, sample_rate: int = 16000
-    ) -> bool:
-        """Extract audio from video to WAV file.
-
-        Args:
-            video_path: Input video path
-            output_path: Output WAV path
-            sample_rate: Target sample rate
-
-        Returns:
-            True if extraction successful
-        """
-        logger.debug(f"Extracting audio from {video_path}")
-
-        try:
-            stream = ffmpeg.input(video_path)
-            stream = ffmpeg.output(
-                stream,
-                output_path,
-                acodec="pcm_s16le",
-                ac=1,  # Mono
-                ar=sample_rate,
-                loglevel="error",
-            )
-            ffmpeg.run(stream, overwrite_output=True)
-            return True
-
-        except ffmpeg.Error as e:
-            logger.error(f"Audio extraction failed: {e.stderr.decode()}")
-            return False
-
     def create_video_writer(
         self, output_path: str, width: int, height: int, fps: float, codec: str = "mp4v"
     ) -> cv2.VideoWriter:

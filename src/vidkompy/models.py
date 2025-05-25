@@ -14,17 +14,15 @@ from enum import Enum
 class MatchTimeMode(Enum):
     """Temporal alignment modes."""
 
-    BORDER = "border"  # Border-based matching (new default)
-    FAST = "fast"  # Try audio first, fallback to frames
+    BORDER = "border"  # Border-based matching (default)
     PRECISE = "precise"  # Use frame-based matching
 
 
 class SpatialMethod(Enum):
     """Spatial alignment methods."""
 
-    TEMPLATE = "template"  # Precise template matching
-    FEATURE = "feature"  # Fast feature-based matching
-    CENTER = "center"  # Simple center alignment
+    TEMPLATE = "template"  # Template matching (only method)
+    CENTER = "center"  # Simple center alignment (fallback)
 
 
 class TemporalMethod(Enum):

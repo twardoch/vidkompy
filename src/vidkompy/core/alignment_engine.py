@@ -216,7 +216,9 @@ class AlignmentEngine:
             y_offset = (bg_info.height - fg_info.height) // 2
             return SpatialAlignment(x_offset, y_offset, 1.0, 0.0)
 
-        return self.spatial_aligner.align(bg_frames[0], fg_frames[0], method, skip)
+        return self.spatial_aligner.align(
+            bg_frames[0], fg_frames[0], method, skip_alignment=skip
+        )
 
     def _compute_temporal_alignment(
         self,
@@ -232,19 +234,13 @@ class AlignmentEngine:
         """Compute temporal alignment based on mode.
 
         Why we have multiple modes:
-        - BORDER: Border-based matching focusing on frame edges (new default)
+        - BORDER: Border-based matching focusing on frame edges (default)
         - PRECISE: Frame-based matching for maximum accuracy
-        - FAST: Audio-based when available, falls back to frames
 
-        Why audio can be faster:
-        - Audio correlation is a 1D signal comparison
-        - Works well when videos have identical audio tracks
-        - Provides global offset quickly
-
-        Why we always fall back to frames:
-        - Not all videos have audio
-        - Audio might be out of sync with video
-        - Frame matching handles all cases
+        Why we always use frame-based methods:
+        - Provides precise visual synchronization
+        - Works with all videos regardless of audio
+        - Handles all edge cases reliably
         """
         # Configure temporal aligner based on method and window
         self.temporal_aligner.use_dtw = temporal_method == TemporalMethod.DTW
@@ -267,80 +263,9 @@ class AlignmentEngine:
             # Always use frame-based alignment
             return self.temporal_aligner.align_frames(bg_info, fg_info, trim)
 
-        elif mode == MatchTimeMode.FAST:
-            # Try audio first if available
-            if bg_info.has_audio and fg_info.has_audio:
-                logger.info("Attempting audio-based temporal alignment")
-
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    bg_audio = Path(tmpdir) / "bg_audio.wav"
-                    fg_audio = Path(tmpdir) / "fg_audio.wav"
-
-                    # Extract audio
-                    if self.processor.extract_audio(
-                        bg_info.path, str(bg_audio)
-                    ) and self.processor.extract_audio(fg_info.path, str(fg_audio)):
-                        offset = self.temporal_aligner.align_audio(
-                            str(bg_audio), str(fg_audio)
-                        )
-
-                        # Create simple frame alignment based on audio offset
-                        frame_alignments = self._create_audio_based_alignment(
-                            bg_info, fg_info, offset, trim
-                        )
-
-                        return TemporalAlignment(
-                            offset_seconds=offset,
-                            frame_alignments=frame_alignments,
-                            method_used="audio",
-                            confidence=0.8,
-                        )
-                    else:
-                        logger.warning(
-                            "Audio extraction failed, falling back to frames"
-                        )
-            else:
-                logger.info("No audio available, using frame-based alignment")
-
-            # Fallback to frame-based
-            return self.temporal_aligner.align_frames(bg_info, fg_info, trim)
-
-    def _create_audio_based_alignment(
-        self, bg_info: VideoInfo, fg_info: VideoInfo, offset_seconds: float, trim: bool
-    ) -> list[FrameAlignment]:
-        """Create frame alignments based on audio offset."""
-        alignments = []
-
-        # Calculate frame offset
-        bg_frame_offset = int(offset_seconds * bg_info.fps)
-
-        # Determine range
-        if trim:
-            start_fg = 0
-            end_fg = min(
-                fg_info.frame_count,
-                int((bg_info.duration - offset_seconds) * fg_info.fps),
-            )
         else:
-            start_fg = 0
-            end_fg = fg_info.frame_count
-
-        # Create alignments
-        fps_ratio = bg_info.fps / fg_info.fps if fg_info.fps > 0 else 1.0
-
-        for fg_idx in range(start_fg, end_fg):
-            bg_idx = int(fg_idx * fps_ratio + bg_frame_offset)
-            bg_idx = max(0, min(bg_idx, bg_info.frame_count - 1))
-
-            alignments.append(
-                FrameAlignment(
-                    fg_frame_idx=fg_idx,
-                    bg_frame_idx=bg_idx,
-                    similarity_score=0.7,  # Assumed good match from audio
-                )
-            )
-
-        return alignments
+            # For any other mode, use frame-based alignment
+            return self.temporal_aligner.align_frames(bg_info, fg_info, trim)
 
     def _compose_video(
         self,
