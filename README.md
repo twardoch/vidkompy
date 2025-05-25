@@ -40,7 +40,7 @@ The `vidkompy` pipeline is a multi-stage process designed for precision and accu
 
 ### Frame Fingerprinting (Perceptual Hashing)
 
-**TLDR:** Instead of comparing the millions of pixels in a frame, `vidkompy` creates a tiny, unique "fingerprint" (a hash) for each frame. Comparing these small fingerprints is thousands of times faster and smart enough to ignore minor changes from video compression.
+Instead of comparing the millions of pixels in a frame, `vidkompy` creates a tiny, unique "fingerprint" (a hash) for each frame. Comparing these small fingerprints is thousands of times faster and smart enough to ignore minor changes from video compression.
 
 ---
 
@@ -59,7 +59,7 @@ The process works as follows:
 
 ### Spatial Alignment (Template Matching)
 
-**TLDR:** To find the correct position for the foreground video, the tool takes a screenshot from the middle of it and searches for that exact image within a screenshot from the background video.
+To find the correct position for the foreground video, the tool takes a screenshot from the middle of it and searches for that exact image within a screenshot from the background video.
 
 ---
 
@@ -73,7 +73,7 @@ Spatial alignment determines the `(x, y)` coordinates at which to overlay the fo
 
 ### Temporal Alignment Engines
 
-**TLDR:** `vidkompy` offers two temporal alignment engines: **Fast** for quick processing with good results, and **Precise** for maximum accuracy with advanced drift correction. Both find the optimal "path" through time that perfectly syncs the foreground to the background.
+`vidkompy` offers two temporal alignment engines: **Fast** for quick processing with good results, and **Precise** for maximum accuracy with advanced drift correction. Both find the optimal "path" through time that perfectly syncs the foreground to the background.
 
 ---
 

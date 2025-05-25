@@ -360,6 +360,91 @@ class FrameFingerprinter:
         fingerprinter = FrameFingerprinter(log_init=False)
         return fingerprinter.compute_fingerprint(frame)
 
+    def compute_fingerprints(self, frames: np.ndarray) -> np.ndarray:
+        """Compute fingerprints for multiple frames.
+        
+        Args:
+            frames: Array of frames (N, H, W, C) or list of frames
+            
+        Returns:
+            Array of fingerprints as feature vectors
+        """
+        logger.info(f"Computing fingerprints for {len(frames)} frames...")
+        start_time = time.time()
+        
+        fingerprints = []
+        
+        # Process frames in batches using multiprocessing
+        with ProcessPoolExecutor(max_workers=mp.cpu_count()) as executor:
+            # Submit all tasks
+            futures = [executor.submit(self._compute_fingerprint_worker, frame) 
+                      for frame in frames]
+            
+            # Collect results in order
+            for future in futures:
+                try:
+                    fingerprint = future.result()
+                    # Convert fingerprint dict to feature vector
+                    feature_vec = self._fingerprint_to_vector(fingerprint)
+                    fingerprints.append(feature_vec)
+                except Exception as e:
+                    logger.warning(f"Failed to compute fingerprint: {e}")
+                    # Add zero vector as fallback
+                    fingerprints.append(np.zeros(self._get_fingerprint_size()))
+        
+        elapsed = time.time() - start_time
+        fps = len(fingerprints) / elapsed if elapsed > 0 else 0
+        logger.info(
+            f"Computed {len(fingerprints)} fingerprints in {elapsed:.2f}s "
+            f"({fps:.1f} fps)"
+        )
+        
+        return np.array(fingerprints)
+    
+    def _fingerprint_to_vector(self, fingerprint: dict[str, np.ndarray]) -> np.ndarray:
+        """Convert fingerprint dictionary to feature vector.
+        
+        Args:
+            fingerprint: Dictionary of hash values and histogram
+            
+        Returns:
+            Flattened feature vector
+        """
+        features = []
+        
+        # Extract hash values in consistent order
+        for hash_name in ["phash", "ahash", "dhash", "mhash"]:
+            if hash_name in fingerprint:
+                features.append(fingerprint[hash_name].flatten())
+        
+        # Add histogram if present
+        if "histogram" in fingerprint:
+            features.append(fingerprint["histogram"])
+        
+        # Concatenate all features
+        if features:
+            return np.concatenate(features)
+        else:
+            return np.zeros(self._get_fingerprint_size())
+    
+    def _get_fingerprint_size(self) -> int:
+        """Get the size of the fingerprint feature vector.
+        
+        Returns:
+            Size of feature vector
+        """
+        # Compute size based on available hashers
+        # Most hashes produce 8-byte (64-bit) values
+        size = 0
+        for name in ["phash", "ahash", "dhash", "mhash"]:
+            if name in self.hashers:
+                size += 8  # 8 bytes per hash
+        
+        # Add histogram size (32 bins * 3 channels)
+        size += 32 * 3
+        
+        return size
+
     def clear_cache(self, video_path: str | None = None):
         """Clear fingerprint cache.
 

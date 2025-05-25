@@ -385,3 +385,109 @@ class DTWAligner:
             )
 
         return alignments
+    
+    def _compute_cost_matrix(
+        self,
+        fg_features: np.ndarray,
+        bg_features: np.ndarray
+    ) -> np.ndarray:
+        """Compute cost matrix for DTW from feature arrays.
+        
+        Args:
+            fg_features: Foreground feature vectors (N, D)
+            bg_features: Background feature vectors (M, D)
+            
+        Returns:
+            Cost matrix (N, M)
+        """
+        n_fg = len(fg_features)
+        n_bg = len(bg_features)
+        
+        # Initialize cost matrix
+        cost_matrix = np.zeros((n_fg, n_bg))
+        
+        # Compute pairwise distances
+        for i in range(n_fg):
+            for j in range(n_bg):
+                # Euclidean distance between feature vectors
+                cost_matrix[i, j] = np.linalg.norm(fg_features[i] - bg_features[j])
+        
+        # Normalize costs to [0, 1]
+        if cost_matrix.max() > 0:
+            cost_matrix = cost_matrix / cost_matrix.max()
+        
+        return cost_matrix
+    
+    def _compute_path(self, cost_matrix: np.ndarray) -> list[tuple[int, int]]:
+        """Compute optimal DTW path from cost matrix.
+        
+        Args:
+            cost_matrix: Cost matrix (N, M)
+            
+        Returns:
+            List of (i, j) indices representing the optimal path
+        """
+        n_fg, n_bg = cost_matrix.shape
+        
+        # Initialize DTW matrix
+        dtw = np.full((n_fg + 1, n_bg + 1), np.inf)
+        dtw[0, 0] = 0
+        
+        # Fill DTW matrix with window constraint
+        for i in range(1, n_fg + 1):
+            # Sakoe-Chiba band
+            j_start = max(1, i - self.window)
+            j_end = min(n_bg + 1, i + self.window)
+            
+            for j in range(j_start, j_end):
+                cost = cost_matrix[i - 1, j - 1]
+                
+                # DTW recursion
+                dtw[i, j] = cost + min(
+                    dtw[i - 1, j],      # Insertion
+                    dtw[i, j - 1],      # Deletion  
+                    dtw[i - 1, j - 1]   # Match
+                )
+        
+        # Backtrack to find path
+        path = []
+        i, j = n_fg, n_bg
+        
+        while i > 0 and j > 0:
+            path.append((i - 1, j - 1))  # Convert to 0-based indices
+            
+            # Choose direction with minimum cost
+            if i == 1:
+                j -= 1
+            elif j == 1:
+                i -= 1
+            else:
+                costs = [
+                    dtw[i - 1, j],      # From above
+                    dtw[i, j - 1],      # From left
+                    dtw[i - 1, j - 1]   # From diagonal
+                ]
+                
+                min_idx = np.argmin(costs)
+                if min_idx == 0:
+                    i -= 1
+                elif min_idx == 1:
+                    j -= 1
+                else:
+                    i -= 1
+                    j -= 1
+        
+        # Add remaining path to origin
+        while i > 0:
+            i -= 1
+            path.append((i, 0))
+        while j > 0:
+            j -= 1
+            path.append((0, j))
+        
+        path.reverse()
+        
+        # Remove any invalid entries
+        path = [(i, j) for i, j in path if i >= 0 and j >= 0]
+        
+        return path
