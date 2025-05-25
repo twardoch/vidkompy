@@ -406,7 +406,7 @@ class AlignmentEngine:
             ) as progress:
                 task = progress.add_task("Composing frames", total=total_frames)
 
-                for i, alignment in enumerate(alignments):
+                for _i, alignment in enumerate(alignments):
                     needed_fg_idx = alignment.fg_frame_idx
                     needed_bg_idx = alignment.bg_frame_idx
 

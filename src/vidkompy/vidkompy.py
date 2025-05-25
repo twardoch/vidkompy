@@ -15,7 +15,6 @@ This tool overlays foreground videos onto background videos with smart alignment
 """
 
 import sys
-import fire
 from loguru import logger
 from pathlib import Path
 
@@ -25,9 +24,9 @@ from .models import MatchTimeMode, TemporalMethod
 
 
 def main(
-    bg: str,
-    fg: str,
-    output: str | None = None,
+    bg: str | Path,
+    fg: str | Path,
+    output: str | Path | None = None,
     margin: int = 8,
     smooth: bool = False,
     gpu: bool = False,  # Future GPU acceleration support

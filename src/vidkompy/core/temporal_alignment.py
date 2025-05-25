@@ -239,7 +239,8 @@ class TemporalAligner:
             Dictionary mapping frame indices to fingerprints
         """
         if self.fingerprinter is None:
-            raise RuntimeError("Fingerprinter not initialized")
+            msg = "Fingerprinter not initialized"
+            raise RuntimeError(msg)
 
         logger.debug(f"Computing masked fingerprints for {len(frame_indices)} frames")
         start_time = time.time()
@@ -609,12 +610,12 @@ class TemporalAligner:
             # Create frame dictionaries for fast lookup
             fg_frame_dict = {
                 idx: frame
-                for idx, frame in zip(fg_indices, fg_frames)
+                for idx, frame in zip(fg_indices, fg_frames, strict=False)
                 if frame is not None
             }
             bg_frame_dict = {
                 idx: frame
-                for idx, frame in zip(bg_indices, bg_frames)
+                for idx, frame in zip(bg_indices, bg_frames, strict=False)
                 if frame is not None
             }
 

@@ -50,7 +50,7 @@ def run_vidkompy(bg_path: str, fg_path: str, output_path: str, config: dict) -> 
     # Run command
     try:
         logger.info(f"Running: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
         elapsed = time.time() - start_time
 
         # Extract frame count from logs if available
