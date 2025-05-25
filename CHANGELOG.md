@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Changed
+- **Precise Engine Enhancement**: Implemented Idea 1 from `SPEC.md` for the `precise` temporal alignment engine.
+    - Updated `PreciseEngineConfig` in `multi_resolution_aligner.py` to include new parameters for enhanced drift correction (polynomial model, adaptive blend factor) and Savitzky-Golay smoothing.
+    - Modified `MultiResolutionAligner.apply_drift_correction` to use polynomial regression as a baseline for drift correction and to incorporate an adaptive blend factor, offering more nuanced adjustments than simple linear interpolation.
+    - Added a global Savitzky-Golay smoothing pass in `MultiResolutionAligner.align` after drift correction and before the final interpolation to full resolution. This aims to reduce high-frequency oscillations ("flag wave" effect) in the temporal mapping.
+    - Improved internal logic in `apply_drift_correction` and `refine_alignment` for clarity and robustness, including better handling of segment boundaries and loop variables.
+    - Added safety checks in `interpolate_full_mapping` and `align` to handle empty or very short mappings, preventing potential errors.
+
 ### Fixed
 
 - **Parameter Mismatch**: Fixed DTWAligner constructor parameter name from 'window' to 'window' in precise alignment engines to resolve TypeError during precise alignment initialization

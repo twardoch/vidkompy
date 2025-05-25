@@ -1,6 +1,9 @@
 #!/usr/bin/env -S uv run -s
 # /// script
-# dependencies = ["fire", "rich", "loguru", "opencv-python", "numpy", "scipy", "ffmpeg-python", "soundfile", "scikit-image"]
+# dependencies = [
+# "fire", "rich", "loguru", "opencv-python", "numpy", "scipy",
+# "ffmpeg-python", "soundfile", "scikit-image"
+# ]
 # ///
 # this_file: src/vidkompy/vidkompy.py
 
@@ -41,8 +44,10 @@ def main(
         bg: Background video path
         fg: Foreground video path
         output: Output video path (auto-generated if not provided)
-        engine: Temporal alignment engine - 'fast' (current) or 'precise' (default: 'fast')
-        drift_interval: Frame interval for drift correction in precise engine (default: 100)
+        engine: Temporal alignment engine - 'fast', 'precise', or 'mask'
+                (default: 'fast')
+        drift_interval: Frame interval for drift correction in precise/mask
+                        engine (default: 100)
         margin: Border thickness for border matching mode (default: 8)
         smooth: Enable smooth blending at frame edges
         gpu: Enable GPU acceleration (future feature)
@@ -50,18 +55,18 @@ def main(
     """
     # Setup logging
     logger.remove()
+    log_format_verbose = (
+        "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | "
+        "<cyan>{function}</cyan> - <level>{message}</level>"
+    )
+    log_format_default = (
+        "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | "
+        "<level>{message}</level>"
+    )
     if verbose:
-        logger.add(
-            sys.stderr,
-            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{function}</cyan> - <level>{message}</level>",
-            level="DEBUG",
-        )
+        logger.add(sys.stderr, format=log_format_verbose, level="DEBUG")
     else:
-        logger.add(
-            sys.stderr,
-            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-            level="INFO",
-        )
+        logger.add(sys.stderr, format=log_format_default, level="INFO")
 
     # Validate inputs
     bg_path = Path(bg)
@@ -76,39 +81,44 @@ def main(
         return
 
     # Generate output path if needed
+    output_str: str
     if output is None:
-        output = f"{bg_path.stem}_overlay_{fg_path.stem}.mp4"
-        logger.info(f"Output path: {output}")
+        output_str = f"{bg_path.stem}_overlay_{fg_path.stem}.mp4"
+        logger.info(f"Output path: {output_str}")
+    else:
+        output_str = str(output)
 
     # Validate output path
-    output_path = Path(output)
-    if output_path.exists():
-        logger.warning(f"Output file already exists: {output}")
-        logger.warning("It will be overwritten")
+    output_path_obj = Path(output_str)
+    if output_path_obj.exists():
+        logger.warning(
+            f"Output file {output_str} already exists. It will be overwritten."
+        )
 
     # Ensure output directory exists
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
     # Validate engine parameter
-    if engine not in ["fast", "precise"]:
-        logger.error(f"Invalid engine: {engine}. Must be 'fast' or 'precise'")
+    if engine not in ["fast", "precise", "mask"]:
+        err_msg = f"Invalid engine: {engine}. Must be 'fast', 'precise', or 'mask'."
+        logger.error(err_msg)
         return
 
-    # Configure based on engine choice
-    use_precise_engine = False
+    # Initialize config variables with defaults for 'fast' engine
+    time_mode: MatchTimeMode = MatchTimeMode.PRECISE
+    space_method: str = "template"
+    temporal_method: TemporalMethod = TemporalMethod.CLASSIC
+    max_keyframes: int = 1  # Default for fast engine (direct mapping)
+
     if engine == "fast":
-        # Current implementation - force direct mapping due to drift issues
-        time_mode = MatchTimeMode.PRECISE
-        space_method = "template"
+        # Configuration for 'fast' is already set by defaults above
+        pass
+    elif engine == "precise" or engine == "mask":
+        # Precise/Mask engines manage temporal method and keyframes internally
+        # These are placeholders, actual behavior is in AlignmentEngine/TemporalAligner
         temporal_method = TemporalMethod.CLASSIC
-        max_keyframes = 1  # Force fallback to direct mapping
-    else:  # engine == "precise"
-        # Precise engine configuration
-        use_precise_engine = True
-        time_mode = MatchTimeMode.PRECISE
-        space_method = "template"
-        temporal_method = TemporalMethod.CLASSIC  # Not used in precise mode
-        max_keyframes = 1000  # Not used in precise mode
+        max_keyframes = 1000
+    # No else needed as engine is validated
 
     if gpu:
         logger.info("GPU acceleration not yet implemented")
@@ -119,7 +129,7 @@ def main(
         processor=processor,
         verbose=verbose,
         max_keyframes=max_keyframes,
-        use_precise_engine=use_precise_engine,
+        engine_mode=engine,
         drift_interval=drift_interval,
         window=window,
     )
@@ -129,15 +139,15 @@ def main(
         alignment.process(
             bg_path=str(bg_path),
             fg_path=str(fg_path),
-            output_path=output,
+            output_path=output_str,
             time_mode=time_mode,
             space_method=space_method,
             temporal_method=temporal_method,
-            skip_spatial=False,  # Always align
-            trim=True,  # Always trim
+            skip_spatial=False,
+            trim=True,
             border_thickness=margin,
             blend=smooth,
-            window=window,  # Auto-determined
+            window=window,
         )
     except Exception as e:
         logger.error(f"Processing failed: {e}")

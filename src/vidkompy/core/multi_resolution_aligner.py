@@ -8,9 +8,11 @@ Implements hierarchical DTW with progressive refinement to eliminate drift.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
 import numpy as np
 from loguru import logger
+
+# Import Savitzky-Golay filter if it's not already imported
+from scipy.signal import savgol_filter
 
 from .dtw_aligner import DTWAligner
 from .frame_fingerprint import FrameFingerprinter
@@ -34,8 +36,23 @@ class PreciseEngineConfig:
 
     # Performance tuning
     max_frames_to_process: int = 10000  # Limit for very long videos
-    drift_correction_interval: int = 100  # Reset alignment every N frames (increased from 32)
-    drift_blend_factor: float = 0.85  # How much to trust original mapping vs linear interpolation
+    # Reset alignment every N frames
+    drift_correction_interval: int = 100
+    # Trust in original map vs linear interpolation
+    drift_blend_factor: float = 0.85
+
+    # New parameters for enhanced drift correction & smoothing
+    # Options: "linear", "polynomial", "loess" (loess deferred)
+    drift_correction_model: str = "polynomial"
+    poly_degree: int = 2  # Degree for polynomial regression
+    # loess_frac: float = 0.25 # LOESS fraction (requires statsmodels)
+    adaptive_blend_factor: bool = True  # Enable adaptive blend factor
+    # Savitzky-Golay filter window (odd number)
+    savitzky_golay_window: int = 21
+    # Savitzky-Golay poly order (< window)
+    savitzky_golay_polyorder: int = 3
+    # Options: "linear", "spline" (spline deferred)
+    interpolation_method: str = "linear"
 
 
 class MultiResolutionAligner:
@@ -87,10 +104,11 @@ class MultiResolutionAligner:
             fingerprints = self.fingerprinter.compute_fingerprints(frames)
 
         # Sample at each resolution
-        for res in self.resolutions:
-            indices = list(range(0, len(fingerprints), res))
-            pyramid[res] = fingerprints[indices]
-            logger.debug(f"Resolution 1/{res}: {len(pyramid[res])} samples")
+        for res_val in self.resolutions:
+            indices = list(range(0, len(fingerprints), res_val))
+            pyramid[res_val] = fingerprints[indices]
+            # Resolution 1/{res_val}: {len(pyramid[res_val])} samples
+            logger.debug(f"Res 1/{res_val}: {len(pyramid[res_val])} samples")
 
         return pyramid
 
@@ -111,8 +129,10 @@ class MultiResolutionAligner:
         fg_coarse = fg_pyramid[coarsest_res]
         bg_coarse = bg_pyramid[coarsest_res]
 
-        logger.info(f"Coarse alignment at 1/{coarsest_res} resolution")
-        logger.debug(f"FG samples: {len(fg_coarse)}, BG samples: {len(bg_coarse)}")
+        # Coarse alignment at 1/{coarsest_res} resolution
+        logger.info(f"Coarse align at 1/{coarsest_res}")
+        # FG samples: {len(fg_coarse)}, BG samples: {len(bg_coarse)}
+        logger.debug(f"FG smpl: {len(fg_coarse)}, BG smpl: {len(bg_coarse)}")
 
         # Use DTW with large window
         window_size = int(len(bg_coarse) * self.config.initial_window_ratio)
@@ -152,7 +172,8 @@ class MultiResolutionAligner:
         Returns:
             Refined frame mapping at target resolution
         """
-        logger.info(f"Refining alignment: 1/{from_res} -> 1/{to_res}")
+        # Refining alignment: 1/{from_res} -> 1/{to_res}
+        logger.info(f"Refine: 1/{from_res} -> 1/{to_res}")
 
         # Get fingerprints at target resolution
         fg_fine = fg_pyramid[to_res]
@@ -165,22 +186,22 @@ class MultiResolutionAligner:
         refined_mapping = np.zeros(len(fg_fine), dtype=int)
 
         # Refine each coarse segment
-        for i in range(len(coarse_mapping)):
+        for i_seg in range(len(coarse_mapping)):
             # Find corresponding fine-resolution range
-            fg_start = i * scale
-            fg_end = min((i + 1) * scale, len(fg_fine))
+            fg_start = i_seg * scale
+            fg_end = min((i_seg + 1) * scale, len(fg_fine))
 
             # Find search range in background
-            bg_center = coarse_mapping[i] * scale
+            bg_center = coarse_mapping[i_seg] * scale
             bg_start = max(0, bg_center - self.config.refinement_window)
-            bg_end = min(len(bg_fine), bg_center + self.config.refinement_window)
+            bg_search_end = min(len(bg_fine), bg_center + self.config.refinement_window)
 
-            if fg_end <= fg_start or bg_end <= bg_start:
+            if fg_end <= fg_start or bg_search_end <= bg_start:
                 continue
 
             # Extract segments
             fg_segment = fg_fine[fg_start:fg_end]
-            bg_segment = bg_fine[bg_start:bg_end]
+            bg_segment = bg_fine[bg_start:bg_search_end]
 
             # Local DTW alignment
             window = min(len(bg_segment) // 2, 10)
@@ -198,11 +219,12 @@ class MultiResolutionAligner:
                         if fg_global < len(refined_mapping):
                             refined_mapping[fg_global] = bg_global
             except Exception as e:
-                logger.warning(f"Local refinement failed at segment {i}: {e}")
+                # Local refinement failed at segment {i_seg}: {e}
+                logger.warning(f"Local refine failed at seg {i_seg}: {e}")
                 # Fall back to interpolation
-                for j in range(fg_start, fg_end):
-                    if j < len(refined_mapping):
-                        refined_mapping[j] = bg_center + (j - fg_start)
+                for j_loop in range(fg_start, fg_end):
+                    if j_loop < len(refined_mapping):
+                        refined_mapping[j_loop] = bg_center + (j_loop - fg_start)
 
         return refined_mapping
 
@@ -234,95 +256,99 @@ class MultiResolutionAligner:
     def apply_drift_correction(
         self, mapping: np.ndarray, interval: int | None = None
     ) -> np.ndarray:
-        """Apply periodic drift correction to prevent accumulation.
-
-        Args:
-            mapping: Initial frame mapping
-            interval: Correction interval (frames)
-
-        Returns:
-            Corrected frame mapping
-        """
+        """Apply periodic drift correction to prevent accumulation."""
         if interval is None:
             interval = self.config.drift_correction_interval
+
+        if len(mapping) == 0:
+            return mapping  # Return empty if input is empty
 
         corrected = mapping.copy()
         num_segments = len(mapping) // interval + 1
 
-        logger.info(f"Applying drift correction every {interval} frames")
+        logger.info(f"Drift correction every {interval} frames")
 
-        for seg in range(num_segments):
-            start = seg * interval
-            end = min((seg + 1) * interval, len(mapping))
+        for seg_idx in range(num_segments):
+            start_idx = seg_idx * interval
+            end_idx = min((seg_idx + 1) * interval, len(mapping))
 
-            if start >= end:
+            if start_idx >= end_idx:
                 continue
 
-            # Calculate expected linear progression
-            expected_start = mapping[start]
-            expected_end = mapping[min(end, len(mapping) - 1)]
+            segment_mapping = mapping[start_idx:end_idx]
+            segment_indices = np.arange(len(segment_mapping))
 
-            # Ensure monotonic progression within segment
-            segment_len = end - start
-            if segment_len > 1 and expected_end > expected_start:
-                # Linear interpolation as baseline
-                for i in range(start, end):
-                    progress = (i - start) / (segment_len - 1)
-                    expected = expected_start + progress * (
-                        expected_end - expected_start
-                    )
+            expected_segment_progression: np.ndarray
 
-                    # Blend original mapping with expected progression
-                    blend_factor = self.config.drift_blend_factor  # Use config value (0.85)
-                    corrected[i] = int(
-                        blend_factor * mapping[i] + (1 - blend_factor) * expected
-                    )
-                    
-                    # Log significant corrections
-                    drift = abs(corrected[i] - mapping[i])
-                    if drift > 5 and self.verbose:
-                        logger.debug(f"Frame {i}: drift correction of {drift} frames applied")
+            if (
+                self.config.drift_correction_model == "polynomial"
+                and len(segment_mapping) > self.config.poly_degree
+            ):
+                coeffs = np.polyfit(
+                    segment_indices, segment_mapping, self.config.poly_degree
+                )
+                poly = np.poly1d(coeffs)
+                expected_segment_progression = poly(segment_indices)
+            else:  # Default to linear if polynomial fails or not selected
+                expected_start_val = segment_mapping[0]
+                expected_end_val = segment_mapping[-1]
+                expected_segment_progression = np.linspace(
+                    expected_start_val, expected_end_val, len(segment_mapping)
+                )
+
+            current_blend_factor = self.config.drift_blend_factor
+            if self.config.adaptive_blend_factor and len(segment_mapping) > 1:
+                # Simplified adaptive factor: less trust if variance is high
+                variance = np.var(np.diff(segment_mapping))
+                # Normalize variance crudely; this needs better scaling
+                norm_variance = np.clip(
+                    variance / (abs(np.mean(np.diff(segment_mapping))) + 1e-5), 0, 1
+                )
+                current_blend_factor = self.config.drift_blend_factor * (
+                    1 - 0.5 * norm_variance
+                )
+
+            for k_loop in range(len(segment_mapping)):
+                map_k_idx = start_idx + k_loop
+                corrected[map_k_idx] = int(
+                    current_blend_factor * segment_mapping[k_loop]
+                    + (1 - current_blend_factor) * expected_segment_progression[k_loop]
+                )
+                drift_val = abs(corrected[map_k_idx] - segment_mapping[k_loop])
+                if drift_val > 5 and self.verbose:
+                    logger.debug(f"Frame {map_k_idx}: drift corr {drift_val} applied")
 
         # Ensure final mapping is monotonic
-        for i in range(1, len(corrected)):
-            corrected[i] = max(corrected[i], corrected[i - 1])
-
+        for i_mono in range(1, len(corrected)):
+            corrected[i_mono] = max(corrected[i_mono], corrected[i_mono - 1])
         return corrected
 
     def interpolate_full_mapping(
         self, sparse_mapping: np.ndarray, target_length: int, source_resolution: int
     ) -> np.ndarray:
-        """Interpolate sparse mapping to full frame resolution.
-
-        Args:
-            sparse_mapping: Mapping at sparse resolution
-            target_length: Number of frames in full video
-            source_resolution: Resolution of sparse mapping
-
-        Returns:
-            Full frame-by-frame mapping
-        """
+        """Interpolate sparse mapping to full frame resolution."""
         full_mapping = np.zeros(target_length, dtype=int)
+        if len(sparse_mapping) == 0:
+            if target_length > 0:
+                logger.warning("Empty sparse_mapping, returning zero mapping.")
+            return full_mapping
 
-        for i in range(target_length):
-            # Find corresponding sparse index
-            sparse_idx = i // source_resolution
+        # Current method is linear interpolation
+        if self.config.interpolation_method == "linear" or True:  # Default to linear
+            for i_interp in range(target_length):
+                sparse_idx = i_interp // source_resolution
+                if sparse_idx >= len(sparse_mapping) - 1:
+                    full_mapping[i_interp] = sparse_mapping[-1]
+                else:
+                    alpha = (i_interp % source_resolution) / source_resolution
+                    start_bg = sparse_mapping[sparse_idx]
+                    end_bg = sparse_mapping[sparse_idx + 1]
+                    full_mapping[i_interp] = int(start_bg + alpha * (end_bg - start_bg))
+        # else if self.config.interpolation_method == "spline": # Spline deferred
+        # pass
 
-            if sparse_idx >= len(sparse_mapping) - 1:
-                # Use last mapping
-                full_mapping[i] = sparse_mapping[-1]
-            else:
-                # Interpolate between sparse mappings
-                alpha = (i % source_resolution) / source_resolution
-                start_bg = sparse_mapping[sparse_idx]
-                end_bg = sparse_mapping[sparse_idx + 1]
-
-                full_mapping[i] = int(start_bg + alpha * (end_bg - start_bg))
-
-        # Ensure monotonic
-        for i in range(1, len(full_mapping)):
-            full_mapping[i] = max(full_mapping[i], full_mapping[i - 1])
-
+        for i_mono in range(1, len(full_mapping)):
+            full_mapping[i_mono] = max(full_mapping[i_mono], full_mapping[i_mono - 1])
         return full_mapping
 
     def align(
@@ -332,44 +358,69 @@ class MultiResolutionAligner:
         fg_fingerprints: np.ndarray | None = None,
         bg_fingerprints: np.ndarray | None = None,
     ) -> tuple[np.ndarray, float]:
-        """Perform multi-resolution temporal alignment.
+        """Perform multi-resolution temporal alignment."""
+        logger.info(f"Multi-res align: {len(fg_frames)} -> {len(bg_frames)} frames")
 
-        Args:
-            fg_frames: Foreground video frames
-            bg_frames: Background video frames
-            fg_fingerprints: Pre-computed foreground fingerprints
-            bg_fingerprints: Pre-computed background fingerprints
-
-        Returns:
-            Frame mapping and alignment confidence
-        """
-        logger.info(
-            f"Multi-resolution alignment: {len(fg_frames)} -> {len(bg_frames)} frames"
-        )
-
-        # Create temporal pyramids
         fg_pyramid = self.create_temporal_pyramid(fg_frames, fg_fingerprints)
         bg_pyramid = self.create_temporal_pyramid(bg_frames, bg_fingerprints)
 
-        # Perform hierarchical alignment
         sparse_mapping = self.hierarchical_alignment(fg_pyramid, bg_pyramid)
 
-        # Apply drift correction
+        # Apply enhanced drift correction
         corrected_mapping = self.apply_drift_correction(sparse_mapping)
 
-        # Interpolate to full resolution
+        # Global smoothing using Savitzky-Golay filter
+        if (
+            len(corrected_mapping) > self.config.savitzky_golay_window
+            and self.config.savitzky_golay_window > 0
+        ):
+            try:
+                # Ensure polyorder is less than window_length
+                polyorder = min(
+                    self.config.savitzky_golay_polyorder,
+                    self.config.savitzky_golay_window - 1,
+                )
+                if polyorder < 0:
+                    polyorder = 0  # Must be non-negative
+
+                smoothed_mapping = savgol_filter(
+                    corrected_mapping,
+                    window_length=self.config.savitzky_golay_window,
+                    polyorder=polyorder,
+                ).astype(int)
+                # Ensure monotonicity after smoothing
+                for i_mono in range(1, len(smoothed_mapping)):
+                    smoothed_mapping[i_mono] = max(
+                        smoothed_mapping[i_mono], smoothed_mapping[i_mono - 1]
+                    )
+                corrected_mapping = smoothed_mapping
+                logger.info("Applied Savitzky-Golay smoothing to mapping.")
+            except Exception as e:
+                logger.warning(
+                    f"Savitzky-Golay smoothing failed: {e}. Using un-smoothed corrected mapping."
+                )
+        else:
+            logger.info(
+                "Skipping Savitzky-Golay smoothing (mapping too short or window disabled)."
+            )
+
         full_mapping = self.interpolate_full_mapping(
             corrected_mapping,
             len(fg_frames),
             self.resolutions[-1],  # Finest resolution used
         )
 
-        # Calculate confidence based on mapping smoothness
-        differences = np.diff(full_mapping)
-        expected_diff = len(bg_frames) / len(fg_frames)
-        variance = np.var(differences)
-        confidence = np.exp(-variance / (expected_diff**2))
+        if len(full_mapping) > 1:
+            differences = np.diff(full_mapping)
+            expected_diff = (
+                len(bg_frames) / len(fg_frames) if len(fg_frames) > 0 else 1.0
+            )
+            variance = np.var(differences)
+            confidence = np.exp(-variance / (expected_diff**2 + 1e-9))
+        elif len(full_mapping) == 1 and len(fg_frames) == 1:
+            confidence = 1.0
+        else:
+            confidence = 0.0
 
         logger.info(f"Alignment complete. Confidence: {confidence:.3f}")
-
         return full_mapping, confidence

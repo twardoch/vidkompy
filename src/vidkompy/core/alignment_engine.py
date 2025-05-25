@@ -57,7 +57,7 @@ class AlignmentEngine:
         processor: VideoProcessor,
         verbose: bool = False,
         max_keyframes: int = 2000,
-        use_precise_engine: bool = False,
+        engine_mode: str = "fast",
         drift_interval: int = 100,
         window: int = 100,
     ):
@@ -67,15 +67,21 @@ class AlignmentEngine:
             processor: Video processor instance
             verbose: Enable verbose logging
             max_keyframes: Maximum keyframes for frame matching
-            use_precise_engine: Use the new precise temporal alignment engine
+            engine_mode: The chosen engine ('fast', 'precise', 'mask')
             drift_interval: Frame interval for drift correction in precise engine
+            window: DTW window size
         """
         self.processor = processor
         self.spatial_aligner = SpatialAligner()
         self.temporal_aligner = TemporalAligner(
-            processor, max_keyframes, use_precise_engine, drift_interval, window
+            processor=processor,
+            max_keyframes=max_keyframes,
+            drift_interval=drift_interval,
+            window=window,
+            engine_mode=engine_mode,
         )
         self.verbose = verbose
+        self.engine_mode = engine_mode
 
     def process(
         self,

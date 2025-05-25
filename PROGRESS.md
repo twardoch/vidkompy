@@ -21,23 +21,34 @@
 - [x] Added drift tracking and logging for debugging
 - [x] Verified fix resolves hand movement synchronization issue
 
+### Precise Engine Improvement (Wave Drift Fix - Idea 1 from SPEC.md)
+- [x] Updated `PreciseEngineConfig` with new parameters for enhanced drift correction (polynomial model, adaptive blend) and Savitzky-Golay smoothing.
+- [x] Modified `MultiResolutionAligner.apply_drift_correction` to use polynomial regression for baseline drift and an adaptive blend factor.
+- [x] Added global Savitzky-Golay smoothing pass in `MultiResolutionAligner.align` after drift correction and before full interpolation.
+- [x] Adjusted loop variables and conditions in `apply_drift_correction` and `refine_alignment` for clarity and correctness.
+- [x] Added safety checks for empty/short mappings in `interpolate_full_mapping` and `align`.
+
 ## Future Optimizations (Not Yet Implemented)
 
 ### Performance Enhancements
 - [ ] GPU acceleration with CuPy for phase correlation
 - [ ] FAISS integration for fast similarity search
 - [ ] Replace OpenCV with PyAV for faster video I/O
-- [ ] Implement sliding window refinement for drift correction
-- [ ] Hierarchical multi-resolution matching
+- [ ] Implement sliding window refinement for drift correction (This was part of the precise engine, but could be reviewed/enhanced based on Idea 1's impact)
+- [ ] Hierarchical multi-resolution matching (This is part of the precise engine, could be tuned)
 
-### Architecture Improvements  
+### Architecture Improvements
 - [ ] Replace template matching with phase correlation for spatial alignment
 - [ ] Use neural embeddings (MobileNet) instead of perceptual hashes
 - [ ] Implement proper fallback strategies for edge cases
 - [ ] Add caching for repeated video pairs
+- [ ] Implement Improvement Idea 2 (Optical Flow-Assisted Consistency) from SPEC.md
+- [ ] Implement Improvement Idea 3 (Dominant Path DTW) from SPEC.md
+- [ ] Fix CLI `-w` (window) parameter bug for `precise` engine (not used effectively).
 
 ### Code Quality
-- [ ] Add comprehensive unit tests
-- [ ] Create performance benchmark suite
-- [ ] Add type hints throughout
-- [ ] Improve error handling and recovery
+- [ ] Add comprehensive unit tests for new drift correction and smoothing.
+- [ ] Create performance benchmark suite (or adapt existing `benchmark.sh` to test new config parameters).
+- [ ] Add type hints throughout (ongoing).
+- [ ] Improve error handling and recovery.
+- [ ] Resolve remaining linter errors for line length in `multi_resolution_aligner.py`.

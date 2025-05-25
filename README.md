@@ -98,13 +98,13 @@ The **Fast Engine** uses **Dynamic Time Warping (DTW)** with perceptual hashing 
 
 #### Precise Engine (Advanced)
 
-The **Precise Engine** implements a sophisticated multi-resolution approach for maximum accuracy:
+The **Precise Engine** implements a sophisticated multi-resolution approach for maximum accuracy. **Recent enhancements include improved drift correction using polynomial models, adaptive blending, and Savitzky-Golay smoothing to address temporal inconsistencies.**
 
 1.  **Multi-Resolution Hierarchical Alignment**:
    - Creates temporal pyramids at multiple resolutions (1/16, 1/8, 1/4, 1/2, full)
    - Performs coarse-to-fine alignment, starting at the lowest resolution
    - Each level refines the previous level's mapping
-   - Applies drift correction every 100 frames
+   - Applies drift correction (now enhanced) every 100 frames
 
 2.  **Keyframe Detection and Anchoring**:
    - Automatically detects keyframes based on temporal changes using Gaussian filtering

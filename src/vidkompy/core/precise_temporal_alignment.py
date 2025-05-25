@@ -26,15 +26,19 @@ class PreciseTemporalAlignment:
         fingerprinter: FrameFingerprinter,
         verbose: bool = False,
         interval: int = 100,
+        cli_window_size: int = 0,
     ):
         """Initialize precise temporal alignment.
 
         Args:
             fingerprinter: Frame fingerprint generator
             verbose: Enable detailed logging
+            interval: Drift correction interval for MultiResolutionAligner
+            cli_window_size: DTW window size from CLI (0 means use defaults)
         """
         self.fingerprinter = fingerprinter
         self.verbose = verbose
+        self.cli_window_size = cli_window_size
 
         # Initialize multi-resolution aligner
         config = PreciseEngineConfig(

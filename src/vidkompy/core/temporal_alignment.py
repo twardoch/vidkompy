@@ -53,64 +53,64 @@ class TemporalAligner:
         self,
         processor: VideoProcessor,
         max_keyframes: int = 200,
-        use_precise_engine: bool = False,
         drift_interval: int = 100,
         window: int = 100,
+        engine_mode: str = "fast",
     ):
         """Initialize temporal aligner.
 
         Args:
             processor: Video processor instance
             max_keyframes: Maximum keyframes for frame matching
-            use_precise_engine: Use the new precise temporal alignment engine
-            drift_interval: Frame interval for drift correction in precise engine
+            drift_interval: Frame interval for drift correction
+            window: DTW window size
+            engine_mode: Alignment engine ('fast', 'precise', 'mask')
         """
         self.processor = processor
         self.max_keyframes = max_keyframes
         self.drift_interval = drift_interval
         self.use_perceptual_hash = True
-        self.hash_cache: dict[str, dict[int, dict[str, np.ndarray]]] = {}
+        # Cache for pHash np.ndarray values for classic keyframe matching
+        self.hash_cache: dict[str, dict[int, np.ndarray]] = {}
         self._current_mask: np.ndarray | None = None
-        self.use_precise_engine = use_precise_engine
+        self.engine_mode = engine_mode
+        self.use_precise_engine = engine_mode == "precise" or engine_mode == "mask"
+        self.cli_window_size = window
 
         self.fingerprinter: FrameFingerprinter | None = None
         self.dtw_aligner = DTWAligner(window=window)
         self.use_dtw = True
-        self.hasher: cv2.img_hash.PHash | None = None
+        self.hasher: cv2.img_hash.PHash | None = None  # type: ignore
         self.precise_aligner = None
 
         try:
             if hasattr(cv2, "img_hash") and hasattr(cv2.img_hash, "PHash_create"):
-                self.hasher = cv2.img_hash.PHash_create()
+                self.hasher = cv2.img_hash.PHash_create()  # type: ignore
                 if self.hasher is not None:
                     logger.info("✓ Perceptual hashing enabled (pHash)")
                     self.use_perceptual_hash = True
                 else:
-                    logger.warning(
-                        "cv2.img_hash.PHash_create() returned None. "
-                        "Perceptual hashing disabled. Falling back to SSIM."
-                    )
+                    # cv2.img_hash.PHash_create() returned None.
+                    # Perceptual hashing disabled. Falling back to SSIM.
+                    logger.warning("pHash_create() is None. Fallback to SSIM.")
                     self.use_perceptual_hash = False
             else:
-                logger.warning(
-                    "cv2.img_hash.PHash_create not found. "
-                    "Perceptual hashing disabled. Falling back to SSIM."
-                )
+                # cv2.img_hash.PHash_create not found.
+                # Perceptual hashing disabled. Falling back to SSIM.
+                logger.warning("pHash_create not found. Fallback to SSIM.")
                 self.use_perceptual_hash = False
         except AttributeError:
-            logger.warning(
-                "cv2.img_hash module or PHash_create not available. "
-                "Ensure opencv-contrib-python is correctly installed. "
-                "Perceptual hashing disabled. Falling back to SSIM."
-            )
+            # cv2.img_hash module or PHash_create not available.
+            # Ensure opencv-contrib-python is correctly installed.
+            # Perceptual hashing disabled. Falling back to SSIM.
+            logger.warning("cv2.img_hash missing. Fallback to SSIM.")
             self.use_perceptual_hash = False
         except Exception as e:
-            logger.error(f"Unexpected error initializing perceptual hasher: {e}")
+            logger.error(f"Error initializing perceptual hasher: {e}")
             self.use_perceptual_hash = False
 
-        if self.hasher is None:
-            if self.use_perceptual_hash:
-                logger.warning("Hasher is None, forcing use_perceptual_hash to False.")
+        if self.hasher is None and self.use_perceptual_hash:
+            logger.warning("Hasher is None, forcing SSIM.")
             self.use_perceptual_hash = False
 
     def calculate_adaptive_keyframe_count(
@@ -217,44 +217,53 @@ class TemporalAligner:
             if self.fingerprinter is None:
                 self.fingerprinter = FrameFingerprinter()
             self.precise_aligner = PreciseTemporalAlignment(
-                self.fingerprinter,
+                fingerprinter=self.fingerprinter,
                 verbose=False,  # Use default verbosity
                 interval=self.drift_interval,
+                cli_window_size=self.cli_window_size,
             )
 
         # Perform spatial alignment first to get crop coordinates
         logger.info("Performing spatial alignment to determine crop region...")
         spatial_aligner = SpatialAligner()
-        
+
         # Extract sample frames for spatial alignment
-        bg_frames = self.processor.extract_frames(bg_info.path, [bg_info.frame_count // 2])
-        fg_frames = self.processor.extract_frames(fg_info.path, [fg_info.frame_count // 2])
-        
+        bg_frames = self.processor.extract_frames(
+            bg_info.path, [bg_info.frame_count // 2]
+        )
+        fg_frames = self.processor.extract_frames(
+            fg_info.path, [fg_info.frame_count // 2]
+        )
+
         if not bg_frames or not fg_frames:
             logger.error("Failed to extract sample frames for spatial alignment")
             return self._create_direct_mapping(bg_info, fg_info)
-            
+
         bg_sample = bg_frames[0]
         fg_sample = fg_frames[0]
-        
+
         if bg_sample is None or fg_sample is None:
             logger.error("Failed to extract sample frames for spatial alignment")
             return self._create_direct_mapping(bg_info, fg_info)
-        
+
         # Get spatial alignment
         spatial_result = spatial_aligner.align(bg_sample, fg_sample)
         x_offset = spatial_result.x_offset
         y_offset = spatial_result.y_offset
-        
-        logger.info(f"Spatial alignment: offset=({x_offset}, {y_offset}), confidence={spatial_result.confidence:.3f}")
-        
+
+        logger.info(
+            f"Spatial alignment: offset=({x_offset}, {y_offset}), confidence={spatial_result.confidence:.3f}"
+        )
+
         # Extract all frames for precise alignment
         logger.info("Extracting frames for precise alignment...")
-        
+
         # For background, extract with cropping to match foreground region
         crop_region = (x_offset, y_offset, fg_info.width, fg_info.height)
-        bg_frames = self.processor.extract_all_frames(bg_info.path, resize_factor=0.25, crop=crop_region)
-        
+        bg_frames = self.processor.extract_all_frames(
+            bg_info.path, resize_factor=0.25, crop=crop_region
+        )
+
         # For foreground, extract without cropping
         fg_frames = self.processor.extract_all_frames(fg_info.path, resize_factor=0.25)
 
@@ -337,10 +346,14 @@ class TemporalAligner:
             return {}
 
         # Check cache first
-        if video_path in self.hash_cache:
-            cached = self.hash_cache[video_path]
-            if all(idx in cached for idx in frame_indices):
-                return {idx: cached[idx] for idx in frame_indices}
+        if video_path in self.hash_cache and all(
+            idx in self.hash_cache[video_path] for idx in frame_indices
+        ):
+            return {
+                idx: self.hash_cache[video_path][idx]
+                for idx in frame_indices
+                if idx in self.hash_cache[video_path]
+            }
 
         logger.debug(f"Pre-computing hashes for {len(frame_indices)} frames")
         start_time = time.time()
@@ -349,7 +362,7 @@ class TemporalAligner:
         frames = self.processor.extract_frames(video_path, frame_indices, resize_factor)
 
         # Compute hashes in parallel
-        hashes = {}
+        hashes: dict[int, np.ndarray] = {}
         with ThreadPoolExecutor(max_workers=mp.cpu_count()) as executor:
             future_to_idx = {
                 executor.submit(self._compute_frame_hash, frame): idx
@@ -360,15 +373,20 @@ class TemporalAligner:
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
                 try:
-                    hash_value = future.result()
-                    hashes[idx] = hash_value
+                    hash_value = future.result()  # This should be np.ndarray (pHash)
+                    if hash_value is not None:
+                        hashes[idx] = hash_value
                 except Exception as e:
                     logger.warning(f"Failed to compute hash for frame {idx}: {e}")
 
-        # Update cache
+        # Update cache (ensure it stores np.ndarray for pHash)
         if video_path not in self.hash_cache:
             self.hash_cache[video_path] = {}
-        self.hash_cache[video_path].update(hashes)
+        # This logic seems to intend to store full fingerprint dicts, but for cv2.norm we need pHash np.array
+        # For _find_keyframe_matches, we need the pHash directly. Let's ensure this cache stores that.
+        self.hash_cache[video_path].update(
+            hashes
+        )  # hashes should be dict[int, np.ndarray]
 
         elapsed = time.time() - start_time
         logger.debug(f"Computed {len(hashes)} hashes in {elapsed:.2f}s")
@@ -471,15 +489,15 @@ class TemporalAligner:
             # If SSIM is used and the number of keyframes is high, warn the user.
             if effective_target_keyframes > 200:  # Threshold for SSIM warning
                 logger.warning(
-                    f"SSIM mode active for keyframe matching with a high target of {effective_target_keyframes} keyframes. "
+                    f"SSIM mode with high target of {effective_target_keyframes} keyframes."
                 )
             else:
                 logger.info(
-                    f"SSIM mode active for keyframe matching. Target keyframes: {effective_target_keyframes}"
+                    f"SSIM mode. Target keyframes: {effective_target_keyframes}"
                 )
         else:
             logger.info(
-                f"Perceptual hashing mode active. Target keyframes: {effective_target_keyframes}"
+                f"Perceptual hash mode. Target keyframes: {effective_target_keyframes}"
             )
 
         sample_interval = max(1, fg_info.frame_count // effective_target_keyframes)
@@ -569,10 +587,13 @@ class TemporalAligner:
             frame2 = self._apply_mask_to_frame(frame2, mask)
 
         if self.use_perceptual_hash and self.hasher is not None:
-            hash1 = self._compute_frame_hash(frame1)
-            hash2 = self._compute_frame_hash(frame2)
-            distance = cv2.norm(hash1, hash2, cv2.NORM_HAMMING)
-            max_distance = 64
+            # _compute_frame_hash now directly returns the pHash np.ndarray
+            hash1_val = self._compute_frame_hash(frame1)
+            hash2_val = self._compute_frame_hash(frame2)
+            if hash1_val is None or hash2_val is None:
+                return 0.0  # Or handle error appropriately
+            distance = cv2.norm(hash1_val, hash2_val, cv2.NORM_HAMMING)
+            max_distance = 64  # pHash is typically 64-bit
             similarity = 1.0 - (distance / max_distance)
             return float(similarity)
         else:
@@ -603,6 +624,17 @@ class TemporalAligner:
         ):
             return {}
 
+        # This cache should store pHash np.ndarrays
+        # Check cache first - this assumes self.hash_cache[video_path] stores dict[int, np.ndarray]
+        if video_path in self.hash_cache and all(
+            idx in self.hash_cache[video_path] for idx in frame_indices
+        ):
+            return {
+                idx: self.hash_cache[video_path][idx]
+                for idx in frame_indices
+                if idx in self.hash_cache[video_path]
+            }
+
         logger.debug(f"Pre-computing masked hashes for {len(frame_indices)} frames")
         start_time = time.time()
 
@@ -610,7 +642,7 @@ class TemporalAligner:
         frames = self.processor.extract_frames(video_path, frame_indices, resize_factor)
 
         # Compute masked hashes in parallel
-        hashes = {}
+        hashes: dict[int, np.ndarray] = {}
         with ThreadPoolExecutor(max_workers=mp.cpu_count()) as executor:
             future_to_idx = {
                 executor.submit(
@@ -623,13 +655,18 @@ class TemporalAligner:
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
                 try:
-                    hash_value = future.result()
+                    hash_value = future.result()  # This should be np.ndarray (pHash)
                     if hash_value is not None:
                         hashes[idx] = hash_value
                 except Exception as e:
                     logger.warning(
                         f"Failed to compute masked hash for frame {idx}: {e}"
                     )
+
+        # Update cache with pHash np.ndarrays
+        if video_path not in self.hash_cache:
+            self.hash_cache[video_path] = {}
+        self.hash_cache[video_path].update(hashes)
 
         elapsed = time.time() - start_time
         logger.debug(f"Computed {len(hashes)} masked hashes in {elapsed:.2f}s")
@@ -681,11 +718,14 @@ class TemporalAligner:
         if len(resized.shape) == 3:
             resized = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
 
-        hash_value = self.hasher.compute(resized)
+        hash_value = self.hasher.compute(resized)  # This is the pHash np.ndarray
         return hash_value
 
-    def _compute_frame_hash(self, frame: np.ndarray) -> np.ndarray:
-        """Compute perceptual hash of a frame."""
+    def _compute_frame_hash(self, frame: np.ndarray) -> np.ndarray | None:
+        """Compute perceptual hash of a frame (specifically pHash)."""
+        if frame is None or self.hasher is None:  # Check if hasher is initialized
+            return None
+
         # Resize to standard size for consistent hashing
         resized = cv2.resize(frame, (32, 32), interpolation=cv2.INTER_AREA)
 
@@ -694,7 +734,7 @@ class TemporalAligner:
             resized = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
 
         # Compute hash
-        hash_value = self.hasher.compute(resized)
+        hash_value = self.hasher.compute(resized)  # This is the pHash np.ndarray
         return hash_value
 
     def _build_cost_matrix(
@@ -1443,12 +1483,12 @@ class TemporalAligner:
             # In border mode, we can now use masked perceptual hashing
             if not effective_use_dtw and self.use_perceptual_hash:
                 logger.info(
-                    "Border mode with masked perceptual hashing enabled for faster processing."
+                    "Border mode: masked perceptual hashing for faster processing."
                 )
                 effective_use_perceptual_hash = True
             elif not effective_use_dtw and not self.use_perceptual_hash:
                 logger.info(
-                    "Border mode using SSIM comparison (perceptual hashing not available)."
+                    "Border mode: SSIM comparison (perceptual hash unavailable)."
                 )
                 effective_use_perceptual_hash = False
 
