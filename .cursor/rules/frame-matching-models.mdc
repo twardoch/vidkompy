@@ -1,76 +1,55 @@
 ---
-description: Frame matching models and algorithms for video synchronization and overlay alignment
-globs: src/vidkompy/core/frame_fingerprint.py,src/vidkompy/core/dtw_aligner.py,src/vidkompy/core/spatial_alignment.py
+description: Technical specification for frame matching algorithms and temporal alignment models in video processing
+globs: src/vidkompy/core/frame_fingerprint.py,src/vidkompy/core/dtw_aligner.py,src/vidkompy/core/alignment_engine.py
 alwaysApply: false
 ---
 
 
 # frame-matching-models
 
-## Frame Fingerprinting Models
+## Frame Fingerprinting System (Importance: 95)
+- Multi-algorithm perceptual hash fusion combining:
+  - pHash for frequency domain analysis 
+  - AverageHash for luminance patterns
+  - ColorMomentHash for color distribution
+  - MarrHildrethHash for edge structure detection
+- Weighted fingerprint scoring based on content type reliability
+- Border region prioritization for letterboxed content matching
 
-Implements multi-algorithm perceptual hashing to create unique frame signatures:
+## Temporal Alignment Models (Importance: 98)
+- Dynamic Time Warping (DTW) with Sakoe-Chiba band constraint
+- Foreground-first frame preservation principle
+- Bidirectional alignment with confidence-weighted path merging
+- Keyframe anchoring for drift prevention
+- Polynomial drift correction with adaptive window sizes
 
-1. Core Hash Combination
-- pHash: DCT-based frequency domain analysis
-- AverageHash: Mean pixel intensity patterns 
-- ColorMomentHash: Statistical color distribution
-- MarrHildrethHash: Edge and contour detection
+## Frame Mapping Engines (Importance: 92)
+- Fast Engine:
+  - Direct 1:1 frame correspondence
+  - Forced monotonic progression
+  - Early stopping on perfect matches
+- Precise Engine:
+  - Multi-resolution temporal pyramid
+  - Progressive refinement through resolution levels
+  - Local neighborhood search within alignment bands
+- Masked Engine:
+  - Content-aware region detection
+  - Border-based alignment for letterboxed videos
+  - Selective feature matching on visible regions
 
-2. Frame Similarity Model
-- Weighted combination of hash distances
-- Color histogram correlation scoring
-- Border region masking for edge-based matching
+## Synchronization Orchestration (Importance: 88)
+- Frame selection policies:
+  1. Preserve all foreground frames
+  2. Adapt background timing to match
+  3. Apply drift correction at keyframes
+- Audio alignment rules:
+  - Foreground audio priority
+  - Background audio fallback
+  - Timing synchronization with composed video
 
-## Temporal Alignment Model 
-
-DTW-based frame mapping system with constraints:
-
-1. Frame Sequence Mapping
-- Monotonic path finding through similarity matrix
-- Sakoe-Chiba band limiting maximum temporal offset
-- Keyframe interpolation for continuous mapping
-
-2. Matching Modes
-- Full frame comparison for precise alignment
-- Border region analysis for edge-based sync
-- Classic keyframe matching fallback
-
-## Spatial Positioning Model
-
-Template matching system for overlay positioning:
-
-1. Position Detection
-- Normalized cross-correlation scoring
-- Mid-point frame sampling strategy
-- Scale factor computation for size mismatches
-
-2. Alignment Confidence
-- Match quality scoring
-- Position validation checks
-- Fallback positioning rules
-
-## Integration Rules
-
-1. Frame Selection Logic
-- Foreground frame preservation priority
-- Background frame warping/adaptation
-- Keyframe density calculation
-
-2. Quality Control
-- Alignment confidence thresholds
-- Match validation rules
-- Fallback behavior triggers
-
-3. Mode Selection
-- Border vs full-frame analysis
-- Temporal sync method determination
-- Spatial alignment strategy choice
-
-Importance Scores:
-- Frame Fingerprinting Models: 95 (Core matching capability)
-- Temporal Alignment Model: 90 (Critical sync logic)
-- Spatial Positioning Model: 85 (Key overlay functionality)
-- Integration Rules: 75 (Important workflow control)
+Key Implementation Files:
+- /src/vidkompy/core/frame_fingerprint.py
+- /src/vidkompy/core/dtw_aligner.py
+- /src/vidkompy/core/alignment_engine.py
 
 $END$

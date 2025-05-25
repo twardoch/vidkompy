@@ -398,8 +398,8 @@ This project is licensed under the MIT License. See the [LICENSE](https://www.go
 
 START SPECIFICATION:
 ---
-description: Create overview documentation for projects focused on video processing, synchronization, and alignment, particularly when dealing with foreground/background video composition and intelligent temporal matching
-globs: *.py,*.md
+description: Overview documentation for video overlay synchronization systems that intelligently align and composite video content while preserving timing and quality
+globs: *.py,*.md,*.toml
 alwaysApply: false
 ---
 
@@ -415,49 +415,50 @@ alwaysApply: false
 - Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
 
 
-The vidkompy system implements intelligent video overlay and synchronization with three core business domains:
+The vidkompy system implements intelligent video overlay synchronization through several core business components:
 
-## Frame Analysis System (Importance: 95)
-- Perceptual hashing engine combines multiple algorithms:
-  - Frequency domain analysis (pHash)
-  - Brightness patterns (AverageHash) 
-  - Color distribution statistics (ColorMomentHash)
-  - Edge detection (MarrHildrethHash)
-- Weighted fingerprint generation for optimal frame matching
-- Border region masking for edge-based alignment
+## Frame Fingerprinting Engine (90)
+Essential video content matching system using:
+- Multi-algorithm perceptual hash combination
+- Weighted similarity scoring
+- Content-aware region detection
+- Adaptive feature extraction
 
-## Temporal Alignment Engine (Importance: 98)
-- Dynamic Time Warping (DTW) implementation with:
-  - Sakoe-Chiba band constraints
-  - Monotonic frame mapping
-  - Keyframe interpolation
-- Adaptive keyframe density calculation
-- Foreground-first preservation principle
-- Frame sequence validation
+Key Location: src/vidkompy/core/frame_fingerprint.py
 
-## Spatial Positioning System (Importance: 92)
-- Template matching with normalized correlation
-- Auto-scaling for resolution mismatches
-- Border mode alignment options
-- Position confidence scoring
-- Center alignment fallback
+## Temporal Alignment System (95)
+Video sequence synchronization implementing:
+- Dynamic Time Warping with Sakoe-Chiba constraints
+- Multi-resolution temporal pyramid refinement
+- Polynomial drift correction models
+- Foreground-first frame preservation principle
 
-## Video Composition Rules (Importance: 85)
-- Foreground frame preservation guarantee
-- Background frame warping/adaptation
-- Audio stream selection logic
-- Quality-based decision system
-- Temporal drift prevention
+Key Location: src/vidkompy/core/alignment_engine.py
 
-Core Integration Points:
-```
-src/vidkompy/
-  ├── core/
-  │   ├── alignment_engine.py    # Orchestration logic
-  │   ├── dtw_aligner.py        # Temporal matching
-  │   ├── frame_fingerprint.py  # Frame analysis
-  │   └── spatial_alignment.py  # Position detection
-```
+## Spatial Position Detection (85) 
+Intelligent overlay positioning using:
+- Template matching with confidence scoring
+- Border region analysis modes
+- Automatic scale factor calculation
+- Content-aware region masking
+
+Key Location: src/vidkompy/core/spatial_alignment.py
+
+## Video Processing Orchestration (80)
+Manages the complete alignment workflow:
+1. Initial spatial position detection
+2. Temporal sequence matching
+3. Frame-level synchronization
+4. Audio stream selection and timing
+
+Key Location: src/vidkompy/core/video_processor.py
+
+## Core Business Rules
+- Foreground video frames must be preserved exactly
+- Background content adapts to match foreground timing
+- Strict monotonicity in temporal alignments
+- Maximum allowed drift of 1 frame per 100 frames
+- Audio selection prioritizes foreground source
 
 $END$
 END SPECIFICATION

@@ -1,6 +1,6 @@
 ---
-description: Algorithms for spatial and temporal alignment of video frames during synchronization and overlay processing
-globs: src/vidkompy/core/alignment_engine.py,src/vidkompy/core/dtw_aligner.py,src/vidkompy/core/frame_fingerprint.py,src/vidkompy/core/spatial_alignment.py
+description: Documents spatial and temporal alignment algorithms for video synchronization and overlay
+globs: src/vidkompy/core/dtw_aligner.py,src/vidkompy/core/frame_fingerprint.py,src/vidkompy/core/multi_resolution_aligner.py,src/vidkompy/core/spatial_alignment.py
 alwaysApply: false
 ---
 
@@ -8,48 +8,59 @@ alwaysApply: false
 # alignment-algorithms
 
 ## Frame Fingerprinting System (Importance: 95)
+`src/vidkompy/core/frame_fingerprint.py`
 
-Multi-algorithm perceptual hashing combining:
-- pHash for frequency domain analysis
-- AverageHash for mean color patterns 
-- ColorMomentHash for color distribution stats
-- MarrHildrethHash for edge/shape detection
+Multi-algorithm perceptual hash generation:
+- pHash analyzes frequency domain features
+- AverageHash captures luminance patterns  
+- ColorMomentHash measures color distribution
+- MarrHildrethHash detects structural edges
 
-Weighted similarity scoring prioritizes structural matches over color variations.
-
-File: src/vidkompy/core/frame_fingerprint.py
+Weighted similarity scoring combines normalized Hamming distances with color histogram correlation for robust frame matching.
 
 ## Temporal Alignment Engine (Importance: 98)
+`src/vidkompy/core/dtw_aligner.py`
 
-Dynamic Time Warping (DTW) implementation with:
-- Sakoe-Chiba band constraint to prevent extreme warping
-- Adaptive keyframe density based on FPS differences
-- Monotonic frame mapping enforcement
-- Linear interpolation between key matches
-- Target of 200 keyframes for drift prevention
+Custom Dynamic Time Warping implementation:
+- Sakoe-Chiba band constraint maintains temporal coherence
+- Monotonic frame mapping prevents out-of-order alignments
+- Keyframe anchoring eliminates drift
+- Bidirectional path finding with confidence scoring
 
-File: src/vidkompy/core/dtw_aligner.py
+## Multi-Resolution Framework (Importance: 92) 
+`src/vidkompy/core/multi_resolution_aligner.py`
 
-## Spatial Positioning System (Importance: 92)
+Hierarchical video alignment:
+- Progressive refinement through resolution levels
+- Dynamic resolution selection based on content
+- Polynomial drift correction between keyframes
+- Confidence-weighted blending of alignment paths
 
-Template matching with:
-- Mid-point frame sampling strategy
-- Normalized cross-correlation scoring
-- Dynamic scale factor handling
-- Border-based matching mode
-- Edge blending support
+## Spatial Position Detection (Importance: 90)
+`src/vidkompy/core/spatial_alignment.py`
 
-File: src/vidkompy/core/spatial_alignment.py
+Template matching with specialized modes:
+- Standard: Full frame correlation
+- Border: Edge region analysis (8px default)
+- Center: Fallback for low confidence matches
 
-## Core Alignment Rules (Importance: 96)
+Automatic scaling handles resolution mismatches while preserving content aspect ratios.
 
-Video compositing policies:
-- Foreground frame preservation guarantee
-- Background warping to match foreground timing
-- Intelligent audio source selection
-- Frame sequence validation
-- Progressive frame processing
+## Core Business Rules
 
-File: src/vidkompy/core/alignment_engine.py
+1. Foreground Preservation
+- All foreground frames maintained without modification
+- Background frames adapt to match foreground timing
+- No frame dropping or interpolation allowed
+
+2. Temporal Consistency  
+- Strict monotonicity in frame mappings
+- Maximum allowed drift: 1 frame per 100 frames
+- Forced alignment at scene change keyframes
+
+3. Quality Controls
+- Minimum match confidence: 0.85
+- Border width: 8-24 pixels
+- Template correlation threshold: 0.90
 
 $END$
