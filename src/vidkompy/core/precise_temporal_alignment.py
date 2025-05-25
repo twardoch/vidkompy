@@ -42,7 +42,10 @@ class PreciseTemporalAlignment:
 
         # Initialize multi-resolution aligner
         config = PreciseEngineConfig(
-            max_resolutions=4, base_resolution=16, drift_correction_interval=interval
+            max_resolutions=4,
+            base_resolution=16,
+            drift_correction_interval=interval,
+            cli_dtw_window=cli_window_size,
         )
         self.multi_res_aligner = MultiResolutionAligner(fingerprinter, config, verbose)
 

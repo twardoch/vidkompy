@@ -15,6 +15,17 @@ import multiprocessing as mp
 from loguru import logger
 import time
 
+try:
+    from vidkompy.core.numba_optimizations import (
+        compute_hamming_distances_batch,
+        compute_histogram_correlation,
+        compute_weighted_similarity,
+    )
+    NUMBA_AVAILABLE = True
+except ImportError:
+    logger.warning("Numba optimizations not available for fingerprinting")
+    NUMBA_AVAILABLE = False
+
 
 class FrameFingerprinter:
     """Ultra-fast frame comparison using perceptual hashing.
@@ -42,6 +53,9 @@ class FrameFingerprinter:
 
         # Cache for computed fingerprints
         self.fingerprint_cache: dict[str, dict[int, dict[str, np.ndarray]]] = {}
+        
+        # Flag to control numba usage
+        self.use_numba = NUMBA_AVAILABLE
 
     def _init_hashers(self, log_init: bool = True):
         """Initialize available hash algorithms.
@@ -210,60 +224,95 @@ class FrameFingerprinter:
         - Other hashes help disambiguate
         - Histogram adds color information
         """
-        scores = {}
-
-        # Compare each hash type
-        for name in fp1:
-            if name not in fp2:
-                continue
-
-            if name == "histogram":
-                # Use histogram correlation
-                score = cv2.compareHist(
+        # Try numba optimization for histogram comparison if available
+        if self.use_numba and "histogram" in fp1 and "histogram" in fp2:
+            try:
+                hist_score = compute_histogram_correlation(fp1["histogram"], fp2["histogram"])
+            except Exception:
+                # Fallback to OpenCV
+                hist_score = cv2.compareHist(
                     fp1["histogram"], fp2["histogram"], cv2.HISTCMP_CORREL
                 )
-                scores["histogram"] = max(0, score)  # Ensure non-negative
-            else:
-                # Use Hamming distance for hashes
-                # Ensure uint8 type for NORM_HAMMING
-                h1 = (
-                    fp1[name].astype(np.uint8)
-                    if fp1[name].dtype != np.uint8
-                    else fp1[name]
-                )
-                h2 = (
-                    fp2[name].astype(np.uint8)
-                    if fp2[name].dtype != np.uint8
-                    else fp2[name]
-                )
-                distance = cv2.norm(h1, h2, cv2.NORM_HAMMING)
-
-                # Normalize to 0-1 similarity
-                # Most hashes produce 64-bit (8 byte) values
-                max_bits = h1.shape[0] * 8
-                similarity = 1.0 - (distance / max_bits)
-                scores[name] = similarity
-
-        if not scores:
+        elif "histogram" in fp1 and "histogram" in fp2:
+            hist_score = cv2.compareHist(
+                fp1["histogram"], fp2["histogram"], cv2.HISTCMP_CORREL
+            )
+        else:
+            hist_score = 0.0
+        
+        hist_score = max(0, hist_score)  # Ensure non-negative
+        
+        # Collect hash distances
+        hash_distances = []
+        hash_names = []
+        
+        for name in fp1:
+            if name not in fp2 or name == "histogram":
+                continue
+            
+            # Ensure uint8 type for NORM_HAMMING
+            h1 = (
+                fp1[name].astype(np.uint8)
+                if fp1[name].dtype != np.uint8
+                else fp1[name]
+            )
+            h2 = (
+                fp2[name].astype(np.uint8)
+                if fp2[name].dtype != np.uint8
+                else fp2[name]
+            )
+            distance = cv2.norm(h1, h2, cv2.NORM_HAMMING)
+            
+            # Normalize to 0-1 distance
+            max_bits = h1.shape[0] * 8
+            normalized_distance = distance / max_bits
+            hash_distances.append(normalized_distance)
+            hash_names.append(name)
+        
+        if not hash_distances and hist_score == 0:
             return 0.0
-
-        # Weighted combination based on reliability
-        weights = {
+        
+        # Define weights
+        weight_map = {
             "phash": 0.4,  # Most reliable
             "ahash": 0.2,  # Good for brightness
             "dhash": 0.2,  # Good for color
             "mhash": 0.1,  # Good for edges
             "histogram": 0.1,  # Global color
         }
-
+        
+        # Use numba optimization if available
+        if self.use_numba and hash_distances:
+            try:
+                # Prepare weights array
+                weights = np.array([weight_map.get(name, 0.1) for name in hash_names])
+                weights = np.append(weights, weight_map.get("histogram", 0.1))
+                
+                # Convert to numpy arrays
+                hash_dist_array = np.array(hash_distances, dtype=np.float64)
+                
+                return compute_weighted_similarity(hash_dist_array, hist_score, weights)
+            except Exception:
+                # Fallback to standard implementation
+                pass
+        
+        # Standard implementation
         total_weight = 0
         total_score = 0
-
-        for name, score in scores.items():
-            weight = weights.get(name, 0.1)
-            total_score += score * weight
+        
+        # Add hash similarities
+        for i, name in enumerate(hash_names):
+            weight = weight_map.get(name, 0.1)
+            similarity = 1.0 - hash_distances[i]
+            total_score += similarity * weight
             total_weight += weight
-
+        
+        # Add histogram score
+        if hist_score > 0:
+            weight = weight_map.get("histogram", 0.1)
+            total_score += hist_score * weight
+            total_weight += weight
+        
         return total_score / total_weight if total_weight > 0 else 0.0
 
     def precompute_video_fingerprints(
@@ -359,6 +408,79 @@ class FrameFingerprinter:
         # Create a new instance in the worker process without logging
         fingerprinter = FrameFingerprinter(log_init=False)
         return fingerprinter.compute_fingerprint(frame)
+    
+    def compare_fingerprints_batch(
+        self, 
+        fps1: list[dict[str, np.ndarray]], 
+        fps2: list[dict[str, np.ndarray]]
+    ) -> np.ndarray:
+        """Batch comparison of fingerprints using numba optimization.
+        
+        Args:
+            fps1: List of fingerprints from first set
+            fps2: List of fingerprints from second set
+            
+        Returns:
+            Similarity matrix (len(fps1), len(fps2))
+        """
+        n1, n2 = len(fps1), len(fps2)
+        similarities = np.zeros((n1, n2), dtype=np.float32)
+        
+        if self.use_numba and n1 > 5 and n2 > 5:
+            try:
+                # Extract hash types from first fingerprint
+                hash_types = [k for k in fps1[0].keys() if k != "histogram"]
+                
+                # Prepare batch arrays for each hash type
+                for hash_type in hash_types:
+                    if all(hash_type in fp for fp in fps1 + fps2):
+                        # Extract hashes for this type
+                        hashes1 = np.array([fp[hash_type].flatten() for fp in fps1])
+                        hashes2 = np.array([fp[hash_type].flatten() for fp in fps2])
+                        
+                        # Compute batch distances
+                        distances = compute_hamming_distances_batch(
+                            hashes1.astype(np.uint8), hashes2.astype(np.uint8)
+                        )
+                        
+                        # Convert to similarities and accumulate
+                        max_bits = hashes1.shape[1] * 8
+                        hash_similarities = 1.0 - (distances / max_bits)
+                        
+                        # Apply weight for this hash type
+                        weight_map = {
+                            "phash": 0.4,
+                            "ahash": 0.2,
+                            "dhash": 0.2,
+                            "mhash": 0.1,
+                        }
+                        weight = weight_map.get(hash_type, 0.1)
+                        similarities += hash_similarities * weight
+                
+                # Add histogram correlations if available
+                if all("histogram" in fp for fp in fps1 + fps2):
+                    for i in range(n1):
+                        for j in range(n2):
+                            hist_corr = compute_histogram_correlation(
+                                fps1[i]["histogram"], fps2[j]["histogram"]
+                            )
+                            similarities[i, j] += max(0, hist_corr) * 0.1
+                
+                # Normalize by total weight
+                total_weight = sum(weight_map.values()) + 0.1  # +0.1 for histogram
+                similarities /= total_weight
+                
+                return similarities
+                
+            except Exception as e:
+                logger.warning(f"Batch comparison failed, falling back: {e}")
+        
+        # Fallback to individual comparisons
+        for i in range(n1):
+            for j in range(n2):
+                similarities[i, j] = self.compare_fingerprints(fps1[i], fps2[j])
+        
+        return similarities
 
     def compute_fingerprints(self, frames: np.ndarray) -> np.ndarray:
         """Compute fingerprints for multiple frames.

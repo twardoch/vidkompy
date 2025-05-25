@@ -15,6 +15,12 @@ from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 from rich.console import Console
 
 from vidkompy.models import FrameAlignment
+from vidkompy.core.numba_optimizations import (
+    compute_dtw_cost_matrix_numba,
+    find_dtw_path_numba,
+    prepare_fingerprints_for_numba,
+    log_numba_compilation,
+)
 
 console = Console()
 
@@ -43,6 +49,8 @@ class DTWAligner:
         """
         self.window = window
         self.default_window = 100
+        self.use_numba = True  # Flag to enable/disable numba optimizations
+        self._numba_compiled = False
 
     def set_window(self, window: int):
         """Set the window constraint for DTW alignment.
@@ -135,6 +143,29 @@ class DTWAligner:
         n_fg = len(fg_indices)
         n_bg = len(bg_indices)
 
+        # Try to use Numba optimization if available
+        if self.use_numba and n_fg > 10 and n_bg > 10:  # Only use for non-trivial sizes
+            try:
+                if not self._numba_compiled:
+                    log_numba_compilation()
+                    self._numba_compiled = True
+                
+                # Convert fingerprints to feature arrays for numba
+                fg_features = self._fingerprints_to_features(fg_fingerprints, fg_indices)
+                bg_features = self._fingerprints_to_features(bg_fingerprints, bg_indices)
+                
+                if show_progress:
+                    console.print("  Using Numba-optimized DTW computation...")
+                
+                # Use numba-optimized version
+                dtw = compute_dtw_cost_matrix_numba(fg_features, bg_features, self.window)
+                return dtw
+                
+            except Exception as e:
+                logger.warning(f"Failed to use Numba optimization: {e}")
+                logger.info("Falling back to standard implementation")
+        
+        # Standard implementation
         # Initialize with infinity
         dtw = np.full((n_fg + 1, n_bg + 1), np.inf)
         dtw[0, 0] = 0
@@ -191,6 +222,19 @@ class DTWAligner:
         - Guarantees monotonic path
         - Handles insertions/deletions/matches
         """
+        # Try to use Numba optimization if available
+        if self.use_numba and n_fg > 10 and n_bg > 10:
+            try:
+                # Use numba-optimized version
+                path_array = find_dtw_path_numba(dtw)
+                # Convert to list of tuples
+                path = [(int(i), int(j)) for i, j in path_array]
+                return path
+            except Exception as e:
+                logger.warning(f"Failed to use Numba path finding: {e}")
+                logger.info("Falling back to standard implementation")
+        
+        # Standard implementation
         path = []
         i, j = n_fg, n_bg
 
@@ -489,3 +533,49 @@ class DTWAligner:
         path = [(i, j) for i, j in path if i >= 0 and j >= 0]
 
         return path
+
+    def _fingerprints_to_features(
+        self, fingerprints: dict[int, dict[str, np.ndarray]], indices: list[int]
+    ) -> np.ndarray:
+        """Convert fingerprints to feature matrix for Numba processing.
+        
+        Args:
+            fingerprints: Dictionary of fingerprints
+            indices: List of frame indices
+            
+        Returns:
+            Feature matrix where each row is a flattened fingerprint
+        """
+        # Get sample fingerprint to determine feature size
+        sample_fp = next(iter(fingerprints.values()))
+        
+        # Calculate total feature size
+        feature_size = 0
+        for key, value in sample_fp.items():
+            if key == "histogram":
+                feature_size += len(value)
+            else:
+                # Hash values
+                feature_size += value.size
+        
+        # Build feature matrix
+        features = np.zeros((len(indices), feature_size), dtype=np.float32)
+        
+        for i, idx in enumerate(indices):
+            fp = fingerprints[idx]
+            offset = 0
+            
+            # Add hash features
+            for key in sorted(fp.keys()):
+                if key == "histogram":
+                    continue
+                value = fp[key].flatten()
+                features[i, offset:offset + len(value)] = value.astype(np.float32)
+                offset += len(value)
+            
+            # Add histogram at the end
+            if "histogram" in fp:
+                hist = fp["histogram"]
+                features[i, offset:offset + len(hist)] = hist
+        
+        return features

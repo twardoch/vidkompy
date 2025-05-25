@@ -17,6 +17,16 @@ from scipy.signal import savgol_filter
 from .dtw_aligner import DTWAligner
 from .frame_fingerprint import FrameFingerprinter
 
+try:
+    from vidkompy.core.numba_optimizations import (
+        apply_polynomial_drift_correction,
+        apply_savitzky_golay_filter,
+    )
+    NUMBA_AVAILABLE = True
+except ImportError:
+    logger.warning("Numba optimizations not available for multi-resolution alignment")
+    NUMBA_AVAILABLE = False
+
 
 @dataclass
 class PreciseEngineConfig:
@@ -53,6 +63,7 @@ class PreciseEngineConfig:
     savitzky_golay_polyorder: int = 3
     # Options: "linear", "spline" (spline deferred)
     interpolation_method: str = "linear"
+    cli_dtw_window: int = 0  # DTW window size from CLI, 0 to ignore
 
 
 class MultiResolutionAligner:
@@ -74,6 +85,7 @@ class MultiResolutionAligner:
         self.fingerprinter = fingerprinter
         self.config = config or PreciseEngineConfig()
         self.verbose = verbose
+        self.use_numba = NUMBA_AVAILABLE
 
         # Calculate resolution levels
         self.resolutions = []
@@ -263,10 +275,25 @@ class MultiResolutionAligner:
         if len(mapping) == 0:
             return mapping  # Return empty if input is empty
 
+        logger.info(f"Drift correction every {interval} frames")
+        
+        # Try numba optimization for polynomial drift correction
+        if self.use_numba and self.config.drift_correction_model == "polynomial":
+            try:
+                corrected = apply_polynomial_drift_correction(
+                    mapping.astype(np.float64),
+                    interval,
+                    self.config.poly_degree,
+                    self.config.drift_blend_factor
+                )
+                return corrected.astype(int)
+            except Exception as e:
+                logger.warning(f"Numba drift correction failed: {e}")
+                logger.info("Falling back to standard implementation")
+        
+        # Standard implementation
         corrected = mapping.copy()
         num_segments = len(mapping) // interval + 1
-
-        logger.info(f"Drift correction every {interval} frames")
 
         for seg_idx in range(num_segments):
             start_idx = seg_idx * interval

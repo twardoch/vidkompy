@@ -88,6 +88,7 @@ package.toml
 PROGRESS.md
 pyproject.toml
 README.md
+SPEC.md
 TODO.md
 </directory_structure>
 
@@ -316,19 +317,6 @@ repos:
       - id: check-case-conflict
       - id: mixed-line-ending
         args: [--fix=lf]
-</file>
-
-<file path="benchmark.sh">
-#!/usr/bin/env bash
-for engine in fast precise; do
-    for drift in 1 16 32 64 128; do
-        for window in 1 16 32 64 128; do
-            base="o-${engine}-d${drift}-w${window}"
-            echo ${base}
-            time python -m vidkompy -b tests/bg.mp4 -f tests/fg.mp4 -e ${engine} -d ${drift} -w ${window} -o tests/${base}.mp4 --verbose >tests/${base}.txt 2>tests/${base}.err.txt
-        done
-    done
-done
 </file>
 
 <file path="LICENSE">
@@ -846,750 +834,19 @@ $END$
 END SPECIFICATION
 </file>
 
-<file path="src/vidkompy/core/multi_resolution_aligner.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/core/multi_resolution_aligner.py
-
-"""
-Multi-resolution temporal alignment for precise video synchronization.
-
-Implements hierarchical DTW with progressive refinement to eliminate drift.
-"""
-
-from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
-import numpy as np
-from loguru import logger
-
-from .dtw_aligner import DTWAligner
-from .frame_fingerprint import FrameFingerprinter
-
-
-@dataclass
-class PreciseEngineConfig:
-    """Configuration for precise temporal alignment engine."""
-
-    # Sampling parameters
-    max_resolutions: int = 4  # Number of resolution levels
-    base_resolution: int = 16  # Coarsest sampling rate
-
-    # DTW parameters
-    initial_window_ratio: float = 0.25  # Window size for coarse DTW
-    refinement_window: int = 30  # Frames for sliding window
-
-    # Quality thresholds
-    similarity_threshold: float = 0.85  # Minimum frame similarity
-    confidence_threshold: float = 0.9  # High confidence threshold
-
-    # Performance tuning
-    max_frames_to_process: int = 10000  # Limit for very long videos
-    drift_correction_interval: int = 100  # Reset alignment every N frames (increased from 32)
-    drift_blend_factor: float = 0.85  # How much to trust original mapping vs linear interpolation
-
-
-class MultiResolutionAligner:
-    """Multi-resolution temporal alignment with drift correction."""
-
-    def __init__(
-        self,
-        fingerprinter: FrameFingerprinter,
-        config: PreciseEngineConfig | None = None,
-        verbose: bool = False,
-    ):
-        """Initialize multi-resolution aligner.
-
-        Args:
-            fingerprinter: Frame fingerprint generator
-            config: Engine configuration
-            verbose: Enable detailed logging
-        """
-        self.fingerprinter = fingerprinter
-        self.config = config or PreciseEngineConfig()
-        self.verbose = verbose
-
-        # Calculate resolution levels
-        self.resolutions = []
-        res = self.config.base_resolution
-        for _ in range(self.config.max_resolutions):
-            self.resolutions.append(res)
-            res = max(1, res // 2)
-
-        logger.info(f"Multi-resolution levels: {self.resolutions}")
-
-    def create_temporal_pyramid(
-        self, frames: np.ndarray, fingerprints: np.ndarray | None = None
-    ) -> dict[int, np.ndarray]:
-        """Create multi-resolution temporal pyramid.
-
-        Args:
-            frames: Video frames array
-            fingerprints: Pre-computed fingerprints (optional)
-
-        Returns:
-            Dictionary mapping resolution to sampled fingerprints
-        """
-        pyramid = {}
-
-        # Compute fingerprints if not provided
-        if fingerprints is None:
-            logger.info("Computing fingerprints for temporal pyramid...")
-            fingerprints = self.fingerprinter.compute_fingerprints(frames)
-
-        # Sample at each resolution
-        for res in self.resolutions:
-            indices = list(range(0, len(fingerprints), res))
-            pyramid[res] = fingerprints[indices]
-            logger.debug(f"Resolution 1/{res}: {len(pyramid[res])} samples")
-
-        return pyramid
-
-    def coarse_alignment(
-        self, fg_pyramid: dict[int, np.ndarray], bg_pyramid: dict[int, np.ndarray]
-    ) -> np.ndarray:
-        """Perform coarse alignment at lowest resolution.
-
-        Args:
-            fg_pyramid: Foreground temporal pyramid
-            bg_pyramid: Background temporal pyramid
-
-        Returns:
-            Initial frame mapping at coarsest resolution
-        """
-        # Start with coarsest resolution
-        coarsest_res = max(self.resolutions)
-        fg_coarse = fg_pyramid[coarsest_res]
-        bg_coarse = bg_pyramid[coarsest_res]
-
-        logger.info(f"Coarse alignment at 1/{coarsest_res} resolution")
-        logger.debug(f"FG samples: {len(fg_coarse)}, BG samples: {len(bg_coarse)}")
-
-        # Use DTW with large window
-        window_size = int(len(bg_coarse) * self.config.initial_window_ratio)
-        dtw = DTWAligner(window=window_size)
-
-        # Compute cost matrix
-        cost_matrix = dtw._compute_cost_matrix(fg_coarse, bg_coarse)
-
-        # Find optimal path
-        path = dtw._compute_path(cost_matrix)
-
-        # Convert path to frame mapping
-        mapping = np.zeros(len(fg_coarse), dtype=int)
-        for i, (fg_idx, bg_idx) in enumerate(path):
-            if fg_idx < len(mapping):
-                mapping[fg_idx] = bg_idx
-
-        return mapping
-
-    def refine_alignment(
-        self,
-        fg_pyramid: dict[int, np.ndarray],
-        bg_pyramid: dict[int, np.ndarray],
-        coarse_mapping: np.ndarray,
-        from_res: int,
-        to_res: int,
-    ) -> np.ndarray:
-        """Refine alignment from one resolution to the next.
-
-        Args:
-            fg_pyramid: Foreground temporal pyramid
-            bg_pyramid: Background temporal pyramid
-            coarse_mapping: Mapping at coarser resolution
-            from_res: Source resolution
-            to_res: Target resolution (finer)
-
-        Returns:
-            Refined frame mapping at target resolution
-        """
-        logger.info(f"Refining alignment: 1/{from_res} -> 1/{to_res}")
-
-        # Get fingerprints at target resolution
-        fg_fine = fg_pyramid[to_res]
-        bg_fine = bg_pyramid[to_res]
-
-        # Calculate scaling factor
-        scale = from_res // to_res
-
-        # Initialize refined mapping
-        refined_mapping = np.zeros(len(fg_fine), dtype=int)
-
-        # Refine each coarse segment
-        for i in range(len(coarse_mapping)):
-            # Find corresponding fine-resolution range
-            fg_start = i * scale
-            fg_end = min((i + 1) * scale, len(fg_fine))
-
-            # Find search range in background
-            bg_center = coarse_mapping[i] * scale
-            bg_start = max(0, bg_center - self.config.refinement_window)
-            bg_end = min(len(bg_fine), bg_center + self.config.refinement_window)
-
-            if fg_end <= fg_start or bg_end <= bg_start:
-                continue
-
-            # Extract segments
-            fg_segment = fg_fine[fg_start:fg_end]
-            bg_segment = bg_fine[bg_start:bg_end]
-
-            # Local DTW alignment
-            window = min(len(bg_segment) // 2, 10)
-            dtw = DTWAligner(window=window)
-
-            try:
-                cost_matrix = dtw._compute_cost_matrix(fg_segment, bg_segment)
-                path = dtw._compute_path(cost_matrix)
-
-                # Update refined mapping
-                for fg_local, bg_local in path:
-                    if fg_local < len(fg_segment):
-                        fg_global = fg_start + fg_local
-                        bg_global = bg_start + bg_local
-                        if fg_global < len(refined_mapping):
-                            refined_mapping[fg_global] = bg_global
-            except Exception as e:
-                logger.warning(f"Local refinement failed at segment {i}: {e}")
-                # Fall back to interpolation
-                for j in range(fg_start, fg_end):
-                    if j < len(refined_mapping):
-                        refined_mapping[j] = bg_center + (j - fg_start)
-
-        return refined_mapping
-
-    def hierarchical_alignment(
-        self, fg_pyramid: dict[int, np.ndarray], bg_pyramid: dict[int, np.ndarray]
-    ) -> np.ndarray:
-        """Perform hierarchical alignment from coarse to fine.
-
-        Args:
-            fg_pyramid: Foreground temporal pyramid
-            bg_pyramid: Background temporal pyramid
-
-        Returns:
-            Frame mapping at finest resolution
-        """
-        # Start with coarse alignment
-        mapping = self.coarse_alignment(fg_pyramid, bg_pyramid)
-        current_res = max(self.resolutions)
-
-        # Progressively refine
-        for next_res in sorted(self.resolutions, reverse=True)[1:]:
-            mapping = self.refine_alignment(
-                fg_pyramid, bg_pyramid, mapping, current_res, next_res
-            )
-            current_res = next_res
-
-        return mapping
-
-    def apply_drift_correction(
-        self, mapping: np.ndarray, interval: int | None = None
-    ) -> np.ndarray:
-        """Apply periodic drift correction to prevent accumulation.
-
-        Args:
-            mapping: Initial frame mapping
-            interval: Correction interval (frames)
-
-        Returns:
-            Corrected frame mapping
-        """
-        if interval is None:
-            interval = self.config.drift_correction_interval
-
-        corrected = mapping.copy()
-        num_segments = len(mapping) // interval + 1
-
-        logger.info(f"Applying drift correction every {interval} frames")
-
-        for seg in range(num_segments):
-            start = seg * interval
-            end = min((seg + 1) * interval, len(mapping))
-
-            if start >= end:
-                continue
-
-            # Calculate expected linear progression
-            expected_start = mapping[start]
-            expected_end = mapping[min(end, len(mapping) - 1)]
-
-            # Ensure monotonic progression within segment
-            segment_len = end - start
-            if segment_len > 1 and expected_end > expected_start:
-                # Linear interpolation as baseline
-                for i in range(start, end):
-                    progress = (i - start) / (segment_len - 1)
-                    expected = expected_start + progress * (
-                        expected_end - expected_start
-                    )
-
-                    # Blend original mapping with expected progression
-                    blend_factor = self.config.drift_blend_factor  # Use config value (0.85)
-                    corrected[i] = int(
-                        blend_factor * mapping[i] + (1 - blend_factor) * expected
-                    )
-                    
-                    # Log significant corrections
-                    drift = abs(corrected[i] - mapping[i])
-                    if drift > 5 and self.verbose:
-                        logger.debug(f"Frame {i}: drift correction of {drift} frames applied")
-
-        # Ensure final mapping is monotonic
-        for i in range(1, len(corrected)):
-            corrected[i] = max(corrected[i], corrected[i - 1])
-
-        return corrected
-
-    def interpolate_full_mapping(
-        self, sparse_mapping: np.ndarray, target_length: int, source_resolution: int
-    ) -> np.ndarray:
-        """Interpolate sparse mapping to full frame resolution.
-
-        Args:
-            sparse_mapping: Mapping at sparse resolution
-            target_length: Number of frames in full video
-            source_resolution: Resolution of sparse mapping
-
-        Returns:
-            Full frame-by-frame mapping
-        """
-        full_mapping = np.zeros(target_length, dtype=int)
-
-        for i in range(target_length):
-            # Find corresponding sparse index
-            sparse_idx = i // source_resolution
-
-            if sparse_idx >= len(sparse_mapping) - 1:
-                # Use last mapping
-                full_mapping[i] = sparse_mapping[-1]
-            else:
-                # Interpolate between sparse mappings
-                alpha = (i % source_resolution) / source_resolution
-                start_bg = sparse_mapping[sparse_idx]
-                end_bg = sparse_mapping[sparse_idx + 1]
-
-                full_mapping[i] = int(start_bg + alpha * (end_bg - start_bg))
-
-        # Ensure monotonic
-        for i in range(1, len(full_mapping)):
-            full_mapping[i] = max(full_mapping[i], full_mapping[i - 1])
-
-        return full_mapping
-
-    def align(
-        self,
-        fg_frames: np.ndarray,
-        bg_frames: np.ndarray,
-        fg_fingerprints: np.ndarray | None = None,
-        bg_fingerprints: np.ndarray | None = None,
-    ) -> tuple[np.ndarray, float]:
-        """Perform multi-resolution temporal alignment.
-
-        Args:
-            fg_frames: Foreground video frames
-            bg_frames: Background video frames
-            fg_fingerprints: Pre-computed foreground fingerprints
-            bg_fingerprints: Pre-computed background fingerprints
-
-        Returns:
-            Frame mapping and alignment confidence
-        """
-        logger.info(
-            f"Multi-resolution alignment: {len(fg_frames)} -> {len(bg_frames)} frames"
-        )
-
-        # Create temporal pyramids
-        fg_pyramid = self.create_temporal_pyramid(fg_frames, fg_fingerprints)
-        bg_pyramid = self.create_temporal_pyramid(bg_frames, bg_fingerprints)
-
-        # Perform hierarchical alignment
-        sparse_mapping = self.hierarchical_alignment(fg_pyramid, bg_pyramid)
-
-        # Apply drift correction
-        corrected_mapping = self.apply_drift_correction(sparse_mapping)
-
-        # Interpolate to full resolution
-        full_mapping = self.interpolate_full_mapping(
-            corrected_mapping,
-            len(fg_frames),
-            self.resolutions[-1],  # Finest resolution used
-        )
-
-        # Calculate confidence based on mapping smoothness
-        differences = np.diff(full_mapping)
-        expected_diff = len(bg_frames) / len(fg_frames)
-        variance = np.var(differences)
-        confidence = np.exp(-variance / (expected_diff**2))
-
-        logger.info(f"Alignment complete. Confidence: {confidence:.3f}")
-
-        return full_mapping, confidence
-</file>
-
-<file path="src/vidkompy/core/precise_temporal_alignment.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/core/precise_temporal_alignment.py
-
-"""
-Precise temporal alignment implementation with advanced techniques.
-
-Combines multi-resolution alignment, keyframe anchoring, and bidirectional DTW.
-"""
-
-from typing import Tuple, Optional, List, Dict
-import numpy as np
-from loguru import logger
-from scipy.signal import find_peaks
-from scipy.ndimage import gaussian_filter1d
-
-from .frame_fingerprint import FrameFingerprinter
-from .multi_resolution_aligner import MultiResolutionAligner, PreciseEngineConfig
-from .dtw_aligner import DTWAligner
-
-
-class PreciseTemporalAlignment:
-    """Precise temporal alignment with drift elimination."""
-
-    def __init__(
-        self,
-        fingerprinter: FrameFingerprinter,
-        verbose: bool = False,
-        interval: int = 100,
-    ):
-        """Initialize precise temporal alignment.
-
-        Args:
-            fingerprinter: Frame fingerprint generator
-            verbose: Enable detailed logging
-        """
-        self.fingerprinter = fingerprinter
-        self.verbose = verbose
-
-        # Initialize multi-resolution aligner
-        config = PreciseEngineConfig(
-            max_resolutions=4, base_resolution=16, drift_correction_interval=interval
-        )
-        self.multi_res_aligner = MultiResolutionAligner(fingerprinter, config, verbose)
-
-    def detect_keyframes(
-        self, fingerprints: np.ndarray, min_distance: int = 30
-    ) -> np.ndarray:
-        """Detect keyframes based on temporal changes.
-
-        Args:
-            fingerprints: Frame fingerprints
-            min_distance: Minimum distance between keyframes
-
-        Returns:
-            Indices of detected keyframes
-        """
-        # Calculate temporal differences
-        diffs = np.zeros(len(fingerprints) - 1)
-        for i in range(len(fingerprints) - 1):
-            diffs[i] = np.linalg.norm(fingerprints[i + 1] - fingerprints[i])
-
-        # Smooth differences
-        smoothed = gaussian_filter1d(diffs, sigma=3)
-
-        # Find peaks (scene changes, motion peaks)
-        peaks, properties = find_peaks(
-            smoothed, distance=min_distance, prominence=np.std(smoothed) * 0.5
-        )
-
-        # Always include first and last frames
-        keyframes = [0] + list(peaks) + [len(fingerprints) - 1]
-        keyframes = sorted(list(set(keyframes)))
-
-        logger.info(f"Detected {len(keyframes)} keyframes")
-        return np.array(keyframes)
-
-    def align_keyframes(
-        self,
-        fg_keyframes: np.ndarray,
-        bg_keyframes: np.ndarray,
-        fg_fingerprints: np.ndarray,
-        bg_fingerprints: np.ndarray,
-    ) -> dict[int, int]:
-        """Align keyframes between videos.
-
-        Args:
-            fg_keyframes: Foreground keyframe indices
-            bg_keyframes: Background keyframe indices
-            fg_fingerprints: Foreground fingerprints
-            bg_fingerprints: Background fingerprints
-
-        Returns:
-            Mapping of foreground to background keyframe indices
-        """
-        # Extract keyframe fingerprints
-        fg_kf_prints = fg_fingerprints[fg_keyframes]
-        bg_kf_prints = bg_fingerprints[bg_keyframes]
-
-        # Use DTW for keyframe alignment
-        dtw = DTWAligner(window=len(bg_keyframes))
-        cost_matrix = dtw._compute_cost_matrix(fg_kf_prints, bg_kf_prints)
-        path = dtw._compute_path(cost_matrix)
-
-        # Convert to keyframe mapping
-        kf_mapping = {}
-        for fg_idx, bg_idx in path:
-            if fg_idx < len(fg_keyframes) and bg_idx < len(bg_keyframes):
-                kf_mapping[fg_keyframes[fg_idx]] = bg_keyframes[bg_idx]
-
-        logger.info(f"Aligned {len(kf_mapping)} keyframe pairs")
-        return kf_mapping
-
-    def bidirectional_dtw(
-        self,
-        fg_fingerprints: np.ndarray,
-        bg_fingerprints: np.ndarray,
-        window: int = 100,
-    ) -> np.ndarray:
-        """Perform bidirectional DTW alignment.
-
-        Args:
-            fg_fingerprints: Foreground fingerprints
-            bg_fingerprints: Background fingerprints
-            window: DTW window size
-
-        Returns:
-            Averaged bidirectional alignment
-        """
-        dtw = DTWAligner(window=window)
-
-        # Forward alignment
-        logger.debug("Computing forward DTW alignment")
-        cost_forward = dtw._compute_cost_matrix(fg_fingerprints, bg_fingerprints)
-        path_forward = dtw._compute_path(cost_forward)
-
-        # Backward alignment
-        logger.debug("Computing backward DTW alignment")
-        cost_backward = dtw._compute_cost_matrix(
-            bg_fingerprints[::-1], fg_fingerprints[::-1]
-        )
-        path_backward = dtw._compute_path(cost_backward)
-
-        # Convert paths to mappings
-        forward_mapping = np.zeros(len(fg_fingerprints), dtype=int)
-        for fg_idx, bg_idx in path_forward:
-            if fg_idx < len(forward_mapping):
-                forward_mapping[fg_idx] = bg_idx
-
-        backward_mapping = np.zeros(len(fg_fingerprints), dtype=int)
-        for bg_idx, fg_idx in path_backward:
-            # Reverse indices
-            bg_idx = len(bg_fingerprints) - 1 - bg_idx
-            fg_idx = len(fg_fingerprints) - 1 - fg_idx
-            if fg_idx >= 0 and fg_idx < len(backward_mapping):
-                backward_mapping[fg_idx] = bg_idx
-
-        # Average the mappings
-        averaged_mapping = (forward_mapping + backward_mapping) // 2
-
-        # Ensure monotonicity
-        for i in range(1, len(averaged_mapping)):
-            averaged_mapping[i] = max(averaged_mapping[i], averaged_mapping[i - 1])
-
-        return averaged_mapping
-
-    def refine_with_sliding_window(
-        self,
-        initial_mapping: np.ndarray,
-        fg_fingerprints: np.ndarray,
-        bg_fingerprints: np.ndarray,
-        window_size: int = 30,
-        search_range: int = 10,
-    ) -> np.ndarray:
-        """Refine alignment using sliding window approach.
-
-        Args:
-            initial_mapping: Initial frame mapping
-            fg_fingerprints: Foreground fingerprints
-            bg_fingerprints: Background fingerprints
-            window_size: Size of sliding window
-            search_range: Search range for refinement
-
-        Returns:
-            Refined frame mapping
-        """
-        refined_mapping = initial_mapping.copy()
-        num_windows = len(fg_fingerprints) // window_size + 1
-
-        logger.info(f"Sliding window refinement: {num_windows} windows")
-
-        for w in range(num_windows):
-            start = w * window_size
-            end = min((w + 1) * window_size, len(fg_fingerprints))
-
-            if end <= start:
-                continue
-
-            # Get window fingerprints
-            fg_window = fg_fingerprints[start:end]
-
-            # Determine search range in background
-            bg_center = initial_mapping[start]
-            bg_start = max(0, bg_center - search_range)
-            bg_end = min(len(bg_fingerprints), bg_center + search_range + window_size)
-
-            if bg_end <= bg_start:
-                continue
-
-            bg_window = bg_fingerprints[bg_start:bg_end]
-
-            # Find best alignment within window
-            best_offset = 0
-            best_score = float("inf")
-
-            for offset in range(
-                min(search_range * 2, len(bg_window) - len(fg_window) + 1)
-            ):
-                score = 0
-                for i in range(len(fg_window)):
-                    if offset + i < len(bg_window):
-                        score += np.linalg.norm(fg_window[i] - bg_window[offset + i])
-
-                if score < best_score:
-                    best_score = score
-                    best_offset = offset
-
-            # Apply refinement
-            for i in range(start, end):
-                if i < len(refined_mapping):
-                    refined_mapping[i] = bg_start + best_offset + (i - start)
-
-        # Smooth transitions between windows
-        refined_mapping = gaussian_filter1d(refined_mapping.astype(float), sigma=5)
-        refined_mapping = refined_mapping.astype(int)
-
-        # Ensure monotonicity
-        for i in range(1, len(refined_mapping)):
-            refined_mapping[i] = max(refined_mapping[i], refined_mapping[i - 1])
-
-        return refined_mapping
-
-    def compute_alignment_confidence(
-        self,
-        mapping: np.ndarray,
-        fg_fingerprints: np.ndarray,
-        bg_fingerprints: np.ndarray,
-    ) -> float:
-        """Compute confidence score for alignment.
-
-        Args:
-            mapping: Frame mapping
-            fg_fingerprints: Foreground fingerprints
-            bg_fingerprints: Background fingerprints
-
-        Returns:
-            Confidence score (0-1)
-        """
-        similarities = []
-
-        for fg_idx, bg_idx in enumerate(mapping):
-            if bg_idx < len(bg_fingerprints):
-                sim = 1.0 - np.linalg.norm(
-                    fg_fingerprints[fg_idx] - bg_fingerprints[bg_idx]
-                ) / (np.linalg.norm(fg_fingerprints[fg_idx]) + 1e-8)
-                similarities.append(sim)
-
-        if similarities:
-            mean_sim = np.mean(similarities)
-            std_sim = np.std(similarities)
-            # High confidence = high mean similarity and low variance
-            confidence = mean_sim * np.exp(-std_sim)
-            return float(np.clip(confidence, 0, 1))
-
-        return 0.0
-
-    def align(
-        self, fg_frames: np.ndarray, bg_frames: np.ndarray
-    ) -> tuple[np.ndarray, float]:
-        """Perform precise temporal alignment.
-
-        Args:
-            fg_frames: Foreground video frames
-            bg_frames: Background video frames
-
-        Returns:
-            Frame mapping and alignment confidence
-        """
-        logger.info("Starting precise temporal alignment")
-        logger.info(f"FG: {len(fg_frames)} frames, BG: {len(bg_frames)} frames")
-
-        # Compute fingerprints
-        logger.info("Computing frame fingerprints...")
-        fg_fingerprints = self.fingerprinter.compute_fingerprints(fg_frames)
-        bg_fingerprints = self.fingerprinter.compute_fingerprints(bg_frames)
-
-        # Method 1: Multi-resolution alignment
-        logger.info("Phase 1: Multi-resolution alignment")
-        multi_res_mapping, multi_res_conf = self.multi_res_aligner.align(
-            fg_frames, bg_frames, fg_fingerprints, bg_fingerprints
-        )
-
-        # Method 2: Keyframe-based alignment
-        logger.info("Phase 2: Keyframe detection and alignment")
-        fg_keyframes = self.detect_keyframes(fg_fingerprints)
-        bg_keyframes = self.detect_keyframes(bg_fingerprints)
-        keyframe_mapping = self.align_keyframes(
-            fg_keyframes, bg_keyframes, fg_fingerprints, bg_fingerprints
-        )
-
-        # Method 3: Bidirectional DTW on reduced samples
-        logger.info("Phase 3: Bidirectional DTW refinement")
-        sample_rate = max(1, len(fg_frames) // 500)  # Max 500 samples
-        fg_sampled = fg_fingerprints[::sample_rate]
-        bg_sampled = bg_fingerprints[::sample_rate]
-
-        bidirectional_mapping = self.bidirectional_dtw(
-            fg_sampled, bg_sampled, window=50
-        )
-
-        # Interpolate bidirectional mapping to full resolution
-        full_bidir_mapping = np.interp(
-            np.arange(len(fg_frames)),
-            np.arange(len(bidirectional_mapping)) * sample_rate,
-            bidirectional_mapping * sample_rate,
-        ).astype(int)
-
-        # Combine methods with weighted average
-        combined_mapping = (0.5 * multi_res_mapping + 0.5 * full_bidir_mapping).astype(
-            int
-        )
-
-        # Apply keyframe constraints
-        for fg_kf, bg_kf in keyframe_mapping.items():
-            combined_mapping[fg_kf] = bg_kf
-
-        # Interpolate between keyframes
-        keyframe_indices = sorted(keyframe_mapping.keys())
-        for i in range(len(keyframe_indices) - 1):
-            start_fg = keyframe_indices[i]
-            end_fg = keyframe_indices[i + 1]
-            start_bg = keyframe_mapping[start_fg]
-            end_bg = keyframe_mapping[end_fg]
-
-            # Linear interpolation between keyframes
-            for j in range(start_fg + 1, end_fg):
-                alpha = (j - start_fg) / (end_fg - start_fg)
-                combined_mapping[j] = int(start_bg + alpha * (end_bg - start_bg))
-
-        # Phase 4: Sliding window refinement
-        logger.info("Phase 4: Sliding window refinement")
-        refined_mapping = self.refine_with_sliding_window(
-            combined_mapping, fg_fingerprints, bg_fingerprints
-        )
-
-        # Ensure final mapping is within bounds
-        refined_mapping = np.clip(refined_mapping, 0, len(bg_frames) - 1)
-
-        # Compute final confidence
-        confidence = self.compute_alignment_confidence(
-            refined_mapping, fg_fingerprints, bg_fingerprints
-        )
-
-        logger.info(f"Precise alignment complete. Confidence: {confidence:.3f}")
-
-        return refined_mapping, confidence
+<file path="benchmark.sh">
+#!/usr/bin/env bash
+#for engine in fast precise; do
+
+for engine in mask; do
+    for drift in 16 128; do
+        for window in 8 128; do
+            base="p-${engine}-d${drift}-w${window}"
+            echo ${base}
+            time python -m vidkompy -b tests/bg.mp4 -f tests/fg.mp4 -e ${engine} -d ${drift} -w ${window} -o tests/${base}.mp4 --verbose >tests/${base}.txt 2>tests/${base}.err.txt
+        done
+    done
+done
 </file>
 
 <file path="src/vidkompy/__main__.py">
@@ -2427,6 +1684,811 @@ class FrameFingerprinter:
             self.fingerprint_cache.pop(video_path, None)
         else:
             self.fingerprint_cache.clear()
+</file>
+
+<file path="src/vidkompy/core/multi_resolution_aligner.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/core/multi_resolution_aligner.py
+
+"""
+Multi-resolution temporal alignment for precise video synchronization.
+
+Implements hierarchical DTW with progressive refinement to eliminate drift.
+"""
+
+from dataclasses import dataclass
+import numpy as np
+from loguru import logger
+
+# Import Savitzky-Golay filter if it's not already imported
+from scipy.signal import savgol_filter
+
+from .dtw_aligner import DTWAligner
+from .frame_fingerprint import FrameFingerprinter
+
+
+@dataclass
+class PreciseEngineConfig:
+    """Configuration for precise temporal alignment engine."""
+
+    # Sampling parameters
+    max_resolutions: int = 4  # Number of resolution levels
+    base_resolution: int = 16  # Coarsest sampling rate
+
+    # DTW parameters
+    initial_window_ratio: float = 0.25  # Window size for coarse DTW
+    refinement_window: int = 30  # Frames for sliding window
+
+    # Quality thresholds
+    similarity_threshold: float = 0.85  # Minimum frame similarity
+    confidence_threshold: float = 0.9  # High confidence threshold
+
+    # Performance tuning
+    max_frames_to_process: int = 10000  # Limit for very long videos
+    # Reset alignment every N frames
+    drift_correction_interval: int = 100
+    # Trust in original map vs linear interpolation
+    drift_blend_factor: float = 0.85
+
+    # New parameters for enhanced drift correction & smoothing
+    # Options: "linear", "polynomial", "loess" (loess deferred)
+    drift_correction_model: str = "polynomial"
+    poly_degree: int = 2  # Degree for polynomial regression
+    # loess_frac: float = 0.25 # LOESS fraction (requires statsmodels)
+    adaptive_blend_factor: bool = True  # Enable adaptive blend factor
+    # Savitzky-Golay filter window (odd number)
+    savitzky_golay_window: int = 21
+    # Savitzky-Golay poly order (< window)
+    savitzky_golay_polyorder: int = 3
+    # Options: "linear", "spline" (spline deferred)
+    interpolation_method: str = "linear"
+    cli_dtw_window: int = 0  # DTW window size from CLI, 0 to ignore
+
+
+class MultiResolutionAligner:
+    """Multi-resolution temporal alignment with drift correction."""
+
+    def __init__(
+        self,
+        fingerprinter: FrameFingerprinter,
+        config: PreciseEngineConfig | None = None,
+        verbose: bool = False,
+    ):
+        """Initialize multi-resolution aligner.
+
+        Args:
+            fingerprinter: Frame fingerprint generator
+            config: Engine configuration
+            verbose: Enable detailed logging
+        """
+        self.fingerprinter = fingerprinter
+        self.config = config or PreciseEngineConfig()
+        self.verbose = verbose
+
+        # Calculate resolution levels
+        self.resolutions = []
+        res = self.config.base_resolution
+        for _ in range(self.config.max_resolutions):
+            self.resolutions.append(res)
+            res = max(1, res // 2)
+
+        logger.info(f"Multi-resolution levels: {self.resolutions}")
+
+    def create_temporal_pyramid(
+        self, frames: np.ndarray, fingerprints: np.ndarray | None = None
+    ) -> dict[int, np.ndarray]:
+        """Create multi-resolution temporal pyramid.
+
+        Args:
+            frames: Video frames array
+            fingerprints: Pre-computed fingerprints (optional)
+
+        Returns:
+            Dictionary mapping resolution to sampled fingerprints
+        """
+        pyramid = {}
+
+        # Compute fingerprints if not provided
+        if fingerprints is None:
+            logger.info("Computing fingerprints for temporal pyramid...")
+            fingerprints = self.fingerprinter.compute_fingerprints(frames)
+
+        # Sample at each resolution
+        for res_val in self.resolutions:
+            indices = list(range(0, len(fingerprints), res_val))
+            pyramid[res_val] = fingerprints[indices]
+            # Resolution 1/{res_val}: {len(pyramid[res_val])} samples
+            logger.debug(f"Res 1/{res_val}: {len(pyramid[res_val])} samples")
+
+        return pyramid
+
+    def coarse_alignment(
+        self, fg_pyramid: dict[int, np.ndarray], bg_pyramid: dict[int, np.ndarray]
+    ) -> np.ndarray:
+        """Perform coarse alignment at lowest resolution.
+
+        Args:
+            fg_pyramid: Foreground temporal pyramid
+            bg_pyramid: Background temporal pyramid
+
+        Returns:
+            Initial frame mapping at coarsest resolution
+        """
+        # Start with coarsest resolution
+        coarsest_res = max(self.resolutions)
+        fg_coarse = fg_pyramid[coarsest_res]
+        bg_coarse = bg_pyramid[coarsest_res]
+
+        # Coarse alignment at 1/{coarsest_res} resolution
+        logger.info(f"Coarse align at 1/{coarsest_res}")
+        # FG samples: {len(fg_coarse)}, BG samples: {len(bg_coarse)}
+        logger.debug(f"FG smpl: {len(fg_coarse)}, BG smpl: {len(bg_coarse)}")
+
+        # Use DTW with large window
+        window_size = int(len(bg_coarse) * self.config.initial_window_ratio)
+        dtw = DTWAligner(window=window_size)
+
+        # Compute cost matrix
+        cost_matrix = dtw._compute_cost_matrix(fg_coarse, bg_coarse)
+
+        # Find optimal path
+        path = dtw._compute_path(cost_matrix)
+
+        # Convert path to frame mapping
+        mapping = np.zeros(len(fg_coarse), dtype=int)
+        for i, (fg_idx, bg_idx) in enumerate(path):
+            if fg_idx < len(mapping):
+                mapping[fg_idx] = bg_idx
+
+        return mapping
+
+    def refine_alignment(
+        self,
+        fg_pyramid: dict[int, np.ndarray],
+        bg_pyramid: dict[int, np.ndarray],
+        coarse_mapping: np.ndarray,
+        from_res: int,
+        to_res: int,
+    ) -> np.ndarray:
+        """Refine alignment from one resolution to the next.
+
+        Args:
+            fg_pyramid: Foreground temporal pyramid
+            bg_pyramid: Background temporal pyramid
+            coarse_mapping: Mapping at coarser resolution
+            from_res: Source resolution
+            to_res: Target resolution (finer)
+
+        Returns:
+            Refined frame mapping at target resolution
+        """
+        # Refining alignment: 1/{from_res} -> 1/{to_res}
+        logger.info(f"Refine: 1/{from_res} -> 1/{to_res}")
+
+        # Get fingerprints at target resolution
+        fg_fine = fg_pyramid[to_res]
+        bg_fine = bg_pyramid[to_res]
+
+        # Calculate scaling factor
+        scale = from_res // to_res
+
+        # Initialize refined mapping
+        refined_mapping = np.zeros(len(fg_fine), dtype=int)
+
+        # Refine each coarse segment
+        for i_seg in range(len(coarse_mapping)):
+            # Find corresponding fine-resolution range
+            fg_start = i_seg * scale
+            fg_end = min((i_seg + 1) * scale, len(fg_fine))
+
+            # Find search range in background
+            bg_center = coarse_mapping[i_seg] * scale
+            bg_start = max(0, bg_center - self.config.refinement_window)
+            bg_search_end = min(len(bg_fine), bg_center + self.config.refinement_window)
+
+            if fg_end <= fg_start or bg_search_end <= bg_start:
+                continue
+
+            # Extract segments
+            fg_segment = fg_fine[fg_start:fg_end]
+            bg_segment = bg_fine[bg_start:bg_search_end]
+
+            # Local DTW alignment
+            window = min(len(bg_segment) // 2, 10)
+            dtw = DTWAligner(window=window)
+
+            try:
+                cost_matrix = dtw._compute_cost_matrix(fg_segment, bg_segment)
+                path = dtw._compute_path(cost_matrix)
+
+                # Update refined mapping
+                for fg_local, bg_local in path:
+                    if fg_local < len(fg_segment):
+                        fg_global = fg_start + fg_local
+                        bg_global = bg_start + bg_local
+                        if fg_global < len(refined_mapping):
+                            refined_mapping[fg_global] = bg_global
+            except Exception as e:
+                # Local refinement failed at segment {i_seg}: {e}
+                logger.warning(f"Local refine failed at seg {i_seg}: {e}")
+                # Fall back to interpolation
+                for j_loop in range(fg_start, fg_end):
+                    if j_loop < len(refined_mapping):
+                        refined_mapping[j_loop] = bg_center + (j_loop - fg_start)
+
+        return refined_mapping
+
+    def hierarchical_alignment(
+        self, fg_pyramid: dict[int, np.ndarray], bg_pyramid: dict[int, np.ndarray]
+    ) -> np.ndarray:
+        """Perform hierarchical alignment from coarse to fine.
+
+        Args:
+            fg_pyramid: Foreground temporal pyramid
+            bg_pyramid: Background temporal pyramid
+
+        Returns:
+            Frame mapping at finest resolution
+        """
+        # Start with coarse alignment
+        mapping = self.coarse_alignment(fg_pyramid, bg_pyramid)
+        current_res = max(self.resolutions)
+
+        # Progressively refine
+        for next_res in sorted(self.resolutions, reverse=True)[1:]:
+            mapping = self.refine_alignment(
+                fg_pyramid, bg_pyramid, mapping, current_res, next_res
+            )
+            current_res = next_res
+
+        return mapping
+
+    def apply_drift_correction(
+        self, mapping: np.ndarray, interval: int | None = None
+    ) -> np.ndarray:
+        """Apply periodic drift correction to prevent accumulation."""
+        if interval is None:
+            interval = self.config.drift_correction_interval
+
+        if len(mapping) == 0:
+            return mapping  # Return empty if input is empty
+
+        corrected = mapping.copy()
+        num_segments = len(mapping) // interval + 1
+
+        logger.info(f"Drift correction every {interval} frames")
+
+        for seg_idx in range(num_segments):
+            start_idx = seg_idx * interval
+            end_idx = min((seg_idx + 1) * interval, len(mapping))
+
+            if start_idx >= end_idx:
+                continue
+
+            segment_mapping = mapping[start_idx:end_idx]
+            segment_indices = np.arange(len(segment_mapping))
+
+            expected_segment_progression: np.ndarray
+
+            if (
+                self.config.drift_correction_model == "polynomial"
+                and len(segment_mapping) > self.config.poly_degree
+            ):
+                coeffs = np.polyfit(
+                    segment_indices, segment_mapping, self.config.poly_degree
+                )
+                poly = np.poly1d(coeffs)
+                expected_segment_progression = poly(segment_indices)
+            else:  # Default to linear if polynomial fails or not selected
+                expected_start_val = segment_mapping[0]
+                expected_end_val = segment_mapping[-1]
+                expected_segment_progression = np.linspace(
+                    expected_start_val, expected_end_val, len(segment_mapping)
+                )
+
+            current_blend_factor = self.config.drift_blend_factor
+            if self.config.adaptive_blend_factor and len(segment_mapping) > 1:
+                # Simplified adaptive factor: less trust if variance is high
+                variance = np.var(np.diff(segment_mapping))
+                # Normalize variance crudely; this needs better scaling
+                norm_variance = np.clip(
+                    variance / (abs(np.mean(np.diff(segment_mapping))) + 1e-5), 0, 1
+                )
+                current_blend_factor = self.config.drift_blend_factor * (
+                    1 - 0.5 * norm_variance
+                )
+
+            for k_loop in range(len(segment_mapping)):
+                map_k_idx = start_idx + k_loop
+                corrected[map_k_idx] = int(
+                    current_blend_factor * segment_mapping[k_loop]
+                    + (1 - current_blend_factor) * expected_segment_progression[k_loop]
+                )
+                drift_val = abs(corrected[map_k_idx] - segment_mapping[k_loop])
+                if drift_val > 5 and self.verbose:
+                    logger.debug(f"Frame {map_k_idx}: drift corr {drift_val} applied")
+
+        # Ensure final mapping is monotonic
+        for i_mono in range(1, len(corrected)):
+            corrected[i_mono] = max(corrected[i_mono], corrected[i_mono - 1])
+        return corrected
+
+    def interpolate_full_mapping(
+        self, sparse_mapping: np.ndarray, target_length: int, source_resolution: int
+    ) -> np.ndarray:
+        """Interpolate sparse mapping to full frame resolution."""
+        full_mapping = np.zeros(target_length, dtype=int)
+        if len(sparse_mapping) == 0:
+            if target_length > 0:
+                logger.warning("Empty sparse_mapping, returning zero mapping.")
+            return full_mapping
+
+        # Current method is linear interpolation
+        if self.config.interpolation_method == "linear" or True:  # Default to linear
+            for i_interp in range(target_length):
+                sparse_idx = i_interp // source_resolution
+                if sparse_idx >= len(sparse_mapping) - 1:
+                    full_mapping[i_interp] = sparse_mapping[-1]
+                else:
+                    alpha = (i_interp % source_resolution) / source_resolution
+                    start_bg = sparse_mapping[sparse_idx]
+                    end_bg = sparse_mapping[sparse_idx + 1]
+                    full_mapping[i_interp] = int(start_bg + alpha * (end_bg - start_bg))
+        # else if self.config.interpolation_method == "spline": # Spline deferred
+        # pass
+
+        for i_mono in range(1, len(full_mapping)):
+            full_mapping[i_mono] = max(full_mapping[i_mono], full_mapping[i_mono - 1])
+        return full_mapping
+
+    def align(
+        self,
+        fg_frames: np.ndarray,
+        bg_frames: np.ndarray,
+        fg_fingerprints: np.ndarray | None = None,
+        bg_fingerprints: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, float]:
+        """Perform multi-resolution temporal alignment."""
+        logger.info(f"Multi-res align: {len(fg_frames)} -> {len(bg_frames)} frames")
+
+        fg_pyramid = self.create_temporal_pyramid(fg_frames, fg_fingerprints)
+        bg_pyramid = self.create_temporal_pyramid(bg_frames, bg_fingerprints)
+
+        sparse_mapping = self.hierarchical_alignment(fg_pyramid, bg_pyramid)
+
+        # Apply enhanced drift correction
+        corrected_mapping = self.apply_drift_correction(sparse_mapping)
+
+        # Global smoothing using Savitzky-Golay filter
+        if (
+            len(corrected_mapping) > self.config.savitzky_golay_window
+            and self.config.savitzky_golay_window > 0
+        ):
+            try:
+                # Ensure polyorder is less than window_length
+                polyorder = min(
+                    self.config.savitzky_golay_polyorder,
+                    self.config.savitzky_golay_window - 1,
+                )
+                if polyorder < 0:
+                    polyorder = 0  # Must be non-negative
+
+                smoothed_mapping = savgol_filter(
+                    corrected_mapping,
+                    window_length=self.config.savitzky_golay_window,
+                    polyorder=polyorder,
+                ).astype(int)
+                # Ensure monotonicity after smoothing
+                for i_mono in range(1, len(smoothed_mapping)):
+                    smoothed_mapping[i_mono] = max(
+                        smoothed_mapping[i_mono], smoothed_mapping[i_mono - 1]
+                    )
+                corrected_mapping = smoothed_mapping
+                logger.info("Applied Savitzky-Golay smoothing to mapping.")
+            except Exception as e:
+                logger.warning(
+                    f"Savitzky-Golay smoothing failed: {e}. Using un-smoothed corrected mapping."
+                )
+        else:
+            logger.info(
+                "Skipping Savitzky-Golay smoothing (mapping too short or window disabled)."
+            )
+
+        full_mapping = self.interpolate_full_mapping(
+            corrected_mapping,
+            len(fg_frames),
+            self.resolutions[-1],  # Finest resolution used
+        )
+
+        if len(full_mapping) > 1:
+            differences = np.diff(full_mapping)
+            expected_diff = (
+                len(bg_frames) / len(fg_frames) if len(fg_frames) > 0 else 1.0
+            )
+            variance = np.var(differences)
+            confidence = np.exp(-variance / (expected_diff**2 + 1e-9))
+        elif len(full_mapping) == 1 and len(fg_frames) == 1:
+            confidence = 1.0
+        else:
+            confidence = 0.0
+
+        logger.info(f"Alignment complete. Confidence: {confidence:.3f}")
+        return full_mapping, confidence
+</file>
+
+<file path="src/vidkompy/core/precise_temporal_alignment.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/core/precise_temporal_alignment.py
+
+"""
+Precise temporal alignment implementation with advanced techniques.
+
+Combines multi-resolution alignment, keyframe anchoring, and bidirectional DTW.
+"""
+
+from typing import Tuple, Optional, List, Dict
+import numpy as np
+from loguru import logger
+from scipy.signal import find_peaks
+from scipy.ndimage import gaussian_filter1d
+
+from .frame_fingerprint import FrameFingerprinter
+from .multi_resolution_aligner import MultiResolutionAligner, PreciseEngineConfig
+from .dtw_aligner import DTWAligner
+
+
+class PreciseTemporalAlignment:
+    """Precise temporal alignment with drift elimination."""
+
+    def __init__(
+        self,
+        fingerprinter: FrameFingerprinter,
+        verbose: bool = False,
+        interval: int = 100,
+        cli_window_size: int = 0,
+    ):
+        """Initialize precise temporal alignment.
+
+        Args:
+            fingerprinter: Frame fingerprint generator
+            verbose: Enable detailed logging
+            interval: Drift correction interval for MultiResolutionAligner
+            cli_window_size: DTW window size from CLI (0 means use defaults)
+        """
+        self.fingerprinter = fingerprinter
+        self.verbose = verbose
+        self.cli_window_size = cli_window_size
+
+        # Initialize multi-resolution aligner
+        config = PreciseEngineConfig(
+            max_resolutions=4,
+            base_resolution=16,
+            drift_correction_interval=interval,
+            cli_dtw_window=cli_window_size,
+        )
+        self.multi_res_aligner = MultiResolutionAligner(fingerprinter, config, verbose)
+
+    def detect_keyframes(
+        self, fingerprints: np.ndarray, min_distance: int = 30
+    ) -> np.ndarray:
+        """Detect keyframes based on temporal changes.
+
+        Args:
+            fingerprints: Frame fingerprints
+            min_distance: Minimum distance between keyframes
+
+        Returns:
+            Indices of detected keyframes
+        """
+        # Calculate temporal differences
+        diffs = np.zeros(len(fingerprints) - 1)
+        for i in range(len(fingerprints) - 1):
+            diffs[i] = np.linalg.norm(fingerprints[i + 1] - fingerprints[i])
+
+        # Smooth differences
+        smoothed = gaussian_filter1d(diffs, sigma=3)
+
+        # Find peaks (scene changes, motion peaks)
+        peaks, properties = find_peaks(
+            smoothed, distance=min_distance, prominence=np.std(smoothed) * 0.5
+        )
+
+        # Always include first and last frames
+        keyframes = [0] + list(peaks) + [len(fingerprints) - 1]
+        keyframes = sorted(list(set(keyframes)))
+
+        logger.info(f"Detected {len(keyframes)} keyframes")
+        return np.array(keyframes)
+
+    def align_keyframes(
+        self,
+        fg_keyframes: np.ndarray,
+        bg_keyframes: np.ndarray,
+        fg_fingerprints: np.ndarray,
+        bg_fingerprints: np.ndarray,
+    ) -> dict[int, int]:
+        """Align keyframes between videos.
+
+        Args:
+            fg_keyframes: Foreground keyframe indices
+            bg_keyframes: Background keyframe indices
+            fg_fingerprints: Foreground fingerprints
+            bg_fingerprints: Background fingerprints
+
+        Returns:
+            Mapping of foreground to background keyframe indices
+        """
+        # Extract keyframe fingerprints
+        fg_kf_prints = fg_fingerprints[fg_keyframes]
+        bg_kf_prints = bg_fingerprints[bg_keyframes]
+
+        # Use DTW for keyframe alignment
+        dtw = DTWAligner(window=len(bg_keyframes))
+        cost_matrix = dtw._compute_cost_matrix(fg_kf_prints, bg_kf_prints)
+        path = dtw._compute_path(cost_matrix)
+
+        # Convert to keyframe mapping
+        kf_mapping = {}
+        for fg_idx, bg_idx in path:
+            if fg_idx < len(fg_keyframes) and bg_idx < len(bg_keyframes):
+                kf_mapping[fg_keyframes[fg_idx]] = bg_keyframes[bg_idx]
+
+        logger.info(f"Aligned {len(kf_mapping)} keyframe pairs")
+        return kf_mapping
+
+    def bidirectional_dtw(
+        self,
+        fg_fingerprints: np.ndarray,
+        bg_fingerprints: np.ndarray,
+        window: int = 100,
+    ) -> np.ndarray:
+        """Perform bidirectional DTW alignment.
+
+        Args:
+            fg_fingerprints: Foreground fingerprints
+            bg_fingerprints: Background fingerprints
+            window: DTW window size
+
+        Returns:
+            Averaged bidirectional alignment
+        """
+        dtw = DTWAligner(window=window)
+
+        # Forward alignment
+        logger.debug("Computing forward DTW alignment")
+        cost_forward = dtw._compute_cost_matrix(fg_fingerprints, bg_fingerprints)
+        path_forward = dtw._compute_path(cost_forward)
+
+        # Backward alignment
+        logger.debug("Computing backward DTW alignment")
+        cost_backward = dtw._compute_cost_matrix(
+            bg_fingerprints[::-1], fg_fingerprints[::-1]
+        )
+        path_backward = dtw._compute_path(cost_backward)
+
+        # Convert paths to mappings
+        forward_mapping = np.zeros(len(fg_fingerprints), dtype=int)
+        for fg_idx, bg_idx in path_forward:
+            if fg_idx < len(forward_mapping):
+                forward_mapping[fg_idx] = bg_idx
+
+        backward_mapping = np.zeros(len(fg_fingerprints), dtype=int)
+        for bg_idx, fg_idx in path_backward:
+            # Reverse indices
+            bg_idx = len(bg_fingerprints) - 1 - bg_idx
+            fg_idx = len(fg_fingerprints) - 1 - fg_idx
+            if fg_idx >= 0 and fg_idx < len(backward_mapping):
+                backward_mapping[fg_idx] = bg_idx
+
+        # Average the mappings
+        averaged_mapping = (forward_mapping + backward_mapping) // 2
+
+        # Ensure monotonicity
+        for i in range(1, len(averaged_mapping)):
+            averaged_mapping[i] = max(averaged_mapping[i], averaged_mapping[i - 1])
+
+        return averaged_mapping
+
+    def refine_with_sliding_window(
+        self,
+        initial_mapping: np.ndarray,
+        fg_fingerprints: np.ndarray,
+        bg_fingerprints: np.ndarray,
+        window_size: int = 30,
+        search_range: int = 10,
+    ) -> np.ndarray:
+        """Refine alignment using sliding window approach.
+
+        Args:
+            initial_mapping: Initial frame mapping
+            fg_fingerprints: Foreground fingerprints
+            bg_fingerprints: Background fingerprints
+            window_size: Size of sliding window
+            search_range: Search range for refinement
+
+        Returns:
+            Refined frame mapping
+        """
+        refined_mapping = initial_mapping.copy()
+        num_windows = len(fg_fingerprints) // window_size + 1
+
+        logger.info(f"Sliding window refinement: {num_windows} windows")
+
+        for w in range(num_windows):
+            start = w * window_size
+            end = min((w + 1) * window_size, len(fg_fingerprints))
+
+            if end <= start:
+                continue
+
+            # Get window fingerprints
+            fg_window = fg_fingerprints[start:end]
+
+            # Determine search range in background
+            bg_center = initial_mapping[start]
+            bg_start = max(0, bg_center - search_range)
+            bg_end = min(len(bg_fingerprints), bg_center + search_range + window_size)
+
+            if bg_end <= bg_start:
+                continue
+
+            bg_window = bg_fingerprints[bg_start:bg_end]
+
+            # Find best alignment within window
+            best_offset = 0
+            best_score = float("inf")
+
+            for offset in range(
+                min(search_range * 2, len(bg_window) - len(fg_window) + 1)
+            ):
+                score = 0
+                for i in range(len(fg_window)):
+                    if offset + i < len(bg_window):
+                        score += np.linalg.norm(fg_window[i] - bg_window[offset + i])
+
+                if score < best_score:
+                    best_score = score
+                    best_offset = offset
+
+            # Apply refinement
+            for i in range(start, end):
+                if i < len(refined_mapping):
+                    refined_mapping[i] = bg_start + best_offset + (i - start)
+
+        # Smooth transitions between windows
+        refined_mapping = gaussian_filter1d(refined_mapping.astype(float), sigma=5)
+        refined_mapping = refined_mapping.astype(int)
+
+        # Ensure monotonicity
+        for i in range(1, len(refined_mapping)):
+            refined_mapping[i] = max(refined_mapping[i], refined_mapping[i - 1])
+
+        return refined_mapping
+
+    def compute_alignment_confidence(
+        self,
+        mapping: np.ndarray,
+        fg_fingerprints: np.ndarray,
+        bg_fingerprints: np.ndarray,
+    ) -> float:
+        """Compute confidence score for alignment.
+
+        Args:
+            mapping: Frame mapping
+            fg_fingerprints: Foreground fingerprints
+            bg_fingerprints: Background fingerprints
+
+        Returns:
+            Confidence score (0-1)
+        """
+        similarities = []
+
+        for fg_idx, bg_idx in enumerate(mapping):
+            if bg_idx < len(bg_fingerprints):
+                sim = 1.0 - np.linalg.norm(
+                    fg_fingerprints[fg_idx] - bg_fingerprints[bg_idx]
+                ) / (np.linalg.norm(fg_fingerprints[fg_idx]) + 1e-8)
+                similarities.append(sim)
+
+        if similarities:
+            mean_sim = np.mean(similarities)
+            std_sim = np.std(similarities)
+            # High confidence = high mean similarity and low variance
+            confidence = mean_sim * np.exp(-std_sim)
+            return float(np.clip(confidence, 0, 1))
+
+        return 0.0
+
+    def align(
+        self, fg_frames: np.ndarray, bg_frames: np.ndarray
+    ) -> tuple[np.ndarray, float]:
+        """Perform precise temporal alignment.
+
+        Args:
+            fg_frames: Foreground video frames
+            bg_frames: Background video frames
+
+        Returns:
+            Frame mapping and alignment confidence
+        """
+        logger.info("Starting precise temporal alignment")
+        logger.info(f"FG: {len(fg_frames)} frames, BG: {len(bg_frames)} frames")
+
+        # Compute fingerprints
+        logger.info("Computing frame fingerprints...")
+        fg_fingerprints = self.fingerprinter.compute_fingerprints(fg_frames)
+        bg_fingerprints = self.fingerprinter.compute_fingerprints(bg_frames)
+
+        # Method 1: Multi-resolution alignment
+        logger.info("Phase 1: Multi-resolution alignment")
+        multi_res_mapping, multi_res_conf = self.multi_res_aligner.align(
+            fg_frames, bg_frames, fg_fingerprints, bg_fingerprints
+        )
+
+        # Method 2: Keyframe-based alignment
+        logger.info("Phase 2: Keyframe detection and alignment")
+        fg_keyframes = self.detect_keyframes(fg_fingerprints)
+        bg_keyframes = self.detect_keyframes(bg_fingerprints)
+        keyframe_mapping = self.align_keyframes(
+            fg_keyframes, bg_keyframes, fg_fingerprints, bg_fingerprints
+        )
+
+        # Method 3: Bidirectional DTW on reduced samples
+        logger.info("Phase 3: Bidirectional DTW refinement")
+        sample_rate = max(1, len(fg_frames) // 500)  # Max 500 samples
+        fg_sampled = fg_fingerprints[::sample_rate]
+        bg_sampled = bg_fingerprints[::sample_rate]
+
+        bidirectional_mapping = self.bidirectional_dtw(
+            fg_sampled, bg_sampled, window=50
+        )
+
+        # Interpolate bidirectional mapping to full resolution
+        full_bidir_mapping = np.interp(
+            np.arange(len(fg_frames)),
+            np.arange(len(bidirectional_mapping)) * sample_rate,
+            bidirectional_mapping * sample_rate,
+        ).astype(int)
+
+        # Combine methods with weighted average
+        combined_mapping = (0.5 * multi_res_mapping + 0.5 * full_bidir_mapping).astype(
+            int
+        )
+
+        # Apply keyframe constraints
+        for fg_kf, bg_kf in keyframe_mapping.items():
+            combined_mapping[fg_kf] = bg_kf
+
+        # Interpolate between keyframes
+        keyframe_indices = sorted(keyframe_mapping.keys())
+        for i in range(len(keyframe_indices) - 1):
+            start_fg = keyframe_indices[i]
+            end_fg = keyframe_indices[i + 1]
+            start_bg = keyframe_mapping[start_fg]
+            end_bg = keyframe_mapping[end_fg]
+
+            # Linear interpolation between keyframes
+            for j in range(start_fg + 1, end_fg):
+                alpha = (j - start_fg) / (end_fg - start_fg)
+                combined_mapping[j] = int(start_bg + alpha * (end_bg - start_bg))
+
+        # Phase 4: Sliding window refinement
+        logger.info("Phase 4: Sliding window refinement")
+        refined_mapping = self.refine_with_sliding_window(
+            combined_mapping, fg_fingerprints, bg_fingerprints
+        )
+
+        # Ensure final mapping is within bounds
+        refined_mapping = np.clip(refined_mapping, 0, len(bg_frames) - 1)
+
+        # Compute final confidence
+        confidence = self.compute_alignment_confidence(
+            refined_mapping, fg_fingerprints, bg_fingerprints
+        )
+
+        logger.info(f"Precise alignment complete. Confidence: {confidence:.3f}")
+
+        return refined_mapping, confidence
 </file>
 
 <file path="src/vidkompy/core/spatial_alignment.py">
@@ -4423,6 +4485,234 @@ $END$
 END SPECIFICATION
 </file>
 
+<file path="SPEC.md">
+# Vidkompy Precise Temporal Alignment Engine: Analysis and Improvement Plan
+
+## 1. Current Precise Engine Workflow
+
+The `precise` temporal alignment engine in `vidkompy` aims to achieve highly accurate frame-to-frame mapping between a foreground (FG) video and a background (BG) video. It's a multi-stage process primarily orchestrated by `PreciseTemporalAlignment` which utilizes `MultiResolutionAligner` and `DTWAligner`.
+
+The input BG frames are spatially cropped to the FG's region before temporal alignment begins.
+
+The core workflow is as follows:
+
+**Phase 0: Fingerprint Computation** (`PreciseTemporalAlignment.align`)
+-   Frame fingerprints (compact visual representations) are computed for all frames of both FG and BG videos using `FrameFingerprinter.compute_fingerprints`. These are numpy arrays of feature vectors.
+
+**Phase 1: Multi-Resolution Alignment** (`MultiResolutionAligner.align`)
+This phase performs a coarse-to-fine alignment.
+1.  **Temporal Pyramid Creation** (`create_temporal_pyramid`):
+    *   Fingerprint arrays for FG and BG are downsampled at multiple rates (e.g., 1/16, 1/8, 1/4, 1/2 of total frames) creating a "pyramid" of lower-resolution fingerprint sequences.
+2.  **Coarse Alignment** (`coarse_alignment`):
+    *   DTW (Dynamic Time Warping) is performed using `DTWAligner` on the fingerprints from the coarsest resolution level of both pyramids. This yields an initial, rough mapping of FG frames to BG frames. The DTW window here is relative to the length of the BG samples.
+3.  **Hierarchical Refinement** (`hierarchical_alignment` calling `refine_alignment`):
+    *   The alignment is iteratively refined by moving from coarser to finer resolution levels in the pyramid.
+    *   In each `refine_alignment` step:
+        *   The mapping from the previous (coarser) level is scaled up to the current (finer) resolution.
+        *   For segments of FG frames at the current resolution, a local DTW alignment is performed. This local DTW searches for matches in a BG frame segment defined by the scaled-up coarse mapping plus/minus a `refinement_window` (e.g., 30 frames). The DTW window for this local alignment is small (e.g., 10 frames or half the BG segment length).
+4.  **Drift Correction** (`apply_drift_correction`):
+    *   The mapping obtained from the hierarchical alignment (at the finest pyramid level, still sparse) is corrected for drift.
+    *   The mapping is divided into segments based on `drift_correction_interval` (e.g., every 100 frames).
+    *   For each segment, a linear progression is assumed between its start and end points.
+    *   The original mapping within the segment is blended with this linear progression using a `drift_blend_factor` (e.g., 0.85, meaning 85% trust in original mapping, 15% in linear).
+    *   The corrected mapping is forced to be monotonic.
+5.  **Interpolation to Full Mapping** (`interpolate_full_mapping`):
+    *   The corrected sparse mapping (from the finest pyramid resolution) is linearly interpolated to produce a frame-by-frame mapping for every FG frame. This ensures monotonicity.
+    *   This interpolated mapping and a confidence score are returned by the `MultiResolutionAligner`.
+
+**Phase 2: Keyframe Detection and Alignment** (`PreciseTemporalAlignment.align`)
+1.  **Keyframe Detection** (`detect_keyframes`):
+    *   Keyframes are detected independently in FG and BG videos. This involves:
+        *   Calculating temporal differences between consecutive frame fingerprints.
+        *   Smoothing these differences using a Gaussian filter.
+        *   Finding peaks in the smoothed differences (representing scene changes or significant motion). First and last frames are always included.
+2.  **Keyframe Alignment** (`align_keyframes`):
+    *   The detected FG keyframes are aligned to the detected BG keyframes using `DTWAligner` on their respective fingerprints. The DTW window here is the number of BG keyframes. This produces a sparse mapping between specific FG keyframe indices and BG keyframe indices.
+
+**Phase 3: Bidirectional DTW Refinement** (`PreciseTemporalAlignment.align`)
+1.  **Sampling**: FG and BG fingerprints are sampled (e.g., max 500 samples each).
+2.  **Bidirectional DTW** (`bidirectional_dtw`):
+    *   Forward DTW: Aligns sampled FG fingerprints to sampled BG fingerprints.
+    *   Backward DTW: Aligns sampled BG fingerprints (reversed) to sampled FG fingerprints (reversed). The resulting path is then reversed again.
+    *   The two mappings (forward and backward) are averaged.
+    *   The averaged mapping is forced to be monotonic.
+3.  **Interpolation**: The sparse averaged mapping is linearly interpolated to full FG frame resolution.
+
+**Phase 4: Combination and Final Refinements** (`PreciseTemporalAlignment.align`)
+1.  **Combine Mappings**:
+    *   The full mapping from Phase 1 (Multi-Resolution) and the full mapping from Phase 3 (Bidirectional DTW) are combined using a weighted average (currently 50/50).
+2.  **Apply Keyframe Constraints**:
+    *   The specific keyframe-to-keyframe alignments from Phase 2 are enforced onto the combined mapping.
+    *   Linear interpolation is performed on the combined mapping *between* these enforced keyframe anchor points.
+3.  **Sliding Window Refinement** (`refine_with_sliding_window`):
+    *   The current mapping is further refined using a sliding window approach.
+    *   For segments (windows) of FG frames (e.g., 30 frames):
+        *   A search range is determined in the BG frames around the current mapping for that segment.
+        *   The algorithm attempts to find the best offset within this search range by minimizing the sum of fingerprint distances between the FG window and the corresponding BG window.
+    *   The resulting refined mapping is smoothed using a Gaussian filter.
+    *   Monotonicity is enforced.
+4.  **Finalization**:
+    *   The final mapping is clipped to ensure all BG frame indices are within the valid range of the BG video.
+    *   An overall confidence score for the alignment is computed.
+
+## 2. Identified Issues
+
+1.  **"Flag Wave" Drifts**: The primary issue reported is that the `precise` engine exhibits "flag wave drifts," where the background video appears to speed up and slow down inconsistently relative to the foreground. This indicates that the temporal mapping is not smooth or stable.
+2.  **Complexity and Potential Interactions**: The multi-phase approach with several stages of alignment, interpolation, averaging, and refinement is highly complex. It's possible that these stages interact in unintended ways, leading to oscillations or over-corrections.
+3.  **Drift Correction Mechanism**: The `apply_drift_correction` in `MultiResolutionAligner` uses a simple linear interpolation as a baseline for correction. If the actual motion over the `drift_correction_interval` is non-linear, this can introduce errors. The `drift_blend_factor` might also be a point of sensitivity.
+4.  **Effectiveness of CLI Parameters**:
+    *   The `-d` (drift_interval) parameter seems to be correctly passed to the `MultiResolutionAligner`.
+    *   The `-w` (window) parameter for DTW is **not effectively used** by the `precise` engine. Most internal calls to `DTWAligner` instantiate it with hardcoded or dynamically calculated window sizes, overriding the CLI-provided value. This is a bug.
+        *   `MultiResolutionAligner.coarse_alignment`: Uses `initial_window_ratio`.
+        *   `MultiResolutionAligner.refine_alignment`: Uses a small, hardcoded window (e.g., 10).
+        *   `PreciseTemporalAlignment.align_keyframes`: Instantiates `DTWAligner` with `window=len(bg_keyframes)`.
+        *   `PreciseTemporalAlignment.bidirectional_dtw`: Instantiates `DTWAligner` with `window=50`.
+5.  **Averaging and Interpolation**: Multiple averaging and interpolation steps might smooth out true variations or introduce their own artifacts if not handled carefully.
+
+## 3. Proposed Improvements to Precise Engine
+
+### 3.1. Idea 1: Enhanced Drift Correction & Smoothing in Multi-Resolution Aligner (Targeted Fix)
+
+*   **Problem Addressed**: Directly targets the "flag wave" drift potentially originating from or exacerbated by the current drift correction and lack of sufficient smoothing in the multi-resolution phase.
+*   **Proposal**:
+    1.  **Improve Baseline for Drift Correction**: In `MultiResolutionAligner.apply_drift_correction`, replace the simple linear interpolation baseline (between segment start and end) with a more robust local regression model (e.g., LOESS - Locally Estimated Scatterplot Smoothing, or a polynomial fit) applied to the original mapping *within* each `drift_correction_interval` segment. The `drift_blend_factor` would then blend the original mapping with this more sophisticated local trend.
+    2.  **Adaptive Blend Factor**: Make `drift_blend_factor` adaptive. If the original mapping within a segment is already very smooth or consistent (low variance in frame-to-frame deltas), use a higher blend factor (trust original more). If it's erratic, use a lower blend factor (trust the smoothed baseline more).
+    3.  **Global Smoothing Pass**: After the `hierarchical_alignment` and `apply_drift_correction` steps in `MultiResolutionAligner.align`, and *before* `interpolate_full_mapping`, apply a global smoothing filter (e.g., Savitzky-Golay filter) to the `corrected_mapping`. This filter is good at preserving the overall shape of the curve while removing high-frequency noise (which could manifest as "flag waves"). The window size and polynomial order for Savitzky-Golay would need tuning.
+    4.  **Review Interpolation**: Ensure that `interpolate_full_mapping` uses a method that preserves smoothness (e.g., spline interpolation if linear is too coarse, though linear with enough points from Savitzky-Golay might be fine).
+
+### 3.2. Idea 2: Optical Flow-Assisted Consistency Check & Refinement (Motion-Aware Fix)
+
+*   **Problem Addressed**: "Flag wave" drift implies unnatural accelerations/decelerations in the background. Fingerprint similarity alone might not capture this. Optical flow can help assess motion consistency.
+*   **Proposal**:
+    1.  **Initial Global Alignment**: Obtain a primary global frame mapping (e.g., from the improved Multi-Resolution Aligner as per Idea 1, or a simplified DTW pass).
+    2.  **Motion Consistency Verification**: For the mapped BG frames `(bg_i, bg_i+1, bg_i+2, ...)` corresponding to sequential FG frames `(fg_i, fg_i+1, fg_i+2, ...)`:
+        *   Calculate optical flow between `bg_frame[bg_i]` and `bg_frame[bg_i+1]`.
+        *   Use this flow to predict `bg_frame[bg_i+2_predicted]` from `bg_frame[bg_i+1]`.
+        *   Compare `bg_frame[bg_i+2_predicted]` with the actual `bg_frame[bg_i+2]` chosen by the mapping. A large discrepancy suggests inconsistent motion.
+    3.  **Refinement based on Flow**:
+        *   Identify segments in the mapping where implied BG motion is inconsistent (high optical flow prediction error).
+        *   For these segments, re-evaluate the BG frame choices by adding a penalty to the DTW cost or similarity score for mappings that result in high optical flow prediction errors. This would favor BG frame sequences that imply smoother, more natural motion.
+    *   This could be a new refinement pass after Phase 4, or integrated into the sliding window refinement logic.
+
+### 3.3. Idea 3: Dominant Path DTW with Iterative Refinement (Simplification & Robustness)
+
+*   **Problem Addressed**: The current engine's complexity might be counterproductive. A simpler, more robust core alignment followed by targeted refinement could be better.
+*   **Proposal**:
+    1.  **Primary DTW Alignment**:
+        *   Perform a single, robust DTW alignment (`DTWAligner`) on moderately sampled fingerprints (e.g., every 3-5 frames for both FG and BG, ensuring enough detail but manageable cost matrix size). Use the actual CLI `-w` parameter for the Sakoe-Chiba band, fixing the current bug.
+        *   This produces a primary sparse, monotonic mapping.
+    2.  **Segment Quality Analysis**:
+        *   Analyze this primary mapping to identify "low-quality" segments based on:
+            *   High accumulated DTW cost within the segment.
+            *   Steep changes in the mapping slope (indicating rapid, potentially unnatural speed changes).
+            *   Low average fingerprint similarity for matches in the segment.
+    3.  **Targeted Re-alignment of Problem Segments**:
+        *   For each identified low-quality segment:
+            *   Extract FG and BG frames *only for that segment* at a higher density (e.g., all frames).
+            *   Perform a local DTW alignment for just this segment, possibly with a more refined similarity measure (e.g., if hashes were used initially, try SSIM or a combination). The DTW search can be constrained by the endpoints of the segment from the primary mapping.
+    4.  **Stitching and Smoothing**:
+        *   Replace the low-quality segments in the primary mapping with their re-aligned versions, ensuring overall monotonicity is maintained at stitch points.
+        *   Interpolate the resulting (still potentially sparse) mapping to full FG frame resolution.
+        *   Apply a final global smoothing filter (e.g., Savitzky-Golay) to the entire full-resolution mapping.
+    *   This approach focuses computational effort where it's most needed and reduces the number of intermediate global mappings and complex interactions between multiple alignment strategies.
+
+## 4. Detailed Specification for Improvement Idea 1
+
+**Improvement Goal**: Enhance the `MultiResolutionAligner` to produce a smoother and more drift-resistant sparse mapping by improving its internal drift correction and adding a global smoothing pass.
+
+**Target Module**: `src/vidkompy/core/multi_resolution_aligner.py`
+
+**Affected Methods**:
+*   `MultiResolutionAligner.apply_drift_correction`
+*   `MultiResolutionAligner.align` (to add the global smoothing pass)
+*   Potentially `MultiResolutionAligner.interpolate_full_mapping` (if interpolation method needs change)
+
+**Parameter Changes (Consider adding to `PreciseEngineConfig`)**:
+*   `drift_correction_model`: str, e.g., "linear" (current), "polynomial", "loess" (default: "polynomial").
+*   `poly_degree`: int, degree for polynomial regression (if "polynomial" model chosen, default: 2 or 3).
+*   `loess_frac`: float, fraction of data for LOESS (if "loess" model chosen, default: 0.25).
+*   `adaptive_blend_factor`: bool, whether to make `drift_blend_factor` adaptive (default: True).
+*   `savitzky_golay_window`: int, window size for Savitzky-Golay filter (odd number, e.g., 11 or 21). Must be smaller than the number of data points.
+*   `savitzky_golay_polyorder`: int, polynomial order for Savitzky-Golay filter (e.g., 2 or 3). Must be less than `savitzky_golay_window`.
+*   `interpolation_method`: str, e.g., "linear" (current), "spline" (default: "linear").
+
+**Step-by-Step Implementation Plan**:
+
+**A. Modify `MultiResolutionAligner.apply_drift_correction`:**
+
+1.  **Parameter Integration**:
+    *   Update `PreciseEngineConfig` to include new parameters: `drift_correction_model`, `poly_degree`, `loess_frac`, `adaptive_blend_factor`.
+    *   The `apply_drift_correction` method should access these from `self.config`.
+2.  **Implement Alternative Baseline Models**:
+    *   Inside the loop over `seg` (segments):
+        *   Let `segment_mapping = mapping[start:end]`.
+        *   Let `segment_indices = np.arange(len(segment_mapping))`.
+        *   If `self.config.drift_correction_model == "polynomial"`:
+            *   Fit a polynomial of degree `self.config.poly_degree` to `segment_mapping` vs `segment_indices`.
+            *   `expected_segment_progression = polynomial_predict(segment_indices)`.
+            *   Requires `numpy.polyfit` and `numpy.poly1d`.
+        *   Else if `self.config.drift_correction_model == "loess"`:
+            *   (Requires `statsmodels` or a custom implementation if heavy dependencies are to be avoided. If `statsmodels` is too heavy, stick to polynomial or keep linear for now and note dependency).
+            *   `expected_segment_progression = loess_smooth(segment_mapping, frac=self.config.loess_frac)`.
+        *   Else (current "linear" model):
+            *   `expected_start = mapping[start]`
+            *   `expected_end = mapping[min(end, len(mapping) - 1)]` (or rather, `segment_mapping[-1]`)
+            *   `expected_segment_progression = np.linspace(expected_start, expected_end, len(segment_mapping))`
+3.  **Implement Adaptive Blend Factor**:
+    *   If `self.config.adaptive_blend_factor` is True:
+        *   Calculate variance or standard deviation of `np.diff(segment_mapping)`.
+        *   Normalize this variance/std (e.g., divide by mean delta-T or a typical value).
+        *   Compute `current_blend_factor = self.config.drift_blend_factor + (some_scale * (1 - normalized_variance))`. Clamp between, say, 0.5 and 0.95.
+    *   Else:
+        *   `current_blend_factor = self.config.drift_blend_factor`.
+4.  **Apply Blending**:
+    *   Loop `i` from `start` to `end` (or `k` from `0` to `len(segment_mapping)-1`):
+        *   `blend_factor_to_use = current_blend_factor` (if adaptive) or `self.config.drift_blend_factor`.
+        *   `corrected[i] = blend_factor_to_use * mapping[i] + (1 - blend_factor_to_use) * expected_segment_progression[k]`.
+
+**B. Modify `MultiResolutionAligner.align` for Global Smoothing**:
+
+1.  **Parameter Integration**:
+    *   Update `PreciseEngineConfig` for `savitzky_golay_window` and `savitzky_golay_polyorder`.
+2.  **Add Smoothing Step**:
+    *   After the line `corrected_mapping = self.apply_drift_correction(sparse_mapping)`:
+    *   Check if `len(corrected_mapping) > self.config.savitzky_golay_window`. If not, skip smoothing or warn.
+    *   `smoothed_mapping = scipy.signal.savgol_filter(corrected_mapping, window_length=self.config.savitzky_golay_window, polyorder=self.config.savitzky_golay_polyorder)`.
+    *   Ensure `smoothed_mapping` is integer type and monotonic (force monotonicity if filter breaks it slightly: `for i in range(1, len(smoothed_mapping)): smoothed_mapping[i] = max(smoothed_mapping[i], smoothed_mapping[i-1])`).
+    *   Pass `smoothed_mapping` (instead of `corrected_mapping`) to `self.interpolate_full_mapping`.
+    *   Requires `scipy.signal.savgol_filter`. Add `scipy` to dependencies if not already there for this specific function (it is, based on `pyproject.toml`).
+
+**C. Review `MultiResolutionAligner.interpolate_full_mapping`**:
+
+1.  **Parameter Integration**:
+    *   Update `PreciseEngineConfig` for `interpolation_method`.
+2.  **Implement Spline Interpolation (Optional)**:
+    *   If `self.config.interpolation_method == "spline"`:
+        *   The input `sparse_mapping` comes from `source_resolution` steps.
+        *   Create `x_sparse = np.arange(len(sparse_mapping)) * source_resolution`.
+        *   Create `y_sparse = sparse_mapping`.
+        *   Create `x_full = np.arange(target_length)`.
+        *   Use `scipy.interpolate.CubicSpline` or `interp1d` with `kind='cubic'` to interpolate `y_sparse` at `x_full`.
+        *   `full_mapping = spline_interpolator(x_full).astype(int)`.
+        *   Ensure monotonicity.
+    *   Current linear interpolation should be fine if the input `sparse_mapping` is already well-smoothed by Savitzky-Golay. Default to linear.
+
+**D. Testing and Tuning**:
+
+1.  **Unit Tests**: Add unit tests for `apply_drift_correction` with different models, and for the Savitzky-Golay smoothing step.
+2.  **Integration Testing**: Test the precise engine with videos known to cause "flag wave" drift.
+3.  **Parameter Tuning**: Experiment with default values for the new config parameters (`poly_degree`, `savitzky_golay_window`, `savitzky_golay_polyorder`) to find a good balance. The benchmark script from `TODO.md` can be adapted for this.
+4.  **CLI Parameter Bug**: Separately, address the `-w` (window) CLI parameter not being used correctly in `PreciseTemporalAlignment` by ensuring the `DTWAligner` instances use the `self.dtw_aligner` (which is configured by `TemporalAligner` from the CLI param) or correctly pass the window parameter through.
+
+**Rationale for Chosen Parameters**:
+*   Polynomial/LOESS for drift correction offers more flexibility than simple linear interpolation to capture local trends.
+*   Adaptive blend factor allows the correction to be gentle where the mapping is already stable and more assertive where it's erratic.
+*   Savitzky-Golay filter is chosen for its ability to smooth data while preserving the general shape of the signal, which is crucial for temporal mappings.
+*   Spline interpolation (optional) can provide smoother transitions than linear if the sparse points are far apart.
+
+This plan aims to make the multi-resolution alignment phase more robust against local oscillations and produce a smoother input for the subsequent combination and refinement stages in `PreciseTemporalAlignment`.
+</file>
+
 <file path="src/vidkompy/core/video_processor.py">
 #!/usr/bin/env python3
 # this_file: src/vidkompy/core/video_processor.py
@@ -4905,7 +5195,7 @@ class AlignmentEngine:
         processor: VideoProcessor,
         verbose: bool = False,
         max_keyframes: int = 2000,
-        use_precise_engine: bool = False,
+        engine_mode: str = "fast",
         drift_interval: int = 100,
         window: int = 100,
     ):
@@ -4915,15 +5205,21 @@ class AlignmentEngine:
             processor: Video processor instance
             verbose: Enable verbose logging
             max_keyframes: Maximum keyframes for frame matching
-            use_precise_engine: Use the new precise temporal alignment engine
+            engine_mode: The chosen engine ('fast', 'precise', 'mask')
             drift_interval: Frame interval for drift correction in precise engine
+            window: DTW window size
         """
         self.processor = processor
         self.spatial_aligner = SpatialAligner()
         self.temporal_aligner = TemporalAligner(
-            processor, max_keyframes, use_precise_engine, drift_interval, window
+            processor=processor,
+            max_keyframes=max_keyframes,
+            drift_interval=drift_interval,
+            window=window,
+            engine_mode=engine_mode,
         )
         self.verbose = verbose
+        self.engine_mode = engine_mode
 
     def process(
         self,
@@ -5515,13 +5811,13 @@ The **Fast Engine** uses **Dynamic Time Warping (DTW)** with perceptual hashing 
 
 #### Precise Engine (Advanced)
 
-The **Precise Engine** implements a sophisticated multi-resolution approach for maximum accuracy:
+The **Precise Engine** implements a sophisticated multi-resolution approach for maximum accuracy. **Recent enhancements include improved drift correction using polynomial models, adaptive blending, and Savitzky-Golay smoothing to address temporal inconsistencies.**
 
 1.  **Multi-Resolution Hierarchical Alignment**:
    - Creates temporal pyramids at multiple resolutions (1/16, 1/8, 1/4, 1/2, full)
    - Performs coarse-to-fine alignment, starting at the lowest resolution
    - Each level refines the previous level's mapping
-   - Applies drift correction every 100 frames
+   - Applies drift correction (now enhanced) every 100 frames
 
 2.  **Keyframe Detection and Anchoring**:
    - Automatically detects keyframes based on temporal changes using Gaussian filtering
@@ -5750,6 +6046,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Changed
+- **Precise Engine Enhancement**: Implemented Idea 1 from `SPEC.md` for the `precise` temporal alignment engine.
+    - Updated `PreciseEngineConfig` in `multi_resolution_aligner.py` to include new parameters for enhanced drift correction (polynomial model, adaptive blend factor) and Savitzky-Golay smoothing.
+    - Modified `MultiResolutionAligner.apply_drift_correction` to use polynomial regression as a baseline for drift correction and to incorporate an adaptive blend factor, offering more nuanced adjustments than simple linear interpolation.
+    - Added a global Savitzky-Golay smoothing pass in `MultiResolutionAligner.align` after drift correction and before the final interpolation to full resolution. This aims to reduce high-frequency oscillations ("flag wave" effect) in the temporal mapping.
+    - Improved internal logic in `apply_drift_correction` and `refine_alignment` for clarity and robustness, including better handling of segment boundaries and loop variables.
+    - Added safety checks in `interpolate_full_mapping` and `align` to handle empty or very short mappings, preventing potential errors.
+
 ### Fixed
 
 - **Parameter Mismatch**: Fixed DTWAligner constructor parameter name from 'window' to 'window' in precise alignment engines to resolve TypeError during precise alignment initialization
@@ -5872,32 +6176,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - [x] Added drift tracking and logging for debugging
 - [x] Verified fix resolves hand movement synchronization issue
 
+### Precise Engine Improvement (Wave Drift Fix - Idea 1 from SPEC.md)
+- [x] Updated `PreciseEngineConfig` with new parameters for enhanced drift correction (polynomial model, adaptive blend) and Savitzky-Golay smoothing.
+- [x] Modified `MultiResolutionAligner.apply_drift_correction` to use polynomial regression for baseline drift and an adaptive blend factor.
+- [x] Added global Savitzky-Golay smoothing pass in `MultiResolutionAligner.align` after drift correction and before full interpolation.
+- [x] Adjusted loop variables and conditions in `apply_drift_correction` and `refine_alignment` for clarity and correctness.
+- [x] Added safety checks for empty/short mappings in `interpolate_full_mapping` and `align`.
+
 ## Future Optimizations (Not Yet Implemented)
 
 ### Performance Enhancements
 - [ ] GPU acceleration with CuPy for phase correlation
 - [ ] FAISS integration for fast similarity search
 - [ ] Replace OpenCV with PyAV for faster video I/O
-- [ ] Implement sliding window refinement for drift correction
-- [ ] Hierarchical multi-resolution matching
+- [ ] Implement sliding window refinement for drift correction (This was part of the precise engine, but could be reviewed/enhanced based on Idea 1's impact)
+- [ ] Hierarchical multi-resolution matching (This is part of the precise engine, could be tuned)
 
-### Architecture Improvements  
+### Architecture Improvements
 - [ ] Replace template matching with phase correlation for spatial alignment
 - [ ] Use neural embeddings (MobileNet) instead of perceptual hashes
 - [ ] Implement proper fallback strategies for edge cases
 - [ ] Add caching for repeated video pairs
+- [ ] Implement Improvement Idea 2 (Optical Flow-Assisted Consistency) from SPEC.md
+- [ ] Implement Improvement Idea 3 (Dominant Path DTW) from SPEC.md
+- [ ] Fix CLI `-w` (window) parameter bug for `precise` engine (not used effectively).
 
 ### Code Quality
-- [ ] Add comprehensive unit tests
-- [ ] Create performance benchmark suite
-- [ ] Add type hints throughout
-- [ ] Improve error handling and recovery
+- [ ] Add comprehensive unit tests for new drift correction and smoothing.
+- [ ] Create performance benchmark suite (or adapt existing `benchmark.sh` to test new config parameters).
+- [ ] Add type hints throughout (ongoing).
+- [ ] Improve error handling and recovery.
+- [ ] Resolve remaining linter errors for line length in `multi_resolution_aligner.py`.
 </file>
 
 <file path="src/vidkompy/vidkompy.py">
 #!/usr/bin/env -S uv run -s
 # /// script
-# dependencies = ["fire", "rich", "loguru", "opencv-python", "numpy", "scipy", "ffmpeg-python", "soundfile", "scikit-image"]
+# dependencies = [
+# "fire", "rich", "loguru", "opencv-python", "numpy", "scipy",
+# "ffmpeg-python", "soundfile", "scikit-image"
+# ]
 # ///
 # this_file: src/vidkompy/vidkompy.py
 
@@ -5938,8 +6256,10 @@ def main(
         bg: Background video path
         fg: Foreground video path
         output: Output video path (auto-generated if not provided)
-        engine: Temporal alignment engine - 'fast' (current) or 'precise' (default: 'fast')
-        drift_interval: Frame interval for drift correction in precise engine (default: 100)
+        engine: Temporal alignment engine - 'fast', 'precise', or 'mask'
+                (default: 'fast')
+        drift_interval: Frame interval for drift correction in precise/mask
+                        engine (default: 100)
         margin: Border thickness for border matching mode (default: 8)
         smooth: Enable smooth blending at frame edges
         gpu: Enable GPU acceleration (future feature)
@@ -5947,18 +6267,18 @@ def main(
     """
     # Setup logging
     logger.remove()
+    log_format_verbose = (
+        "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | "
+        "<cyan>{function}</cyan> - <level>{message}</level>"
+    )
+    log_format_default = (
+        "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | "
+        "<level>{message}</level>"
+    )
     if verbose:
-        logger.add(
-            sys.stderr,
-            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{function}</cyan> - <level>{message}</level>",
-            level="DEBUG",
-        )
+        logger.add(sys.stderr, format=log_format_verbose, level="DEBUG")
     else:
-        logger.add(
-            sys.stderr,
-            format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-            level="INFO",
-        )
+        logger.add(sys.stderr, format=log_format_default, level="INFO")
 
     # Validate inputs
     bg_path = Path(bg)
@@ -5973,39 +6293,44 @@ def main(
         return
 
     # Generate output path if needed
+    output_str: str
     if output is None:
-        output = f"{bg_path.stem}_overlay_{fg_path.stem}.mp4"
-        logger.info(f"Output path: {output}")
+        output_str = f"{bg_path.stem}_overlay_{fg_path.stem}.mp4"
+        logger.info(f"Output path: {output_str}")
+    else:
+        output_str = str(output)
 
     # Validate output path
-    output_path = Path(output)
-    if output_path.exists():
-        logger.warning(f"Output file already exists: {output}")
-        logger.warning("It will be overwritten")
+    output_path_obj = Path(output_str)
+    if output_path_obj.exists():
+        logger.warning(
+            f"Output file {output_str} already exists. It will be overwritten."
+        )
 
     # Ensure output directory exists
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
     # Validate engine parameter
-    if engine not in ["fast", "precise"]:
-        logger.error(f"Invalid engine: {engine}. Must be 'fast' or 'precise'")
+    if engine not in ["fast", "precise", "mask"]:
+        err_msg = f"Invalid engine: {engine}. Must be 'fast', 'precise', or 'mask'."
+        logger.error(err_msg)
         return
 
-    # Configure based on engine choice
-    use_precise_engine = False
+    # Initialize config variables with defaults for 'fast' engine
+    time_mode: MatchTimeMode = MatchTimeMode.PRECISE
+    space_method: str = "template"
+    temporal_method: TemporalMethod = TemporalMethod.CLASSIC
+    max_keyframes: int = 1  # Default for fast engine (direct mapping)
+
     if engine == "fast":
-        # Current implementation - force direct mapping due to drift issues
-        time_mode = MatchTimeMode.PRECISE
-        space_method = "template"
+        # Configuration for 'fast' is already set by defaults above
+        pass
+    elif engine == "precise" or engine == "mask":
+        # Precise/Mask engines manage temporal method and keyframes internally
+        # These are placeholders, actual behavior is in AlignmentEngine/TemporalAligner
         temporal_method = TemporalMethod.CLASSIC
-        max_keyframes = 1  # Force fallback to direct mapping
-    else:  # engine == "precise"
-        # Precise engine configuration
-        use_precise_engine = True
-        time_mode = MatchTimeMode.PRECISE
-        space_method = "template"
-        temporal_method = TemporalMethod.CLASSIC  # Not used in precise mode
-        max_keyframes = 1000  # Not used in precise mode
+        max_keyframes = 1000
+    # No else needed as engine is validated
 
     if gpu:
         logger.info("GPU acceleration not yet implemented")
@@ -6016,7 +6341,7 @@ def main(
         processor=processor,
         verbose=verbose,
         max_keyframes=max_keyframes,
-        use_precise_engine=use_precise_engine,
+        engine_mode=engine,
         drift_interval=drift_interval,
         window=window,
     )
@@ -6026,15 +6351,15 @@ def main(
         alignment.process(
             bg_path=str(bg_path),
             fg_path=str(fg_path),
-            output_path=output,
+            output_path=output_str,
             time_mode=time_mode,
             space_method=space_method,
             temporal_method=temporal_method,
-            skip_spatial=False,  # Always align
-            trim=True,  # Always trim
+            skip_spatial=False,
+            trim=True,
             border_thickness=margin,
             blend=smooth,
-            window=window,  # Auto-determined
+            window=window,
         )
     except Exception as e:
         logger.error(f"Processing failed: {e}")
@@ -6097,64 +6422,64 @@ class TemporalAligner:
         self,
         processor: VideoProcessor,
         max_keyframes: int = 200,
-        use_precise_engine: bool = False,
         drift_interval: int = 100,
         window: int = 100,
+        engine_mode: str = "fast",
     ):
         """Initialize temporal aligner.
 
         Args:
             processor: Video processor instance
             max_keyframes: Maximum keyframes for frame matching
-            use_precise_engine: Use the new precise temporal alignment engine
-            drift_interval: Frame interval for drift correction in precise engine
+            drift_interval: Frame interval for drift correction
+            window: DTW window size
+            engine_mode: Alignment engine ('fast', 'precise', 'mask')
         """
         self.processor = processor
         self.max_keyframes = max_keyframes
         self.drift_interval = drift_interval
         self.use_perceptual_hash = True
-        self.hash_cache: dict[str, dict[int, dict[str, np.ndarray]]] = {}
+        # Cache for pHash np.ndarray values for classic keyframe matching
+        self.hash_cache: dict[str, dict[int, np.ndarray]] = {}
         self._current_mask: np.ndarray | None = None
-        self.use_precise_engine = use_precise_engine
+        self.engine_mode = engine_mode
+        self.use_precise_engine = engine_mode == "precise" or engine_mode == "mask"
+        self.cli_window_size = window
 
         self.fingerprinter: FrameFingerprinter | None = None
         self.dtw_aligner = DTWAligner(window=window)
         self.use_dtw = True
-        self.hasher: cv2.img_hash.PHash | None = None
+        self.hasher: cv2.img_hash.PHash | None = None  # type: ignore
         self.precise_aligner = None
 
         try:
             if hasattr(cv2, "img_hash") and hasattr(cv2.img_hash, "PHash_create"):
-                self.hasher = cv2.img_hash.PHash_create()
+                self.hasher = cv2.img_hash.PHash_create()  # type: ignore
                 if self.hasher is not None:
                     logger.info("✓ Perceptual hashing enabled (pHash)")
                     self.use_perceptual_hash = True
                 else:
-                    logger.warning(
-                        "cv2.img_hash.PHash_create() returned None. "
-                        "Perceptual hashing disabled. Falling back to SSIM."
-                    )
+                    # cv2.img_hash.PHash_create() returned None.
+                    # Perceptual hashing disabled. Falling back to SSIM.
+                    logger.warning("pHash_create() is None. Fallback to SSIM.")
                     self.use_perceptual_hash = False
             else:
-                logger.warning(
-                    "cv2.img_hash.PHash_create not found. "
-                    "Perceptual hashing disabled. Falling back to SSIM."
-                )
+                # cv2.img_hash.PHash_create not found.
+                # Perceptual hashing disabled. Falling back to SSIM.
+                logger.warning("pHash_create not found. Fallback to SSIM.")
                 self.use_perceptual_hash = False
         except AttributeError:
-            logger.warning(
-                "cv2.img_hash module or PHash_create not available. "
-                "Ensure opencv-contrib-python is correctly installed. "
-                "Perceptual hashing disabled. Falling back to SSIM."
-            )
+            # cv2.img_hash module or PHash_create not available.
+            # Ensure opencv-contrib-python is correctly installed.
+            # Perceptual hashing disabled. Falling back to SSIM.
+            logger.warning("cv2.img_hash missing. Fallback to SSIM.")
             self.use_perceptual_hash = False
         except Exception as e:
-            logger.error(f"Unexpected error initializing perceptual hasher: {e}")
+            logger.error(f"Error initializing perceptual hasher: {e}")
             self.use_perceptual_hash = False
 
-        if self.hasher is None:
-            if self.use_perceptual_hash:
-                logger.warning("Hasher is None, forcing use_perceptual_hash to False.")
+        if self.hasher is None and self.use_perceptual_hash:
+            logger.warning("Hasher is None, forcing SSIM.")
             self.use_perceptual_hash = False
 
     def calculate_adaptive_keyframe_count(
@@ -6261,44 +6586,53 @@ class TemporalAligner:
             if self.fingerprinter is None:
                 self.fingerprinter = FrameFingerprinter()
             self.precise_aligner = PreciseTemporalAlignment(
-                self.fingerprinter,
+                fingerprinter=self.fingerprinter,
                 verbose=False,  # Use default verbosity
                 interval=self.drift_interval,
+                cli_window_size=self.cli_window_size,
             )
 
         # Perform spatial alignment first to get crop coordinates
         logger.info("Performing spatial alignment to determine crop region...")
         spatial_aligner = SpatialAligner()
-        
+
         # Extract sample frames for spatial alignment
-        bg_frames = self.processor.extract_frames(bg_info.path, [bg_info.frame_count // 2])
-        fg_frames = self.processor.extract_frames(fg_info.path, [fg_info.frame_count // 2])
-        
+        bg_frames = self.processor.extract_frames(
+            bg_info.path, [bg_info.frame_count // 2]
+        )
+        fg_frames = self.processor.extract_frames(
+            fg_info.path, [fg_info.frame_count // 2]
+        )
+
         if not bg_frames or not fg_frames:
             logger.error("Failed to extract sample frames for spatial alignment")
             return self._create_direct_mapping(bg_info, fg_info)
-            
+
         bg_sample = bg_frames[0]
         fg_sample = fg_frames[0]
-        
+
         if bg_sample is None or fg_sample is None:
             logger.error("Failed to extract sample frames for spatial alignment")
             return self._create_direct_mapping(bg_info, fg_info)
-        
+
         # Get spatial alignment
         spatial_result = spatial_aligner.align(bg_sample, fg_sample)
         x_offset = spatial_result.x_offset
         y_offset = spatial_result.y_offset
-        
-        logger.info(f"Spatial alignment: offset=({x_offset}, {y_offset}), confidence={spatial_result.confidence:.3f}")
-        
+
+        logger.info(
+            f"Spatial alignment: offset=({x_offset}, {y_offset}), confidence={spatial_result.confidence:.3f}"
+        )
+
         # Extract all frames for precise alignment
         logger.info("Extracting frames for precise alignment...")
-        
+
         # For background, extract with cropping to match foreground region
         crop_region = (x_offset, y_offset, fg_info.width, fg_info.height)
-        bg_frames = self.processor.extract_all_frames(bg_info.path, resize_factor=0.25, crop=crop_region)
-        
+        bg_frames = self.processor.extract_all_frames(
+            bg_info.path, resize_factor=0.25, crop=crop_region
+        )
+
         # For foreground, extract without cropping
         fg_frames = self.processor.extract_all_frames(fg_info.path, resize_factor=0.25)
 
@@ -6381,10 +6715,14 @@ class TemporalAligner:
             return {}
 
         # Check cache first
-        if video_path in self.hash_cache:
-            cached = self.hash_cache[video_path]
-            if all(idx in cached for idx in frame_indices):
-                return {idx: cached[idx] for idx in frame_indices}
+        if video_path in self.hash_cache and all(
+            idx in self.hash_cache[video_path] for idx in frame_indices
+        ):
+            return {
+                idx: self.hash_cache[video_path][idx]
+                for idx in frame_indices
+                if idx in self.hash_cache[video_path]
+            }
 
         logger.debug(f"Pre-computing hashes for {len(frame_indices)} frames")
         start_time = time.time()
@@ -6393,7 +6731,7 @@ class TemporalAligner:
         frames = self.processor.extract_frames(video_path, frame_indices, resize_factor)
 
         # Compute hashes in parallel
-        hashes = {}
+        hashes: dict[int, np.ndarray] = {}
         with ThreadPoolExecutor(max_workers=mp.cpu_count()) as executor:
             future_to_idx = {
                 executor.submit(self._compute_frame_hash, frame): idx
@@ -6404,15 +6742,20 @@ class TemporalAligner:
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
                 try:
-                    hash_value = future.result()
-                    hashes[idx] = hash_value
+                    hash_value = future.result()  # This should be np.ndarray (pHash)
+                    if hash_value is not None:
+                        hashes[idx] = hash_value
                 except Exception as e:
                     logger.warning(f"Failed to compute hash for frame {idx}: {e}")
 
-        # Update cache
+        # Update cache (ensure it stores np.ndarray for pHash)
         if video_path not in self.hash_cache:
             self.hash_cache[video_path] = {}
-        self.hash_cache[video_path].update(hashes)
+        # This logic seems to intend to store full fingerprint dicts, but for cv2.norm we need pHash np.array
+        # For _find_keyframe_matches, we need the pHash directly. Let's ensure this cache stores that.
+        self.hash_cache[video_path].update(
+            hashes
+        )  # hashes should be dict[int, np.ndarray]
 
         elapsed = time.time() - start_time
         logger.debug(f"Computed {len(hashes)} hashes in {elapsed:.2f}s")
@@ -6515,15 +6858,15 @@ class TemporalAligner:
             # If SSIM is used and the number of keyframes is high, warn the user.
             if effective_target_keyframes > 200:  # Threshold for SSIM warning
                 logger.warning(
-                    f"SSIM mode active for keyframe matching with a high target of {effective_target_keyframes} keyframes. "
+                    f"SSIM mode with high target of {effective_target_keyframes} keyframes."
                 )
             else:
                 logger.info(
-                    f"SSIM mode active for keyframe matching. Target keyframes: {effective_target_keyframes}"
+                    f"SSIM mode. Target keyframes: {effective_target_keyframes}"
                 )
         else:
             logger.info(
-                f"Perceptual hashing mode active. Target keyframes: {effective_target_keyframes}"
+                f"Perceptual hash mode. Target keyframes: {effective_target_keyframes}"
             )
 
         sample_interval = max(1, fg_info.frame_count // effective_target_keyframes)
@@ -6613,10 +6956,13 @@ class TemporalAligner:
             frame2 = self._apply_mask_to_frame(frame2, mask)
 
         if self.use_perceptual_hash and self.hasher is not None:
-            hash1 = self._compute_frame_hash(frame1)
-            hash2 = self._compute_frame_hash(frame2)
-            distance = cv2.norm(hash1, hash2, cv2.NORM_HAMMING)
-            max_distance = 64
+            # _compute_frame_hash now directly returns the pHash np.ndarray
+            hash1_val = self._compute_frame_hash(frame1)
+            hash2_val = self._compute_frame_hash(frame2)
+            if hash1_val is None or hash2_val is None:
+                return 0.0  # Or handle error appropriately
+            distance = cv2.norm(hash1_val, hash2_val, cv2.NORM_HAMMING)
+            max_distance = 64  # pHash is typically 64-bit
             similarity = 1.0 - (distance / max_distance)
             return float(similarity)
         else:
@@ -6647,6 +6993,17 @@ class TemporalAligner:
         ):
             return {}
 
+        # This cache should store pHash np.ndarrays
+        # Check cache first - this assumes self.hash_cache[video_path] stores dict[int, np.ndarray]
+        if video_path in self.hash_cache and all(
+            idx in self.hash_cache[video_path] for idx in frame_indices
+        ):
+            return {
+                idx: self.hash_cache[video_path][idx]
+                for idx in frame_indices
+                if idx in self.hash_cache[video_path]
+            }
+
         logger.debug(f"Pre-computing masked hashes for {len(frame_indices)} frames")
         start_time = time.time()
 
@@ -6654,7 +7011,7 @@ class TemporalAligner:
         frames = self.processor.extract_frames(video_path, frame_indices, resize_factor)
 
         # Compute masked hashes in parallel
-        hashes = {}
+        hashes: dict[int, np.ndarray] = {}
         with ThreadPoolExecutor(max_workers=mp.cpu_count()) as executor:
             future_to_idx = {
                 executor.submit(
@@ -6667,13 +7024,18 @@ class TemporalAligner:
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
                 try:
-                    hash_value = future.result()
+                    hash_value = future.result()  # This should be np.ndarray (pHash)
                     if hash_value is not None:
                         hashes[idx] = hash_value
                 except Exception as e:
                     logger.warning(
                         f"Failed to compute masked hash for frame {idx}: {e}"
                     )
+
+        # Update cache with pHash np.ndarrays
+        if video_path not in self.hash_cache:
+            self.hash_cache[video_path] = {}
+        self.hash_cache[video_path].update(hashes)
 
         elapsed = time.time() - start_time
         logger.debug(f"Computed {len(hashes)} masked hashes in {elapsed:.2f}s")
@@ -6725,11 +7087,14 @@ class TemporalAligner:
         if len(resized.shape) == 3:
             resized = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
 
-        hash_value = self.hasher.compute(resized)
+        hash_value = self.hasher.compute(resized)  # This is the pHash np.ndarray
         return hash_value
 
-    def _compute_frame_hash(self, frame: np.ndarray) -> np.ndarray:
-        """Compute perceptual hash of a frame."""
+    def _compute_frame_hash(self, frame: np.ndarray) -> np.ndarray | None:
+        """Compute perceptual hash of a frame (specifically pHash)."""
+        if frame is None or self.hasher is None:  # Check if hasher is initialized
+            return None
+
         # Resize to standard size for consistent hashing
         resized = cv2.resize(frame, (32, 32), interpolation=cv2.INTER_AREA)
 
@@ -6738,7 +7103,7 @@ class TemporalAligner:
             resized = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
 
         # Compute hash
-        hash_value = self.hasher.compute(resized)
+        hash_value = self.hasher.compute(resized)  # This is the pHash np.ndarray
         return hash_value
 
     def _build_cost_matrix(
@@ -7487,12 +7852,12 @@ class TemporalAligner:
             # In border mode, we can now use masked perceptual hashing
             if not effective_use_dtw and self.use_perceptual_hash:
                 logger.info(
-                    "Border mode with masked perceptual hashing enabled for faster processing."
+                    "Border mode: masked perceptual hashing for faster processing."
                 )
                 effective_use_perceptual_hash = True
             elif not effective_use_dtw and not self.use_perceptual_hash:
                 logger.info(
-                    "Border mode using SSIM comparison (perceptual hashing not available)."
+                    "Border mode: SSIM comparison (perceptual hash unavailable)."
                 )
                 effective_use_perceptual_hash = False
 
@@ -7569,6 +7934,17 @@ class TemporalAligner:
 <file path="TODO.md">
 # TODO
 
+- [ ] Test the `precise` engine with the new drift correction (polynomial model, adaptive blend) and Savitzky-Golay smoothing to verify if "flag wave drifts" are eliminated or significantly reduced. Use `benchmark.sh` or a similar script, varying `-d` (drift_interval) and the new parameters if exposed via CLI (or by modifying `PreciseEngineConfig` defaults).
+
+- [ ] Analyze the effectiveness of the `-w` (window) CLI parameter for the `precise` engine. If confirmed it's not being used effectively (as noted in `SPEC.md`), implement a fix so that `DTWAligner` instances within the precise engine respect this parameter where appropriate.
+
+- [ ] Based on testing of Idea 1, decide whether to:
+    - Further tune parameters of Idea 1.
+    - Proceed to implement Idea 2 (Optical Flow-Assisted Consistency) from `SPEC.md`.
+    - Proceed to implement Idea 3 (Dominant Path DTW with Iterative Refinement) from `SPEC.md`.
+
+- [ ] Add unit tests for the new drift correction models and smoothing functions in `MultiResolutionAligner`.
+
 ```
 #!/usr/bin/env bash
 for engine in fast precise; do
@@ -7585,11 +7961,15 @@ done
 The logs are in `tests/` (like `tests/o-fast-d1-w1.err.txt`)
 
 - Between the fast and precise engines, the fast engine is actually better. The precise engine has weird "flag wave drifts", that is the lower part (the bg) goes faster and then slower. 
-- The various differences in `-d` and `-w` parameters don’t see to make a difference. 
+- The various differences in `-d` and `-w` parameters don't see to make a difference. 
 
-So: I’m happy with how the fast engine is working. 
+So: I'm happy with how the fast engine is working. 
 
-But I’m not happy with the precise engine. Really, really, there must be a way to temporally aligh the fg frames to the cropped bg frames which is better than what we have now. It can be SLOWER, I don’t care (if I want fast, I have the fast engine).
+But I'm not happy with the precise engine. Really, really, there must be a way to temporally aligh the fg frames to the cropped bg frames which is better than what we have now. It can be SLOWER, I don't care (if I want fast, I have the fast engine). 
+
+Analyze the entire codebase. 
+
+Then in `
 </file>
 
 </files>

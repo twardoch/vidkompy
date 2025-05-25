@@ -25,6 +25,7 @@ dependencies = [
     'ffmpeg-python',
     'soundfile',
     'scikit-image',
+    'numba>=0.58.0',
 ]
 
 [[project.authors]]
