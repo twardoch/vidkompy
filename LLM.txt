@@ -76,13 +76,11 @@ src/
     __version__.py
     models.py
     vidkompy.py
-tests/
-  test_package.py
 .cursorrules
 .gitignore
 .pre-commit-config.yaml
 AGENT.md
-benchmark.py
+benchmark.sh
 CHANGELOG.md
 CLAUDE.md
 LICENSE
@@ -320,6 +318,19 @@ repos:
         args: [--fix=lf]
 </file>
 
+<file path="benchmark.sh">
+#!/usr/bin/env bash
+for engine in fast precise; do
+    for drift in 1 16 32 64 128; do
+        for window in 1 16 32 64 128; do
+            base="o-${engine}-d${drift}-w${window}"
+            echo ${base}
+            time python -m vidkompy -b tests/bg.mp4 -f tests/fg.mp4 -e ${engine} -d ${drift} -w ${window} -o tests/${base}.mp4 --verbose >tests/${base}.txt 2>tests/${base}.err.txt
+        done
+    done
+done
+</file>
+
 <file path="LICENSE">
 MIT License
 
@@ -362,849 +373,12 @@ github_actions = true   # Add GitHub Actions workflows
 # this_file: src/vidkompy/core/__init__.py
 </file>
 
-<file path="src/vidkompy/core/multi_resolution_aligner.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/core/multi_resolution_aligner.py
-
-"""
-Multi-resolution temporal alignment for precise video synchronization.
-
-Implements hierarchical DTW with progressive refinement to eliminate drift.
-"""
-
-from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
-import numpy as np
-from loguru import logger
-
-from .dtw_aligner import DTWAligner
-from .frame_fingerprint import FrameFingerprinter
-
-
-@dataclass
-class PreciseEngineConfig:
-    """Configuration for precise temporal alignment engine."""
-
-    # Sampling parameters
-    max_resolutions: int = 4  # Number of resolution levels
-    base_resolution: int = 16  # Coarsest sampling rate
-
-    # DTW parameters
-    initial_window_ratio: float = 0.25  # Window size for coarse DTW
-    refinement_window: int = 30  # Frames for sliding window
-
-    # Quality thresholds
-    similarity_threshold: float = 0.85  # Minimum frame similarity
-    confidence_threshold: float = 0.9  # High confidence threshold
-
-    # Performance tuning
-    max_frames_to_process: int = 10000  # Limit for very long videos
-    drift_correction_interval: int = 32  # Reset alignment every N frames
-
-
-class MultiResolutionAligner:
-    """Multi-resolution temporal alignment with drift correction."""
-
-    def __init__(
-        self,
-        fingerprinter: FrameFingerprinter,
-        config: PreciseEngineConfig | None = None,
-        verbose: bool = False,
-    ):
-        """Initialize multi-resolution aligner.
-
-        Args:
-            fingerprinter: Frame fingerprint generator
-            config: Engine configuration
-            verbose: Enable detailed logging
-        """
-        self.fingerprinter = fingerprinter
-        self.config = config or PreciseEngineConfig()
-        self.verbose = verbose
-
-        # Calculate resolution levels
-        self.resolutions = []
-        res = self.config.base_resolution
-        for _ in range(self.config.max_resolutions):
-            self.resolutions.append(res)
-            res = max(1, res // 2)
-
-        logger.info(f"Multi-resolution levels: {self.resolutions}")
-
-    def create_temporal_pyramid(
-        self, frames: np.ndarray, fingerprints: np.ndarray | None = None
-    ) -> dict[int, np.ndarray]:
-        """Create multi-resolution temporal pyramid.
-
-        Args:
-            frames: Video frames array
-            fingerprints: Pre-computed fingerprints (optional)
-
-        Returns:
-            Dictionary mapping resolution to sampled fingerprints
-        """
-        pyramid = {}
-
-        # Compute fingerprints if not provided
-        if fingerprints is None:
-            logger.info("Computing fingerprints for temporal pyramid...")
-            fingerprints = self.fingerprinter.compute_fingerprints(frames)
-
-        # Sample at each resolution
-        for res in self.resolutions:
-            indices = list(range(0, len(fingerprints), res))
-            pyramid[res] = fingerprints[indices]
-            logger.debug(f"Resolution 1/{res}: {len(pyramid[res])} samples")
-
-        return pyramid
-
-    def coarse_alignment(
-        self, fg_pyramid: dict[int, np.ndarray], bg_pyramid: dict[int, np.ndarray]
-    ) -> np.ndarray:
-        """Perform coarse alignment at lowest resolution.
-
-        Args:
-            fg_pyramid: Foreground temporal pyramid
-            bg_pyramid: Background temporal pyramid
-
-        Returns:
-            Initial frame mapping at coarsest resolution
-        """
-        # Start with coarsest resolution
-        coarsest_res = max(self.resolutions)
-        fg_coarse = fg_pyramid[coarsest_res]
-        bg_coarse = bg_pyramid[coarsest_res]
-
-        logger.info(f"Coarse alignment at 1/{coarsest_res} resolution")
-        logger.debug(f"FG samples: {len(fg_coarse)}, BG samples: {len(bg_coarse)}")
-
-        # Use DTW with large window
-        window_size = int(len(bg_coarse) * self.config.initial_window_ratio)
-        dtw = DTWAligner(window=window_size)
-
-        # Compute cost matrix
-        cost_matrix = dtw._compute_cost_matrix(fg_coarse, bg_coarse)
-
-        # Find optimal path
-        path = dtw._compute_path(cost_matrix)
-
-        # Convert path to frame mapping
-        mapping = np.zeros(len(fg_coarse), dtype=int)
-        for i, (fg_idx, bg_idx) in enumerate(path):
-            if fg_idx < len(mapping):
-                mapping[fg_idx] = bg_idx
-
-        return mapping
-
-    def refine_alignment(
-        self,
-        fg_pyramid: dict[int, np.ndarray],
-        bg_pyramid: dict[int, np.ndarray],
-        coarse_mapping: np.ndarray,
-        from_res: int,
-        to_res: int,
-    ) -> np.ndarray:
-        """Refine alignment from one resolution to the next.
-
-        Args:
-            fg_pyramid: Foreground temporal pyramid
-            bg_pyramid: Background temporal pyramid
-            coarse_mapping: Mapping at coarser resolution
-            from_res: Source resolution
-            to_res: Target resolution (finer)
-
-        Returns:
-            Refined frame mapping at target resolution
-        """
-        logger.info(f"Refining alignment: 1/{from_res} -> 1/{to_res}")
-
-        # Get fingerprints at target resolution
-        fg_fine = fg_pyramid[to_res]
-        bg_fine = bg_pyramid[to_res]
-
-        # Calculate scaling factor
-        scale = from_res // to_res
-
-        # Initialize refined mapping
-        refined_mapping = np.zeros(len(fg_fine), dtype=int)
-
-        # Refine each coarse segment
-        for i in range(len(coarse_mapping)):
-            # Find corresponding fine-resolution range
-            fg_start = i * scale
-            fg_end = min((i + 1) * scale, len(fg_fine))
-
-            # Find search range in background
-            bg_center = coarse_mapping[i] * scale
-            bg_start = max(0, bg_center - self.config.refinement_window)
-            bg_end = min(len(bg_fine), bg_center + self.config.refinement_window)
-
-            if fg_end <= fg_start or bg_end <= bg_start:
-                continue
-
-            # Extract segments
-            fg_segment = fg_fine[fg_start:fg_end]
-            bg_segment = bg_fine[bg_start:bg_end]
-
-            # Local DTW alignment
-            window = min(len(bg_segment) // 2, 10)
-            dtw = DTWAligner(window=window)
-
-            try:
-                cost_matrix = dtw._compute_cost_matrix(fg_segment, bg_segment)
-                path = dtw._compute_path(cost_matrix)
-
-                # Update refined mapping
-                for fg_local, bg_local in path:
-                    if fg_local < len(fg_segment):
-                        fg_global = fg_start + fg_local
-                        bg_global = bg_start + bg_local
-                        if fg_global < len(refined_mapping):
-                            refined_mapping[fg_global] = bg_global
-            except Exception as e:
-                logger.warning(f"Local refinement failed at segment {i}: {e}")
-                # Fall back to interpolation
-                for j in range(fg_start, fg_end):
-                    if j < len(refined_mapping):
-                        refined_mapping[j] = bg_center + (j - fg_start)
-
-        return refined_mapping
-
-    def hierarchical_alignment(
-        self, fg_pyramid: dict[int, np.ndarray], bg_pyramid: dict[int, np.ndarray]
-    ) -> np.ndarray:
-        """Perform hierarchical alignment from coarse to fine.
-
-        Args:
-            fg_pyramid: Foreground temporal pyramid
-            bg_pyramid: Background temporal pyramid
-
-        Returns:
-            Frame mapping at finest resolution
-        """
-        # Start with coarse alignment
-        mapping = self.coarse_alignment(fg_pyramid, bg_pyramid)
-        current_res = max(self.resolutions)
-
-        # Progressively refine
-        for next_res in sorted(self.resolutions, reverse=True)[1:]:
-            mapping = self.refine_alignment(
-                fg_pyramid, bg_pyramid, mapping, current_res, next_res
-            )
-            current_res = next_res
-
-        return mapping
-
-    def apply_drift_correction(
-        self, mapping: np.ndarray, interval: int | None = None
-    ) -> np.ndarray:
-        """Apply periodic drift correction to prevent accumulation.
-
-        Args:
-            mapping: Initial frame mapping
-            interval: Correction interval (frames)
-
-        Returns:
-            Corrected frame mapping
-        """
-        if interval is None:
-            interval = self.config.drift_correction_interval
-
-        corrected = mapping.copy()
-        num_segments = len(mapping) // interval + 1
-
-        logger.info(f"Applying drift correction every {interval} frames")
-
-        for seg in range(num_segments):
-            start = seg * interval
-            end = min((seg + 1) * interval, len(mapping))
-
-            if start >= end:
-                continue
-
-            # Calculate expected linear progression
-            expected_start = mapping[start]
-            expected_end = mapping[min(end, len(mapping) - 1)]
-
-            # Ensure monotonic progression within segment
-            segment_len = end - start
-            if segment_len > 1 and expected_end > expected_start:
-                # Linear interpolation as baseline
-                for i in range(start, end):
-                    progress = (i - start) / (segment_len - 1)
-                    expected = expected_start + progress * (
-                        expected_end - expected_start
-                    )
-
-                    # Blend original mapping with expected progression
-                    blend_factor = 0.7  # Trust original mapping more
-                    corrected[i] = int(
-                        blend_factor * mapping[i] + (1 - blend_factor) * expected
-                    )
-
-        # Ensure final mapping is monotonic
-        for i in range(1, len(corrected)):
-            corrected[i] = max(corrected[i], corrected[i - 1])
-
-        return corrected
-
-    def interpolate_full_mapping(
-        self, sparse_mapping: np.ndarray, target_length: int, source_resolution: int
-    ) -> np.ndarray:
-        """Interpolate sparse mapping to full frame resolution.
-
-        Args:
-            sparse_mapping: Mapping at sparse resolution
-            target_length: Number of frames in full video
-            source_resolution: Resolution of sparse mapping
-
-        Returns:
-            Full frame-by-frame mapping
-        """
-        full_mapping = np.zeros(target_length, dtype=int)
-
-        for i in range(target_length):
-            # Find corresponding sparse index
-            sparse_idx = i // source_resolution
-
-            if sparse_idx >= len(sparse_mapping) - 1:
-                # Use last mapping
-                full_mapping[i] = sparse_mapping[-1]
-            else:
-                # Interpolate between sparse mappings
-                alpha = (i % source_resolution) / source_resolution
-                start_bg = sparse_mapping[sparse_idx]
-                end_bg = sparse_mapping[sparse_idx + 1]
-
-                full_mapping[i] = int(start_bg + alpha * (end_bg - start_bg))
-
-        # Ensure monotonic
-        for i in range(1, len(full_mapping)):
-            full_mapping[i] = max(full_mapping[i], full_mapping[i - 1])
-
-        return full_mapping
-
-    def align(
-        self,
-        fg_frames: np.ndarray,
-        bg_frames: np.ndarray,
-        fg_fingerprints: np.ndarray | None = None,
-        bg_fingerprints: np.ndarray | None = None,
-    ) -> tuple[np.ndarray, float]:
-        """Perform multi-resolution temporal alignment.
-
-        Args:
-            fg_frames: Foreground video frames
-            bg_frames: Background video frames
-            fg_fingerprints: Pre-computed foreground fingerprints
-            bg_fingerprints: Pre-computed background fingerprints
-
-        Returns:
-            Frame mapping and alignment confidence
-        """
-        logger.info(
-            f"Multi-resolution alignment: {len(fg_frames)} -> {len(bg_frames)} frames"
-        )
-
-        # Create temporal pyramids
-        fg_pyramid = self.create_temporal_pyramid(fg_frames, fg_fingerprints)
-        bg_pyramid = self.create_temporal_pyramid(bg_frames, bg_fingerprints)
-
-        # Perform hierarchical alignment
-        sparse_mapping = self.hierarchical_alignment(fg_pyramid, bg_pyramid)
-
-        # Apply drift correction
-        corrected_mapping = self.apply_drift_correction(sparse_mapping)
-
-        # Interpolate to full resolution
-        full_mapping = self.interpolate_full_mapping(
-            corrected_mapping,
-            len(fg_frames),
-            self.resolutions[-1],  # Finest resolution used
-        )
-
-        # Calculate confidence based on mapping smoothness
-        differences = np.diff(full_mapping)
-        expected_diff = len(bg_frames) / len(fg_frames)
-        variance = np.var(differences)
-        confidence = np.exp(-variance / (expected_diff**2))
-
-        logger.info(f"Alignment complete. Confidence: {confidence:.3f}")
-
-        return full_mapping, confidence
-</file>
-
-<file path="src/vidkompy/core/precise_temporal_alignment.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/core/precise_temporal_alignment.py
-
-"""
-Precise temporal alignment implementation with advanced techniques.
-
-Combines multi-resolution alignment, keyframe anchoring, and bidirectional DTW.
-"""
-
-from typing import Tuple, Optional, List, Dict
-import numpy as np
-from loguru import logger
-from scipy.signal import find_peaks
-from scipy.ndimage import gaussian_filter1d
-
-from .frame_fingerprint import FrameFingerprinter
-from .multi_resolution_aligner import MultiResolutionAligner, PreciseEngineConfig
-from .dtw_aligner import DTWAligner
-
-
-class PreciseTemporalAlignment:
-    """Precise temporal alignment with drift elimination."""
-
-    def __init__(
-        self,
-        fingerprinter: FrameFingerprinter,
-        verbose: bool = False,
-        interval: int = 32,
-    ):
-        """Initialize precise temporal alignment.
-
-        Args:
-            fingerprinter: Frame fingerprint generator
-            verbose: Enable detailed logging
-        """
-        self.fingerprinter = fingerprinter
-        self.verbose = verbose
-
-        # Initialize multi-resolution aligner
-        config = PreciseEngineConfig(
-            max_resolutions=4, base_resolution=16, drift_correction_interval=interval
-        )
-        self.multi_res_aligner = MultiResolutionAligner(fingerprinter, config, verbose)
-
-    def detect_keyframes(
-        self, fingerprints: np.ndarray, min_distance: int = 30
-    ) -> np.ndarray:
-        """Detect keyframes based on temporal changes.
-
-        Args:
-            fingerprints: Frame fingerprints
-            min_distance: Minimum distance between keyframes
-
-        Returns:
-            Indices of detected keyframes
-        """
-        # Calculate temporal differences
-        diffs = np.zeros(len(fingerprints) - 1)
-        for i in range(len(fingerprints) - 1):
-            diffs[i] = np.linalg.norm(fingerprints[i + 1] - fingerprints[i])
-
-        # Smooth differences
-        smoothed = gaussian_filter1d(diffs, sigma=3)
-
-        # Find peaks (scene changes, motion peaks)
-        peaks, properties = find_peaks(
-            smoothed, distance=min_distance, prominence=np.std(smoothed) * 0.5
-        )
-
-        # Always include first and last frames
-        keyframes = [0] + list(peaks) + [len(fingerprints) - 1]
-        keyframes = sorted(list(set(keyframes)))
-
-        logger.info(f"Detected {len(keyframes)} keyframes")
-        return np.array(keyframes)
-
-    def align_keyframes(
-        self,
-        fg_keyframes: np.ndarray,
-        bg_keyframes: np.ndarray,
-        fg_fingerprints: np.ndarray,
-        bg_fingerprints: np.ndarray,
-    ) -> dict[int, int]:
-        """Align keyframes between videos.
-
-        Args:
-            fg_keyframes: Foreground keyframe indices
-            bg_keyframes: Background keyframe indices
-            fg_fingerprints: Foreground fingerprints
-            bg_fingerprints: Background fingerprints
-
-        Returns:
-            Mapping of foreground to background keyframe indices
-        """
-        # Extract keyframe fingerprints
-        fg_kf_prints = fg_fingerprints[fg_keyframes]
-        bg_kf_prints = bg_fingerprints[bg_keyframes]
-
-        # Use DTW for keyframe alignment
-        dtw = DTWAligner(window=len(bg_keyframes))
-        cost_matrix = dtw._compute_cost_matrix(fg_kf_prints, bg_kf_prints)
-        path = dtw._compute_path(cost_matrix)
-
-        # Convert to keyframe mapping
-        kf_mapping = {}
-        for fg_idx, bg_idx in path:
-            if fg_idx < len(fg_keyframes) and bg_idx < len(bg_keyframes):
-                kf_mapping[fg_keyframes[fg_idx]] = bg_keyframes[bg_idx]
-
-        logger.info(f"Aligned {len(kf_mapping)} keyframe pairs")
-        return kf_mapping
-
-    def bidirectional_dtw(
-        self,
-        fg_fingerprints: np.ndarray,
-        bg_fingerprints: np.ndarray,
-        window: int = 100,
-    ) -> np.ndarray:
-        """Perform bidirectional DTW alignment.
-
-        Args:
-            fg_fingerprints: Foreground fingerprints
-            bg_fingerprints: Background fingerprints
-            window: DTW window size
-
-        Returns:
-            Averaged bidirectional alignment
-        """
-        dtw = DTWAligner(window=window)
-
-        # Forward alignment
-        logger.debug("Computing forward DTW alignment")
-        cost_forward = dtw._compute_cost_matrix(fg_fingerprints, bg_fingerprints)
-        path_forward = dtw._compute_path(cost_forward)
-
-        # Backward alignment
-        logger.debug("Computing backward DTW alignment")
-        cost_backward = dtw._compute_cost_matrix(
-            bg_fingerprints[::-1], fg_fingerprints[::-1]
-        )
-        path_backward = dtw._compute_path(cost_backward)
-
-        # Convert paths to mappings
-        forward_mapping = np.zeros(len(fg_fingerprints), dtype=int)
-        for fg_idx, bg_idx in path_forward:
-            if fg_idx < len(forward_mapping):
-                forward_mapping[fg_idx] = bg_idx
-
-        backward_mapping = np.zeros(len(fg_fingerprints), dtype=int)
-        for bg_idx, fg_idx in path_backward:
-            # Reverse indices
-            bg_idx = len(bg_fingerprints) - 1 - bg_idx
-            fg_idx = len(fg_fingerprints) - 1 - fg_idx
-            if fg_idx >= 0 and fg_idx < len(backward_mapping):
-                backward_mapping[fg_idx] = bg_idx
-
-        # Average the mappings
-        averaged_mapping = (forward_mapping + backward_mapping) // 2
-
-        # Ensure monotonicity
-        for i in range(1, len(averaged_mapping)):
-            averaged_mapping[i] = max(averaged_mapping[i], averaged_mapping[i - 1])
-
-        return averaged_mapping
-
-    def refine_with_sliding_window(
-        self,
-        initial_mapping: np.ndarray,
-        fg_fingerprints: np.ndarray,
-        bg_fingerprints: np.ndarray,
-        window_size: int = 30,
-        search_range: int = 10,
-    ) -> np.ndarray:
-        """Refine alignment using sliding window approach.
-
-        Args:
-            initial_mapping: Initial frame mapping
-            fg_fingerprints: Foreground fingerprints
-            bg_fingerprints: Background fingerprints
-            window_size: Size of sliding window
-            search_range: Search range for refinement
-
-        Returns:
-            Refined frame mapping
-        """
-        refined_mapping = initial_mapping.copy()
-        num_windows = len(fg_fingerprints) // window_size + 1
-
-        logger.info(f"Sliding window refinement: {num_windows} windows")
-
-        for w in range(num_windows):
-            start = w * window_size
-            end = min((w + 1) * window_size, len(fg_fingerprints))
-
-            if end <= start:
-                continue
-
-            # Get window fingerprints
-            fg_window = fg_fingerprints[start:end]
-
-            # Determine search range in background
-            bg_center = initial_mapping[start]
-            bg_start = max(0, bg_center - search_range)
-            bg_end = min(len(bg_fingerprints), bg_center + search_range + window_size)
-
-            if bg_end <= bg_start:
-                continue
-
-            bg_window = bg_fingerprints[bg_start:bg_end]
-
-            # Find best alignment within window
-            best_offset = 0
-            best_score = float("inf")
-
-            for offset in range(
-                min(search_range * 2, len(bg_window) - len(fg_window) + 1)
-            ):
-                score = 0
-                for i in range(len(fg_window)):
-                    if offset + i < len(bg_window):
-                        score += np.linalg.norm(fg_window[i] - bg_window[offset + i])
-
-                if score < best_score:
-                    best_score = score
-                    best_offset = offset
-
-            # Apply refinement
-            for i in range(start, end):
-                if i < len(refined_mapping):
-                    refined_mapping[i] = bg_start + best_offset + (i - start)
-
-        # Smooth transitions between windows
-        refined_mapping = gaussian_filter1d(refined_mapping.astype(float), sigma=5)
-        refined_mapping = refined_mapping.astype(int)
-
-        # Ensure monotonicity
-        for i in range(1, len(refined_mapping)):
-            refined_mapping[i] = max(refined_mapping[i], refined_mapping[i - 1])
-
-        return refined_mapping
-
-    def compute_alignment_confidence(
-        self,
-        mapping: np.ndarray,
-        fg_fingerprints: np.ndarray,
-        bg_fingerprints: np.ndarray,
-    ) -> float:
-        """Compute confidence score for alignment.
-
-        Args:
-            mapping: Frame mapping
-            fg_fingerprints: Foreground fingerprints
-            bg_fingerprints: Background fingerprints
-
-        Returns:
-            Confidence score (0-1)
-        """
-        similarities = []
-
-        for fg_idx, bg_idx in enumerate(mapping):
-            if bg_idx < len(bg_fingerprints):
-                sim = 1.0 - np.linalg.norm(
-                    fg_fingerprints[fg_idx] - bg_fingerprints[bg_idx]
-                ) / (np.linalg.norm(fg_fingerprints[fg_idx]) + 1e-8)
-                similarities.append(sim)
-
-        if similarities:
-            mean_sim = np.mean(similarities)
-            std_sim = np.std(similarities)
-            # High confidence = high mean similarity and low variance
-            confidence = mean_sim * np.exp(-std_sim)
-            return float(np.clip(confidence, 0, 1))
-
-        return 0.0
-
-    def align(
-        self, fg_frames: np.ndarray, bg_frames: np.ndarray
-    ) -> tuple[np.ndarray, float]:
-        """Perform precise temporal alignment.
-
-        Args:
-            fg_frames: Foreground video frames
-            bg_frames: Background video frames
-
-        Returns:
-            Frame mapping and alignment confidence
-        """
-        logger.info("Starting precise temporal alignment")
-        logger.info(f"FG: {len(fg_frames)} frames, BG: {len(bg_frames)} frames")
-
-        # Compute fingerprints
-        logger.info("Computing frame fingerprints...")
-        fg_fingerprints = self.fingerprinter.compute_fingerprints(fg_frames)
-        bg_fingerprints = self.fingerprinter.compute_fingerprints(bg_frames)
-
-        # Method 1: Multi-resolution alignment
-        logger.info("Phase 1: Multi-resolution alignment")
-        multi_res_mapping, multi_res_conf = self.multi_res_aligner.align(
-            fg_frames, bg_frames, fg_fingerprints, bg_fingerprints
-        )
-
-        # Method 2: Keyframe-based alignment
-        logger.info("Phase 2: Keyframe detection and alignment")
-        fg_keyframes = self.detect_keyframes(fg_fingerprints)
-        bg_keyframes = self.detect_keyframes(bg_fingerprints)
-        keyframe_mapping = self.align_keyframes(
-            fg_keyframes, bg_keyframes, fg_fingerprints, bg_fingerprints
-        )
-
-        # Method 3: Bidirectional DTW on reduced samples
-        logger.info("Phase 3: Bidirectional DTW refinement")
-        sample_rate = max(1, len(fg_frames) // 500)  # Max 500 samples
-        fg_sampled = fg_fingerprints[::sample_rate]
-        bg_sampled = bg_fingerprints[::sample_rate]
-
-        bidirectional_mapping = self.bidirectional_dtw(
-            fg_sampled, bg_sampled, window=50
-        )
-
-        # Interpolate bidirectional mapping to full resolution
-        full_bidir_mapping = np.interp(
-            np.arange(len(fg_frames)),
-            np.arange(len(bidirectional_mapping)) * sample_rate,
-            bidirectional_mapping * sample_rate,
-        ).astype(int)
-
-        # Combine methods with weighted average
-        combined_mapping = (0.5 * multi_res_mapping + 0.5 * full_bidir_mapping).astype(
-            int
-        )
-
-        # Apply keyframe constraints
-        for fg_kf, bg_kf in keyframe_mapping.items():
-            combined_mapping[fg_kf] = bg_kf
-
-        # Interpolate between keyframes
-        keyframe_indices = sorted(keyframe_mapping.keys())
-        for i in range(len(keyframe_indices) - 1):
-            start_fg = keyframe_indices[i]
-            end_fg = keyframe_indices[i + 1]
-            start_bg = keyframe_mapping[start_fg]
-            end_bg = keyframe_mapping[end_fg]
-
-            # Linear interpolation between keyframes
-            for j in range(start_fg + 1, end_fg):
-                alpha = (j - start_fg) / (end_fg - start_fg)
-                combined_mapping[j] = int(start_bg + alpha * (end_bg - start_bg))
-
-        # Phase 4: Sliding window refinement
-        logger.info("Phase 4: Sliding window refinement")
-        refined_mapping = self.refine_with_sliding_window(
-            combined_mapping, fg_fingerprints, bg_fingerprints
-        )
-
-        # Ensure final mapping is within bounds
-        refined_mapping = np.clip(refined_mapping, 0, len(bg_frames) - 1)
-
-        # Compute final confidence
-        confidence = self.compute_alignment_confidence(
-            refined_mapping, fg_fingerprints, bg_fingerprints
-        )
-
-        logger.info(f"Precise alignment complete. Confidence: {confidence:.3f}")
-
-        return refined_mapping, confidence
-</file>
-
 <file path="src/vidkompy/__init__.py">
 # this_file: src/vidkompy/__init__.py
 
 from .__version__ import __version__
 
 __all__ = ["__version__"]
-</file>
-
-<file path=".gitignore">
-__pycache__/
-__pypackages__/
-._*
-.cache
-.coverage
-.coverage.*
-.cursorignore
-.cursorindexingignore
-.dmypy.json
-.DS_Store
-.eggs/
-.env
-.hypothesis/
-.installed.cfg
-.ipynb_checkpoints
-.mypy_cache/
-.nox/
-.pdm-build/
-.pdm-python
-.pdm.toml
-.pybuilder/
-.pypirc
-.pyre/
-.pytest_cache/
-.Python
-.pytype/
-.ropeproject
-.ruff_cache/
-.sass-cache
-.scrapy
-.specstory/.what-is-this.md
-.Spotlight-V100
-.spyderproject
-.spyproject
-.tox/
-.Trashes
-.venv
-.webassets-cache
-*.cover
-*.egg
-*.egg-info/
-*.log
-*.manifest
-*.mo
-*.out
-*.pot
-*.py,cover
-*.py[cod]
-*.pyc
-*.sage.py
-*.so
-*.spec
-*$py.class
-/site
-build/
-celerybeat-schedule
-celerybeat.pid
-cover/
-coverage.xml
-cython_debug/
-db.sqlite3
-db.sqlite3-journal
-Desktop.ini
-develop-eggs/
-dist/
-dmypy.json
-docs/_build/
-downloads/
-eggs/
-env.bak/
-env/
-ENV/
-htmlcov/
-instance/
-ipython_config.py
-lib/
-lib64/
-local_settings.py
-MANIFEST
-node_modules
-nosetests.xml
-parts/
-pip-delete-this-directory.txt
-pip-log.txt
-profile_default/
-sdist/
-share/python-wheels/
-target/
-Thumbs.db
-var/
-venv
-venv.bak/
-venv/
-wheels/
 </file>
 
 <file path="AGENT.md">
@@ -1672,6 +846,752 @@ $END$
 END SPECIFICATION
 </file>
 
+<file path="src/vidkompy/core/multi_resolution_aligner.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/core/multi_resolution_aligner.py
+
+"""
+Multi-resolution temporal alignment for precise video synchronization.
+
+Implements hierarchical DTW with progressive refinement to eliminate drift.
+"""
+
+from dataclasses import dataclass
+from typing import Dict, List, Tuple, Optional
+import numpy as np
+from loguru import logger
+
+from .dtw_aligner import DTWAligner
+from .frame_fingerprint import FrameFingerprinter
+
+
+@dataclass
+class PreciseEngineConfig:
+    """Configuration for precise temporal alignment engine."""
+
+    # Sampling parameters
+    max_resolutions: int = 4  # Number of resolution levels
+    base_resolution: int = 16  # Coarsest sampling rate
+
+    # DTW parameters
+    initial_window_ratio: float = 0.25  # Window size for coarse DTW
+    refinement_window: int = 30  # Frames for sliding window
+
+    # Quality thresholds
+    similarity_threshold: float = 0.85  # Minimum frame similarity
+    confidence_threshold: float = 0.9  # High confidence threshold
+
+    # Performance tuning
+    max_frames_to_process: int = 10000  # Limit for very long videos
+    drift_correction_interval: int = 100  # Reset alignment every N frames (increased from 32)
+    drift_blend_factor: float = 0.85  # How much to trust original mapping vs linear interpolation
+
+
+class MultiResolutionAligner:
+    """Multi-resolution temporal alignment with drift correction."""
+
+    def __init__(
+        self,
+        fingerprinter: FrameFingerprinter,
+        config: PreciseEngineConfig | None = None,
+        verbose: bool = False,
+    ):
+        """Initialize multi-resolution aligner.
+
+        Args:
+            fingerprinter: Frame fingerprint generator
+            config: Engine configuration
+            verbose: Enable detailed logging
+        """
+        self.fingerprinter = fingerprinter
+        self.config = config or PreciseEngineConfig()
+        self.verbose = verbose
+
+        # Calculate resolution levels
+        self.resolutions = []
+        res = self.config.base_resolution
+        for _ in range(self.config.max_resolutions):
+            self.resolutions.append(res)
+            res = max(1, res // 2)
+
+        logger.info(f"Multi-resolution levels: {self.resolutions}")
+
+    def create_temporal_pyramid(
+        self, frames: np.ndarray, fingerprints: np.ndarray | None = None
+    ) -> dict[int, np.ndarray]:
+        """Create multi-resolution temporal pyramid.
+
+        Args:
+            frames: Video frames array
+            fingerprints: Pre-computed fingerprints (optional)
+
+        Returns:
+            Dictionary mapping resolution to sampled fingerprints
+        """
+        pyramid = {}
+
+        # Compute fingerprints if not provided
+        if fingerprints is None:
+            logger.info("Computing fingerprints for temporal pyramid...")
+            fingerprints = self.fingerprinter.compute_fingerprints(frames)
+
+        # Sample at each resolution
+        for res in self.resolutions:
+            indices = list(range(0, len(fingerprints), res))
+            pyramid[res] = fingerprints[indices]
+            logger.debug(f"Resolution 1/{res}: {len(pyramid[res])} samples")
+
+        return pyramid
+
+    def coarse_alignment(
+        self, fg_pyramid: dict[int, np.ndarray], bg_pyramid: dict[int, np.ndarray]
+    ) -> np.ndarray:
+        """Perform coarse alignment at lowest resolution.
+
+        Args:
+            fg_pyramid: Foreground temporal pyramid
+            bg_pyramid: Background temporal pyramid
+
+        Returns:
+            Initial frame mapping at coarsest resolution
+        """
+        # Start with coarsest resolution
+        coarsest_res = max(self.resolutions)
+        fg_coarse = fg_pyramid[coarsest_res]
+        bg_coarse = bg_pyramid[coarsest_res]
+
+        logger.info(f"Coarse alignment at 1/{coarsest_res} resolution")
+        logger.debug(f"FG samples: {len(fg_coarse)}, BG samples: {len(bg_coarse)}")
+
+        # Use DTW with large window
+        window_size = int(len(bg_coarse) * self.config.initial_window_ratio)
+        dtw = DTWAligner(window=window_size)
+
+        # Compute cost matrix
+        cost_matrix = dtw._compute_cost_matrix(fg_coarse, bg_coarse)
+
+        # Find optimal path
+        path = dtw._compute_path(cost_matrix)
+
+        # Convert path to frame mapping
+        mapping = np.zeros(len(fg_coarse), dtype=int)
+        for i, (fg_idx, bg_idx) in enumerate(path):
+            if fg_idx < len(mapping):
+                mapping[fg_idx] = bg_idx
+
+        return mapping
+
+    def refine_alignment(
+        self,
+        fg_pyramid: dict[int, np.ndarray],
+        bg_pyramid: dict[int, np.ndarray],
+        coarse_mapping: np.ndarray,
+        from_res: int,
+        to_res: int,
+    ) -> np.ndarray:
+        """Refine alignment from one resolution to the next.
+
+        Args:
+            fg_pyramid: Foreground temporal pyramid
+            bg_pyramid: Background temporal pyramid
+            coarse_mapping: Mapping at coarser resolution
+            from_res: Source resolution
+            to_res: Target resolution (finer)
+
+        Returns:
+            Refined frame mapping at target resolution
+        """
+        logger.info(f"Refining alignment: 1/{from_res} -> 1/{to_res}")
+
+        # Get fingerprints at target resolution
+        fg_fine = fg_pyramid[to_res]
+        bg_fine = bg_pyramid[to_res]
+
+        # Calculate scaling factor
+        scale = from_res // to_res
+
+        # Initialize refined mapping
+        refined_mapping = np.zeros(len(fg_fine), dtype=int)
+
+        # Refine each coarse segment
+        for i in range(len(coarse_mapping)):
+            # Find corresponding fine-resolution range
+            fg_start = i * scale
+            fg_end = min((i + 1) * scale, len(fg_fine))
+
+            # Find search range in background
+            bg_center = coarse_mapping[i] * scale
+            bg_start = max(0, bg_center - self.config.refinement_window)
+            bg_end = min(len(bg_fine), bg_center + self.config.refinement_window)
+
+            if fg_end <= fg_start or bg_end <= bg_start:
+                continue
+
+            # Extract segments
+            fg_segment = fg_fine[fg_start:fg_end]
+            bg_segment = bg_fine[bg_start:bg_end]
+
+            # Local DTW alignment
+            window = min(len(bg_segment) // 2, 10)
+            dtw = DTWAligner(window=window)
+
+            try:
+                cost_matrix = dtw._compute_cost_matrix(fg_segment, bg_segment)
+                path = dtw._compute_path(cost_matrix)
+
+                # Update refined mapping
+                for fg_local, bg_local in path:
+                    if fg_local < len(fg_segment):
+                        fg_global = fg_start + fg_local
+                        bg_global = bg_start + bg_local
+                        if fg_global < len(refined_mapping):
+                            refined_mapping[fg_global] = bg_global
+            except Exception as e:
+                logger.warning(f"Local refinement failed at segment {i}: {e}")
+                # Fall back to interpolation
+                for j in range(fg_start, fg_end):
+                    if j < len(refined_mapping):
+                        refined_mapping[j] = bg_center + (j - fg_start)
+
+        return refined_mapping
+
+    def hierarchical_alignment(
+        self, fg_pyramid: dict[int, np.ndarray], bg_pyramid: dict[int, np.ndarray]
+    ) -> np.ndarray:
+        """Perform hierarchical alignment from coarse to fine.
+
+        Args:
+            fg_pyramid: Foreground temporal pyramid
+            bg_pyramid: Background temporal pyramid
+
+        Returns:
+            Frame mapping at finest resolution
+        """
+        # Start with coarse alignment
+        mapping = self.coarse_alignment(fg_pyramid, bg_pyramid)
+        current_res = max(self.resolutions)
+
+        # Progressively refine
+        for next_res in sorted(self.resolutions, reverse=True)[1:]:
+            mapping = self.refine_alignment(
+                fg_pyramid, bg_pyramid, mapping, current_res, next_res
+            )
+            current_res = next_res
+
+        return mapping
+
+    def apply_drift_correction(
+        self, mapping: np.ndarray, interval: int | None = None
+    ) -> np.ndarray:
+        """Apply periodic drift correction to prevent accumulation.
+
+        Args:
+            mapping: Initial frame mapping
+            interval: Correction interval (frames)
+
+        Returns:
+            Corrected frame mapping
+        """
+        if interval is None:
+            interval = self.config.drift_correction_interval
+
+        corrected = mapping.copy()
+        num_segments = len(mapping) // interval + 1
+
+        logger.info(f"Applying drift correction every {interval} frames")
+
+        for seg in range(num_segments):
+            start = seg * interval
+            end = min((seg + 1) * interval, len(mapping))
+
+            if start >= end:
+                continue
+
+            # Calculate expected linear progression
+            expected_start = mapping[start]
+            expected_end = mapping[min(end, len(mapping) - 1)]
+
+            # Ensure monotonic progression within segment
+            segment_len = end - start
+            if segment_len > 1 and expected_end > expected_start:
+                # Linear interpolation as baseline
+                for i in range(start, end):
+                    progress = (i - start) / (segment_len - 1)
+                    expected = expected_start + progress * (
+                        expected_end - expected_start
+                    )
+
+                    # Blend original mapping with expected progression
+                    blend_factor = self.config.drift_blend_factor  # Use config value (0.85)
+                    corrected[i] = int(
+                        blend_factor * mapping[i] + (1 - blend_factor) * expected
+                    )
+                    
+                    # Log significant corrections
+                    drift = abs(corrected[i] - mapping[i])
+                    if drift > 5 and self.verbose:
+                        logger.debug(f"Frame {i}: drift correction of {drift} frames applied")
+
+        # Ensure final mapping is monotonic
+        for i in range(1, len(corrected)):
+            corrected[i] = max(corrected[i], corrected[i - 1])
+
+        return corrected
+
+    def interpolate_full_mapping(
+        self, sparse_mapping: np.ndarray, target_length: int, source_resolution: int
+    ) -> np.ndarray:
+        """Interpolate sparse mapping to full frame resolution.
+
+        Args:
+            sparse_mapping: Mapping at sparse resolution
+            target_length: Number of frames in full video
+            source_resolution: Resolution of sparse mapping
+
+        Returns:
+            Full frame-by-frame mapping
+        """
+        full_mapping = np.zeros(target_length, dtype=int)
+
+        for i in range(target_length):
+            # Find corresponding sparse index
+            sparse_idx = i // source_resolution
+
+            if sparse_idx >= len(sparse_mapping) - 1:
+                # Use last mapping
+                full_mapping[i] = sparse_mapping[-1]
+            else:
+                # Interpolate between sparse mappings
+                alpha = (i % source_resolution) / source_resolution
+                start_bg = sparse_mapping[sparse_idx]
+                end_bg = sparse_mapping[sparse_idx + 1]
+
+                full_mapping[i] = int(start_bg + alpha * (end_bg - start_bg))
+
+        # Ensure monotonic
+        for i in range(1, len(full_mapping)):
+            full_mapping[i] = max(full_mapping[i], full_mapping[i - 1])
+
+        return full_mapping
+
+    def align(
+        self,
+        fg_frames: np.ndarray,
+        bg_frames: np.ndarray,
+        fg_fingerprints: np.ndarray | None = None,
+        bg_fingerprints: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, float]:
+        """Perform multi-resolution temporal alignment.
+
+        Args:
+            fg_frames: Foreground video frames
+            bg_frames: Background video frames
+            fg_fingerprints: Pre-computed foreground fingerprints
+            bg_fingerprints: Pre-computed background fingerprints
+
+        Returns:
+            Frame mapping and alignment confidence
+        """
+        logger.info(
+            f"Multi-resolution alignment: {len(fg_frames)} -> {len(bg_frames)} frames"
+        )
+
+        # Create temporal pyramids
+        fg_pyramid = self.create_temporal_pyramid(fg_frames, fg_fingerprints)
+        bg_pyramid = self.create_temporal_pyramid(bg_frames, bg_fingerprints)
+
+        # Perform hierarchical alignment
+        sparse_mapping = self.hierarchical_alignment(fg_pyramid, bg_pyramid)
+
+        # Apply drift correction
+        corrected_mapping = self.apply_drift_correction(sparse_mapping)
+
+        # Interpolate to full resolution
+        full_mapping = self.interpolate_full_mapping(
+            corrected_mapping,
+            len(fg_frames),
+            self.resolutions[-1],  # Finest resolution used
+        )
+
+        # Calculate confidence based on mapping smoothness
+        differences = np.diff(full_mapping)
+        expected_diff = len(bg_frames) / len(fg_frames)
+        variance = np.var(differences)
+        confidence = np.exp(-variance / (expected_diff**2))
+
+        logger.info(f"Alignment complete. Confidence: {confidence:.3f}")
+
+        return full_mapping, confidence
+</file>
+
+<file path="src/vidkompy/core/precise_temporal_alignment.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/core/precise_temporal_alignment.py
+
+"""
+Precise temporal alignment implementation with advanced techniques.
+
+Combines multi-resolution alignment, keyframe anchoring, and bidirectional DTW.
+"""
+
+from typing import Tuple, Optional, List, Dict
+import numpy as np
+from loguru import logger
+from scipy.signal import find_peaks
+from scipy.ndimage import gaussian_filter1d
+
+from .frame_fingerprint import FrameFingerprinter
+from .multi_resolution_aligner import MultiResolutionAligner, PreciseEngineConfig
+from .dtw_aligner import DTWAligner
+
+
+class PreciseTemporalAlignment:
+    """Precise temporal alignment with drift elimination."""
+
+    def __init__(
+        self,
+        fingerprinter: FrameFingerprinter,
+        verbose: bool = False,
+        interval: int = 100,
+    ):
+        """Initialize precise temporal alignment.
+
+        Args:
+            fingerprinter: Frame fingerprint generator
+            verbose: Enable detailed logging
+        """
+        self.fingerprinter = fingerprinter
+        self.verbose = verbose
+
+        # Initialize multi-resolution aligner
+        config = PreciseEngineConfig(
+            max_resolutions=4, base_resolution=16, drift_correction_interval=interval
+        )
+        self.multi_res_aligner = MultiResolutionAligner(fingerprinter, config, verbose)
+
+    def detect_keyframes(
+        self, fingerprints: np.ndarray, min_distance: int = 30
+    ) -> np.ndarray:
+        """Detect keyframes based on temporal changes.
+
+        Args:
+            fingerprints: Frame fingerprints
+            min_distance: Minimum distance between keyframes
+
+        Returns:
+            Indices of detected keyframes
+        """
+        # Calculate temporal differences
+        diffs = np.zeros(len(fingerprints) - 1)
+        for i in range(len(fingerprints) - 1):
+            diffs[i] = np.linalg.norm(fingerprints[i + 1] - fingerprints[i])
+
+        # Smooth differences
+        smoothed = gaussian_filter1d(diffs, sigma=3)
+
+        # Find peaks (scene changes, motion peaks)
+        peaks, properties = find_peaks(
+            smoothed, distance=min_distance, prominence=np.std(smoothed) * 0.5
+        )
+
+        # Always include first and last frames
+        keyframes = [0] + list(peaks) + [len(fingerprints) - 1]
+        keyframes = sorted(list(set(keyframes)))
+
+        logger.info(f"Detected {len(keyframes)} keyframes")
+        return np.array(keyframes)
+
+    def align_keyframes(
+        self,
+        fg_keyframes: np.ndarray,
+        bg_keyframes: np.ndarray,
+        fg_fingerprints: np.ndarray,
+        bg_fingerprints: np.ndarray,
+    ) -> dict[int, int]:
+        """Align keyframes between videos.
+
+        Args:
+            fg_keyframes: Foreground keyframe indices
+            bg_keyframes: Background keyframe indices
+            fg_fingerprints: Foreground fingerprints
+            bg_fingerprints: Background fingerprints
+
+        Returns:
+            Mapping of foreground to background keyframe indices
+        """
+        # Extract keyframe fingerprints
+        fg_kf_prints = fg_fingerprints[fg_keyframes]
+        bg_kf_prints = bg_fingerprints[bg_keyframes]
+
+        # Use DTW for keyframe alignment
+        dtw = DTWAligner(window=len(bg_keyframes))
+        cost_matrix = dtw._compute_cost_matrix(fg_kf_prints, bg_kf_prints)
+        path = dtw._compute_path(cost_matrix)
+
+        # Convert to keyframe mapping
+        kf_mapping = {}
+        for fg_idx, bg_idx in path:
+            if fg_idx < len(fg_keyframes) and bg_idx < len(bg_keyframes):
+                kf_mapping[fg_keyframes[fg_idx]] = bg_keyframes[bg_idx]
+
+        logger.info(f"Aligned {len(kf_mapping)} keyframe pairs")
+        return kf_mapping
+
+    def bidirectional_dtw(
+        self,
+        fg_fingerprints: np.ndarray,
+        bg_fingerprints: np.ndarray,
+        window: int = 100,
+    ) -> np.ndarray:
+        """Perform bidirectional DTW alignment.
+
+        Args:
+            fg_fingerprints: Foreground fingerprints
+            bg_fingerprints: Background fingerprints
+            window: DTW window size
+
+        Returns:
+            Averaged bidirectional alignment
+        """
+        dtw = DTWAligner(window=window)
+
+        # Forward alignment
+        logger.debug("Computing forward DTW alignment")
+        cost_forward = dtw._compute_cost_matrix(fg_fingerprints, bg_fingerprints)
+        path_forward = dtw._compute_path(cost_forward)
+
+        # Backward alignment
+        logger.debug("Computing backward DTW alignment")
+        cost_backward = dtw._compute_cost_matrix(
+            bg_fingerprints[::-1], fg_fingerprints[::-1]
+        )
+        path_backward = dtw._compute_path(cost_backward)
+
+        # Convert paths to mappings
+        forward_mapping = np.zeros(len(fg_fingerprints), dtype=int)
+        for fg_idx, bg_idx in path_forward:
+            if fg_idx < len(forward_mapping):
+                forward_mapping[fg_idx] = bg_idx
+
+        backward_mapping = np.zeros(len(fg_fingerprints), dtype=int)
+        for bg_idx, fg_idx in path_backward:
+            # Reverse indices
+            bg_idx = len(bg_fingerprints) - 1 - bg_idx
+            fg_idx = len(fg_fingerprints) - 1 - fg_idx
+            if fg_idx >= 0 and fg_idx < len(backward_mapping):
+                backward_mapping[fg_idx] = bg_idx
+
+        # Average the mappings
+        averaged_mapping = (forward_mapping + backward_mapping) // 2
+
+        # Ensure monotonicity
+        for i in range(1, len(averaged_mapping)):
+            averaged_mapping[i] = max(averaged_mapping[i], averaged_mapping[i - 1])
+
+        return averaged_mapping
+
+    def refine_with_sliding_window(
+        self,
+        initial_mapping: np.ndarray,
+        fg_fingerprints: np.ndarray,
+        bg_fingerprints: np.ndarray,
+        window_size: int = 30,
+        search_range: int = 10,
+    ) -> np.ndarray:
+        """Refine alignment using sliding window approach.
+
+        Args:
+            initial_mapping: Initial frame mapping
+            fg_fingerprints: Foreground fingerprints
+            bg_fingerprints: Background fingerprints
+            window_size: Size of sliding window
+            search_range: Search range for refinement
+
+        Returns:
+            Refined frame mapping
+        """
+        refined_mapping = initial_mapping.copy()
+        num_windows = len(fg_fingerprints) // window_size + 1
+
+        logger.info(f"Sliding window refinement: {num_windows} windows")
+
+        for w in range(num_windows):
+            start = w * window_size
+            end = min((w + 1) * window_size, len(fg_fingerprints))
+
+            if end <= start:
+                continue
+
+            # Get window fingerprints
+            fg_window = fg_fingerprints[start:end]
+
+            # Determine search range in background
+            bg_center = initial_mapping[start]
+            bg_start = max(0, bg_center - search_range)
+            bg_end = min(len(bg_fingerprints), bg_center + search_range + window_size)
+
+            if bg_end <= bg_start:
+                continue
+
+            bg_window = bg_fingerprints[bg_start:bg_end]
+
+            # Find best alignment within window
+            best_offset = 0
+            best_score = float("inf")
+
+            for offset in range(
+                min(search_range * 2, len(bg_window) - len(fg_window) + 1)
+            ):
+                score = 0
+                for i in range(len(fg_window)):
+                    if offset + i < len(bg_window):
+                        score += np.linalg.norm(fg_window[i] - bg_window[offset + i])
+
+                if score < best_score:
+                    best_score = score
+                    best_offset = offset
+
+            # Apply refinement
+            for i in range(start, end):
+                if i < len(refined_mapping):
+                    refined_mapping[i] = bg_start + best_offset + (i - start)
+
+        # Smooth transitions between windows
+        refined_mapping = gaussian_filter1d(refined_mapping.astype(float), sigma=5)
+        refined_mapping = refined_mapping.astype(int)
+
+        # Ensure monotonicity
+        for i in range(1, len(refined_mapping)):
+            refined_mapping[i] = max(refined_mapping[i], refined_mapping[i - 1])
+
+        return refined_mapping
+
+    def compute_alignment_confidence(
+        self,
+        mapping: np.ndarray,
+        fg_fingerprints: np.ndarray,
+        bg_fingerprints: np.ndarray,
+    ) -> float:
+        """Compute confidence score for alignment.
+
+        Args:
+            mapping: Frame mapping
+            fg_fingerprints: Foreground fingerprints
+            bg_fingerprints: Background fingerprints
+
+        Returns:
+            Confidence score (0-1)
+        """
+        similarities = []
+
+        for fg_idx, bg_idx in enumerate(mapping):
+            if bg_idx < len(bg_fingerprints):
+                sim = 1.0 - np.linalg.norm(
+                    fg_fingerprints[fg_idx] - bg_fingerprints[bg_idx]
+                ) / (np.linalg.norm(fg_fingerprints[fg_idx]) + 1e-8)
+                similarities.append(sim)
+
+        if similarities:
+            mean_sim = np.mean(similarities)
+            std_sim = np.std(similarities)
+            # High confidence = high mean similarity and low variance
+            confidence = mean_sim * np.exp(-std_sim)
+            return float(np.clip(confidence, 0, 1))
+
+        return 0.0
+
+    def align(
+        self, fg_frames: np.ndarray, bg_frames: np.ndarray
+    ) -> tuple[np.ndarray, float]:
+        """Perform precise temporal alignment.
+
+        Args:
+            fg_frames: Foreground video frames
+            bg_frames: Background video frames
+
+        Returns:
+            Frame mapping and alignment confidence
+        """
+        logger.info("Starting precise temporal alignment")
+        logger.info(f"FG: {len(fg_frames)} frames, BG: {len(bg_frames)} frames")
+
+        # Compute fingerprints
+        logger.info("Computing frame fingerprints...")
+        fg_fingerprints = self.fingerprinter.compute_fingerprints(fg_frames)
+        bg_fingerprints = self.fingerprinter.compute_fingerprints(bg_frames)
+
+        # Method 1: Multi-resolution alignment
+        logger.info("Phase 1: Multi-resolution alignment")
+        multi_res_mapping, multi_res_conf = self.multi_res_aligner.align(
+            fg_frames, bg_frames, fg_fingerprints, bg_fingerprints
+        )
+
+        # Method 2: Keyframe-based alignment
+        logger.info("Phase 2: Keyframe detection and alignment")
+        fg_keyframes = self.detect_keyframes(fg_fingerprints)
+        bg_keyframes = self.detect_keyframes(bg_fingerprints)
+        keyframe_mapping = self.align_keyframes(
+            fg_keyframes, bg_keyframes, fg_fingerprints, bg_fingerprints
+        )
+
+        # Method 3: Bidirectional DTW on reduced samples
+        logger.info("Phase 3: Bidirectional DTW refinement")
+        sample_rate = max(1, len(fg_frames) // 500)  # Max 500 samples
+        fg_sampled = fg_fingerprints[::sample_rate]
+        bg_sampled = bg_fingerprints[::sample_rate]
+
+        bidirectional_mapping = self.bidirectional_dtw(
+            fg_sampled, bg_sampled, window=50
+        )
+
+        # Interpolate bidirectional mapping to full resolution
+        full_bidir_mapping = np.interp(
+            np.arange(len(fg_frames)),
+            np.arange(len(bidirectional_mapping)) * sample_rate,
+            bidirectional_mapping * sample_rate,
+        ).astype(int)
+
+        # Combine methods with weighted average
+        combined_mapping = (0.5 * multi_res_mapping + 0.5 * full_bidir_mapping).astype(
+            int
+        )
+
+        # Apply keyframe constraints
+        for fg_kf, bg_kf in keyframe_mapping.items():
+            combined_mapping[fg_kf] = bg_kf
+
+        # Interpolate between keyframes
+        keyframe_indices = sorted(keyframe_mapping.keys())
+        for i in range(len(keyframe_indices) - 1):
+            start_fg = keyframe_indices[i]
+            end_fg = keyframe_indices[i + 1]
+            start_bg = keyframe_mapping[start_fg]
+            end_bg = keyframe_mapping[end_fg]
+
+            # Linear interpolation between keyframes
+            for j in range(start_fg + 1, end_fg):
+                alpha = (j - start_fg) / (end_fg - start_fg)
+                combined_mapping[j] = int(start_bg + alpha * (end_bg - start_bg))
+
+        # Phase 4: Sliding window refinement
+        logger.info("Phase 4: Sliding window refinement")
+        refined_mapping = self.refine_with_sliding_window(
+            combined_mapping, fg_fingerprints, bg_fingerprints
+        )
+
+        # Ensure final mapping is within bounds
+        refined_mapping = np.clip(refined_mapping, 0, len(bg_frames) - 1)
+
+        # Compute final confidence
+        confidence = self.compute_alignment_confidence(
+            refined_mapping, fg_fingerprints, bg_fingerprints
+        )
+
+        logger.info(f"Precise alignment complete. Confidence: {confidence:.3f}")
+
+        return refined_mapping, confidence
+</file>
+
 <file path="src/vidkompy/__main__.py">
 #!/usr/bin/env python
 # this_file: src/vidkompy/__main__.py
@@ -1690,253 +1610,102 @@ if __name__ == "__main__":
     cli()
 </file>
 
-<file path="tests/test_package.py">
-"""Test suite for vidkompy."""
-
-
-def test_version():
-    """Verify package exposes version."""
-    import vidkompy
-
-    assert vidkompy.__version__
-</file>
-
-<file path="benchmark.py">
-#!/usr/bin/env -S uv run -s
-# /// script
-# dependencies = ["fire", "rich", "loguru", "opencv-python", "numpy", "ffmpeg-python"]
-# ///
-# this_file: benchmark.py
-
-"""
-Benchmark script for vidkompy performance testing.
-
-Tests various configurations to measure performance improvements.
-"""
-
-import time
-import subprocess
-from pathlib import Path
-from rich.console import Console
-from rich.table import Table
-from loguru import logger
-import json
-from datetime import datetime
-
-console = Console()
-
-
-def run_vidkompy(bg_path: str, fg_path: str, output_path: str, config: dict) -> dict:
-    """Run vidkompy with given configuration and measure performance."""
-    start_time = time.time()
-
-    # Build command
-    cmd = [
-        "python",
-        "-m",
-        "vidkompy",
-        "--bg",
-        bg_path,
-        "--fg",
-        fg_path,
-        "--output",
-        output_path,
-    ]
-
-    # Add configuration parameters
-    for key, value in config.get("params", {}).items():
-        if isinstance(value, bool):
-            if value:
-                cmd.append(f"--{key}")
-        else:
-            cmd.extend([f"--{key}", str(value)])
-
-    # Run command
-    try:
-        logger.info(f"Running: {' '.join(cmd)}")
-        subprocess.run(cmd, capture_output=True, text=True, check=True)
-        elapsed = time.time() - start_time
-
-        # Extract frame count from logs if available
-        frame_count = 483  # Default for test video
-
-        return {
-            "config": config["name"],
-            "description": config.get("description", ""),
-            "time": elapsed,
-            "fps": frame_count / elapsed if elapsed > 0 else 0,
-            "success": True,
-            "output": output_path,
-        }
-    except subprocess.CalledProcessError as e:
-        elapsed = time.time() - start_time
-        logger.error(f"Command failed: {e}")
-        logger.error(f"stderr: {e.stderr}")
-        return {
-            "config": config["name"],
-            "description": config.get("description", ""),
-            "time": elapsed,
-            "fps": 0,
-            "success": False,
-            "error": str(e),
-        }
-
-
-def benchmark_configurations():
-    """Run benchmarks with different configurations."""
-    # Test configurations
-    configs = [
-        {
-            "name": "default_200_keyframes",
-            "description": "Default settings with 200 keyframes",
-            "params": {},
-        },
-        {
-            "name": "sparse_12_keyframes",
-            "description": "Very sparse keyframes (old default)",
-            "params": {"max_keyframes": 12},
-        },
-        {
-            "name": "dense_500_keyframes",
-            "description": "Dense keyframes for minimal drift",
-            "params": {"max_keyframes": 500},
-        },
-        {
-            "name": "border_mode_default",
-            "description": "Border mode with default settings",
-            "params": {"match_time": "border"},
-        },
-        {
-            "name": "border_mode_dtw",
-            "description": "Border mode with DTW alignment",
-            "params": {"match_time": "border", "temporal_align": "dtw"},
-        },
-        {
-            "name": "classic_mode",
-            "description": "Classic keyframe alignment",
-            "params": {"temporal_align": "classic"},
-        },
-        {
-            "name": "dtw_mode",
-            "description": "DTW alignment (full frame)",
-            "params": {"temporal_align": "dtw"},
-        },
-    ]
-
-    # Ensure output directory exists
-    output_dir = Path("benchmark_outputs")
-    output_dir.mkdir(exist_ok=True)
-
-    # Run benchmarks
-    console.print("\n[bold cyan]Running Vidkompy Benchmarks[/bold cyan]\n")
-    results = []
-
-    for config in configs:
-        console.print(
-            f"[yellow]Running:[/yellow] {config['name']} - {config['description']}"
-        )
-
-        output_path = output_dir / f"benchmark_{config['name']}.mp4"
-        result = run_vidkompy("tests/bg.mp4", "tests/fg.mp4", str(output_path), config)
-        results.append(result)
-
-        if result["success"]:
-            console.print(
-                f"[green]✓[/green] Completed in {result['time']:.2f}s ({result['fps']:.1f} fps)\n"
-            )
-        else:
-            console.print(f"[red]✗[/red] Failed after {result['time']:.2f}s\n")
-
-    return results
-
-
-def display_results(results: list):
-    """Display benchmark results in a table."""
-    # Create results table
-    table = Table(title="Benchmark Results", show_header=True)
-    table.add_column("Configuration", style="cyan")
-    table.add_column("Description", style="white")
-    table.add_column("Time (s)", justify="right", style="yellow")
-    table.add_column("FPS", justify="right", style="green")
-    table.add_column("Status", justify="center")
-
-    # Add rows
-    for r in results:
-        status = "[green]✓[/green]" if r["success"] else "[red]✗[/red]"
-        table.add_row(
-            r["config"],
-            r["description"],
-            f"{r['time']:.2f}",
-            f"{r['fps']:.1f}",
-            status,
-        )
-
-    console.print("\n")
-    console.print(table)
-
-    # Save results to file
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = f"benchmark_results_{timestamp}.json"
-    with open(results_file, "w") as f:
-        json.dump(results, f, indent=2)
-
-    console.print(f"\n[green]Results saved to:[/green] {results_file}")
-
-    # Performance comparison
-    if len(results) >= 2:
-        console.print("\n[bold]Performance Comparison:[/bold]")
-
-        # Find baseline (sparse keyframes)
-        baseline = next(
-            (r for r in results if r["config"] == "sparse_12_keyframes"), results[0]
-        )
-
-        for r in results:
-            if r["success"] and r != baseline:
-                speedup = baseline["time"] / r["time"] if r["time"] > 0 else 0
-                if speedup > 1:
-                    console.print(
-                        f"• {r['config']}: [green]{speedup:.1f}x faster[/green] than baseline"
-                    )
-                elif speedup < 1:
-                    console.print(
-                        f"• {r['config']}: [red]{1 / speedup:.1f}x slower[/red] than baseline"
-                    )
-
-
-def main(
-    quick: bool = False,
-    output_dir: str = "benchmark_outputs",
-):
-    """Run vidkompy benchmarks.
-
-    Args:
-        quick: Run only a subset of benchmarks
-        output_dir: Directory for output files
-    """
-    logger.info("Starting vidkompy benchmark suite")
-
-    # Check if test files exist
-    if not Path("tests/bg.mp4").exists() or not Path("tests/fg.mp4").exists():
-        console.print(
-            "[red]Error:[/red] Test files not found. Please ensure tests/bg.mp4 and tests/fg.mp4 exist."
-        )
-        return
-
-    # Run benchmarks
-    results = benchmark_configurations()
-
-    # Display results
-    display_results(results)
-
-    # Cleanup note
-    console.print(f"\n[dim]Output files saved in {output_dir}/ directory[/dim]")
-
-
-if __name__ == "__main__":
-    import fire
-
-    fire.Fire(main)
+<file path=".gitignore">
+tests/
+__pycache__/
+__pypackages__/
+._*
+.cache
+.coverage
+.coverage.*
+.cursorignore
+.cursorindexingignore
+.dmypy.json
+.DS_Store
+.eggs/
+.env
+.hypothesis/
+.installed.cfg
+.ipynb_checkpoints
+.mypy_cache/
+.nox/
+.pdm-build/
+.pdm-python
+.pdm.toml
+.pybuilder/
+.pypirc
+.pyre/
+.pytest_cache/
+.Python
+.pytype/
+.ropeproject
+.ruff_cache/
+.sass-cache
+.scrapy
+.specstory/.what-is-this.md
+.Spotlight-V100
+.spyderproject
+.spyproject
+.tox/
+.Trashes
+.venv
+.webassets-cache
+*.cover
+*.egg
+*.egg-info/
+*.log
+*.manifest
+*.mo
+*.out
+*.pot
+*.py,cover
+*.py[cod]
+*.pyc
+*.sage.py
+*.so
+*.spec
+*$py.class
+/site
+build/
+celerybeat-schedule
+celerybeat.pid
+cover/
+coverage.xml
+cython_debug/
+db.sqlite3
+db.sqlite3-journal
+Desktop.ini
+develop-eggs/
+dist/
+dmypy.json
+docs/_build/
+downloads/
+eggs/
+env.bak/
+env/
+ENV/
+htmlcov/
+instance/
+ipython_config.py
+lib/
+lib64/
+local_settings.py
+MANIFEST
+node_modules
+nosetests.xml
+parts/
+pip-delete-this-directory.txt
+pip-log.txt
+profile_default/
+sdist/
+share/python-wheels/
+target/
+Thumbs.db
+var/
+venv
+venv.bak/
+venv/
+wheels/
 </file>
 
 <file path=".cursor/rules/alignment-algorithms.mdc">
@@ -2198,500 +1967,6 @@ src/vidkompy/core/
 ```
 
 $END$
-</file>
-
-<file path="src/vidkompy/core/dtw_aligner.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/core/dtw_aligner.py
-
-"""
-Dynamic Time Warping (DTW) for video frame alignment.
-
-This module implements DTW algorithm for finding the globally optimal
-monotonic alignment between two video sequences, preventing temporal artifacts.
-"""
-
-import numpy as np
-from collections.abc import Callable
-from loguru import logger
-from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
-from rich.console import Console
-
-from vidkompy.models import FrameAlignment
-
-console = Console()
-
-
-class DTWAligner:
-    """Dynamic Time Warping for video frame alignment.
-
-    Why DTW over current greedy matching:
-    - Guarantees monotonic alignment (no backward jumps)
-    - Finds globally optimal path, not just local matches
-    - Handles speed variations naturally
-    - Proven algorithm from speech/time series analysis
-
-    Why Sakoe-Chiba band constraint:
-    - Reduces complexity from O(N²) to O(N×window)
-    - Prevents extreme time warping
-    - Makes algorithm practical for long videos
-    """
-
-    def __init__(self, window: int = 100):
-        """Initialize DTW aligner with constraints.
-
-        Args:
-            window: Maximum deviation from diagonal path
-                              (Sakoe-Chiba band width). Set to 0 to use default.
-        """
-        self.window = window
-        self.default_window = 100
-
-    def set_window(self, window: int):
-        """Set the window constraint for DTW alignment.
-
-        Args:
-            window: Window size for sliding frame matching. 0 means use default.
-        """
-        if window > 0:
-            self.window = window
-        else:
-            self.window = self.default_window
-
-    def align_videos(
-        self,
-        fg_fingerprints: dict[int, dict[str, np.ndarray]],
-        bg_fingerprints: dict[int, dict[str, np.ndarray]],
-        fingerprint_compare_func: Callable,
-        show_progress: bool = True,
-    ) -> list[tuple[int, int, float]]:
-        """Find optimal monotonic alignment using DTW.
-
-        Args:
-            fg_fingerprints: Foreground video fingerprints {frame_idx: fingerprint}
-            bg_fingerprints: Background video fingerprints {frame_idx: fingerprint}
-            fingerprint_compare_func: Function to compare two fingerprints (0-1 similarity)
-            show_progress: Whether to show progress bar
-
-        Returns:
-            List of (bg_idx, fg_idx, confidence) tuples representing optimal alignment
-
-        Why this approach:
-        - Works on pre-computed fingerprints for speed
-        - Returns confidence scores for quality assessment
-        - Maintains fg frame order (as required)
-        """
-        fg_indices = sorted(fg_fingerprints.keys())
-        bg_indices = sorted(bg_fingerprints.keys())
-
-        n_fg = len(fg_indices)
-        n_bg = len(bg_indices)
-
-        logger.info(
-            f"Starting DTW alignment: {n_fg} fg frames × {n_bg} bg frames, "
-            f"window={self.window}"
-        )
-
-        # Build DTW cost matrix
-        dtw_matrix = self._build_dtw_matrix(
-            fg_indices,
-            bg_indices,
-            fg_fingerprints,
-            bg_fingerprints,
-            fingerprint_compare_func,
-            show_progress,
-        )
-
-        # Find optimal path
-        path = self._find_optimal_path(dtw_matrix, n_fg, n_bg)
-
-        # Convert path to frame alignments with confidence scores
-        alignments = self._path_to_alignments(
-            path,
-            fg_indices,
-            bg_indices,
-            fg_fingerprints,
-            bg_fingerprints,
-            fingerprint_compare_func,
-        )
-
-        logger.info(f"DTW completed: {len(alignments)} frame alignments")
-
-        return alignments
-
-    def _build_dtw_matrix(
-        self,
-        fg_indices: list[int],
-        bg_indices: list[int],
-        fg_fingerprints: dict[int, dict[str, np.ndarray]],
-        bg_fingerprints: dict[int, dict[str, np.ndarray]],
-        compare_func: Callable,
-        show_progress: bool,
-    ) -> np.ndarray:
-        """Build DTW cost matrix with Sakoe-Chiba band constraint.
-
-        Why band constraint:
-        - Prevents extreme time warping
-        - Reduces computation from O(N²) to O(N×window)
-        - Enforces reasonable temporal alignment
-        """
-        n_fg = len(fg_indices)
-        n_bg = len(bg_indices)
-
-        # Initialize with infinity
-        dtw = np.full((n_fg + 1, n_bg + 1), np.inf)
-        dtw[0, 0] = 0
-
-        # Progress tracking
-        if show_progress:
-            progress = Progress(
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TimeRemainingColumn(),
-                console=console,
-                transient=True,
-            )
-            task = progress.add_task("  Building DTW matrix...", total=n_fg)
-            progress.start()
-
-        # Fill DTW matrix with band constraint
-        for i in range(1, n_fg + 1):
-            # Sakoe-Chiba band: only compute within window of diagonal
-            j_start = max(1, i - self.window)
-            j_end = min(n_bg + 1, i + self.window)
-
-            for j in range(j_start, j_end):
-                # Get fingerprints
-                fg_fp = fg_fingerprints[fg_indices[i - 1]]
-                bg_fp = bg_fingerprints[bg_indices[j - 1]]
-
-                # Compute cost (1 - similarity)
-                similarity = compare_func(fg_fp, bg_fp)
-                cost = 1.0 - similarity
-
-                # DTW recursion: min of three possible paths
-                dtw[i, j] = cost + min(
-                    dtw[i - 1, j],  # Skip bg frame (insertion)
-                    dtw[i, j - 1],  # Skip fg frame (deletion)
-                    dtw[i - 1, j - 1],  # Match frames
-                )
-
-            if show_progress:
-                progress.update(task, advance=1)
-
-        if show_progress:
-            progress.stop()
-
-        return dtw
-
-    def _find_optimal_path(
-        self, dtw: np.ndarray, n_fg: int, n_bg: int
-    ) -> list[tuple[int, int]]:
-        """Backtrack through DTW matrix to find optimal path.
-
-        Why backtracking:
-        - Recovers the actual alignment from cost matrix
-        - Guarantees monotonic path
-        - Handles insertions/deletions/matches
-        """
-        path = []
-        i, j = n_fg, n_bg
-
-        # Backtrack from end to start
-        while i > 0 or j > 0:
-            path.append((i, j))
-
-            if i == 0:
-                j -= 1
-            elif j == 0:
-                i -= 1
-            else:
-                # Choose direction with minimum cost
-                costs = [
-                    (i - 1, j, dtw[i - 1, j]),  # From above
-                    (i, j - 1, dtw[i, j - 1]),  # From left
-                    (i - 1, j - 1, dtw[i - 1, j - 1]),  # From diagonal
-                ]
-
-                # Filter out invalid positions
-                valid_costs = [
-                    (pi, pj, cost) for pi, pj, cost in costs if cost != np.inf
-                ]
-
-                if valid_costs:
-                    i, j, _ = min(valid_costs, key=lambda x: x[2])
-                else:
-                    # Fallback: move diagonally
-                    i, j = i - 1, j - 1
-
-        # Reverse to get forward path
-        path.reverse()
-
-        # Remove dummy start position
-        if path and path[0] == (0, 0):
-            path = path[1:]
-
-        return path
-
-    def _path_to_alignments(
-        self,
-        path: list[tuple[int, int]],
-        fg_indices: list[int],
-        bg_indices: list[int],
-        fg_fingerprints: dict[int, dict[str, np.ndarray]],
-        bg_fingerprints: dict[int, dict[str, np.ndarray]],
-        compare_func: Callable,
-    ) -> list[tuple[int, int, float]]:
-        """Convert DTW path to frame alignments with confidence scores.
-
-        Why confidence scores:
-        - Helps identify problematic alignments
-        - Enables quality-based filtering
-        - Provides feedback for debugging
-        """
-        alignments = []
-
-        for i, j in path:
-            # Skip boundary positions
-            if i == 0 or j == 0:
-                continue
-
-            # Get actual frame indices
-            fg_idx = fg_indices[i - 1]
-            bg_idx = bg_indices[j - 1]
-
-            # Compute confidence as similarity score
-            fg_fp = fg_fingerprints[fg_idx]
-            bg_fp = bg_fingerprints[bg_idx]
-            confidence = compare_func(fg_fp, bg_fp)
-
-            alignments.append((bg_idx, fg_idx, confidence))
-
-        # Remove duplicate fg frames (keep best match)
-        unique_alignments = {}
-        for bg_idx, fg_idx, conf in alignments:
-            if fg_idx not in unique_alignments or conf > unique_alignments[fg_idx][1]:
-                unique_alignments[fg_idx] = (bg_idx, conf)
-
-        # Convert back to list format
-        final_alignments = [
-            (bg_idx, fg_idx, conf)
-            for fg_idx, (bg_idx, conf) in sorted(unique_alignments.items())
-        ]
-
-        return final_alignments
-
-    def create_frame_alignments(
-        self,
-        dtw_matches: list[tuple[int, int, float]],
-        total_fg_frames: int,
-        total_bg_frames: int,
-    ) -> list[FrameAlignment]:
-        """Create complete frame-to-frame alignment from DTW matches.
-
-        Args:
-            dtw_matches: List of (bg_idx, fg_idx, confidence) from DTW
-            total_fg_frames: Total number of foreground frames
-            total_bg_frames: Total number of background frames
-
-        Returns:
-            List of FrameAlignment objects for every fg frame
-
-        Why interpolation:
-        - DTW may skip some frames
-        - Need alignment for EVERY fg frame
-        - Smooth interpolation prevents jumps
-        """
-        if not dtw_matches:
-            # Fallback to simple linear mapping
-            return self._create_linear_alignment(total_fg_frames, total_bg_frames)
-
-        # Sort by fg index
-        dtw_matches.sort(key=lambda x: x[1])
-
-        # Create alignment for every fg frame
-        alignments = []
-
-        for fg_idx in range(total_fg_frames):
-            # Find surrounding DTW matches
-            prev_match = None
-            next_match = None
-
-            for match in dtw_matches:
-                if match[1] <= fg_idx:
-                    prev_match = match
-                elif match[1] > fg_idx and next_match is None:
-                    next_match = match
-                    break
-
-            # Interpolate or extrapolate
-            if prev_match is None and next_match is None:
-                # No matches at all - use linear
-                bg_idx = int(fg_idx * total_bg_frames / total_fg_frames)
-                confidence = 0.5
-            elif prev_match is None:
-                # Before first match - extrapolate
-                bg_idx = max(0, next_match[0] - (next_match[1] - fg_idx))
-                confidence = next_match[2] * 0.8
-            elif next_match is None:
-                # After last match - extrapolate
-                bg_idx = min(
-                    total_bg_frames - 1, prev_match[0] + (fg_idx - prev_match[1])
-                )
-                confidence = prev_match[2] * 0.8
-            # Between matches - interpolate
-            elif prev_match[1] == next_match[1]:
-                # Same fg frame
-                bg_idx = prev_match[0]
-                confidence = prev_match[2]
-            else:
-                # Linear interpolation
-                ratio = (fg_idx - prev_match[1]) / (next_match[1] - prev_match[1])
-                bg_idx = int(prev_match[0] + ratio * (next_match[0] - prev_match[0]))
-                confidence = prev_match[2] * (1 - ratio) + next_match[2] * ratio
-
-            # Ensure valid bg index
-            bg_idx = max(0, min(bg_idx, total_bg_frames - 1))
-
-            alignments.append(
-                FrameAlignment(
-                    fg_frame_idx=fg_idx,
-                    bg_frame_idx=bg_idx,
-                    similarity_score=confidence,
-                )
-            )
-
-        return alignments
-
-    def _create_linear_alignment(
-        self, total_fg_frames: int, total_bg_frames: int
-    ) -> list[FrameAlignment]:
-        """Create simple linear frame mapping as fallback.
-
-        Why we need fallback:
-        - DTW might fail on very dissimilar videos
-        - Better than no alignment at all
-        - Maintains temporal order
-        """
-        ratio = total_bg_frames / total_fg_frames if total_fg_frames > 0 else 1.0
-
-        alignments = []
-        for fg_idx in range(total_fg_frames):
-            bg_idx = min(int(fg_idx * ratio), total_bg_frames - 1)
-
-            alignments.append(
-                FrameAlignment(
-                    fg_frame_idx=fg_idx,
-                    bg_frame_idx=bg_idx,
-                    similarity_score=0.5,  # Unknown confidence
-                )
-            )
-
-        return alignments
-
-    def _compute_cost_matrix(
-        self, fg_features: np.ndarray, bg_features: np.ndarray
-    ) -> np.ndarray:
-        """Compute cost matrix for DTW from feature arrays.
-
-        Args:
-            fg_features: Foreground feature vectors (N, D)
-            bg_features: Background feature vectors (M, D)
-
-        Returns:
-            Cost matrix (N, M)
-        """
-        n_fg = len(fg_features)
-        n_bg = len(bg_features)
-
-        # Initialize cost matrix
-        cost_matrix = np.zeros((n_fg, n_bg))
-
-        # Compute pairwise distances
-        for i in range(n_fg):
-            for j in range(n_bg):
-                # Euclidean distance between feature vectors
-                cost_matrix[i, j] = np.linalg.norm(fg_features[i] - bg_features[j])
-
-        # Normalize costs to [0, 1]
-        if cost_matrix.max() > 0:
-            cost_matrix = cost_matrix / cost_matrix.max()
-
-        return cost_matrix
-
-    def _compute_path(self, cost_matrix: np.ndarray) -> list[tuple[int, int]]:
-        """Compute optimal DTW path from cost matrix.
-
-        Args:
-            cost_matrix: Cost matrix (N, M)
-
-        Returns:
-            List of (i, j) indices representing the optimal path
-        """
-        n_fg, n_bg = cost_matrix.shape
-
-        # Initialize DTW matrix
-        dtw = np.full((n_fg + 1, n_bg + 1), np.inf)
-        dtw[0, 0] = 0
-
-        # Fill DTW matrix with window constraint
-        for i in range(1, n_fg + 1):
-            # Sakoe-Chiba band
-            j_start = max(1, i - self.window)
-            j_end = min(n_bg + 1, i + self.window)
-
-            for j in range(j_start, j_end):
-                cost = cost_matrix[i - 1, j - 1]
-
-                # DTW recursion
-                dtw[i, j] = cost + min(
-                    dtw[i - 1, j],  # Insertion
-                    dtw[i, j - 1],  # Deletion
-                    dtw[i - 1, j - 1],  # Match
-                )
-
-        # Backtrack to find path
-        path = []
-        i, j = n_fg, n_bg
-
-        while i > 0 and j > 0:
-            path.append((i - 1, j - 1))  # Convert to 0-based indices
-
-            # Choose direction with minimum cost
-            if i == 1:
-                j -= 1
-            elif j == 1:
-                i -= 1
-            else:
-                costs = [
-                    dtw[i - 1, j],  # From above
-                    dtw[i, j - 1],  # From left
-                    dtw[i - 1, j - 1],  # From diagonal
-                ]
-
-                min_idx = np.argmin(costs)
-                if min_idx == 0:
-                    i -= 1
-                elif min_idx == 1:
-                    j -= 1
-                else:
-                    i -= 1
-                    j -= 1
-
-        # Add remaining path to origin
-        while i > 0:
-            i -= 1
-            path.append((i, 0))
-        while j > 0:
-            j -= 1
-            path.append((0, j))
-
-        path.reverse()
-
-        # Remove any invalid entries
-        path = [(i, j) for i, j in path if i >= 0 and j >= 0]
-
-        return path
 </file>
 
 <file path="src/vidkompy/core/frame_fingerprint.py">
@@ -4045,397 +3320,498 @@ compare = [
 }
 </file>
 
-<file path="src/vidkompy/core/video_processor.py">
+<file path="src/vidkompy/core/dtw_aligner.py">
 #!/usr/bin/env python3
-# this_file: src/vidkompy/core/video_processor.py
+# this_file: src/vidkompy/core/dtw_aligner.py
 
 """
-Core video processing functionality.
+Dynamic Time Warping (DTW) for video frame alignment.
 
-Handles video I/O, metadata extraction, and frame operations.
+This module implements DTW algorithm for finding the globally optimal
+monotonic alignment between two video sequences, preventing temporal artifacts.
 """
 
-import cv2
-import ffmpeg
 import numpy as np
-from pathlib import Path
+from collections.abc import Callable
 from loguru import logger
-from rich.progress import (
-    Progress,
-    TextColumn,
-    BarColumn,
-    TimeRemainingColumn,
-)
+from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 from rich.console import Console
 
-from vidkompy.models import VideoInfo
+from vidkompy.models import FrameAlignment
 
 console = Console()
 
 
-class VideoProcessor:
-    """Handles core video processing operations.
+class DTWAligner:
+    """Dynamic Time Warping for video frame alignment.
 
-    This module provides the foundation for all video I/O operations.
-    It abstracts away the complexity of video codecs and formats.
+    Why DTW over current greedy matching:
+    - Guarantees monotonic alignment (no backward jumps)
+    - Finds globally optimal path, not just local matches
+    - Handles speed variations naturally
+    - Proven algorithm from speech/time series analysis
 
-    Why separate video processing:
-    - Isolates platform-specific code
-    - Makes testing easier (can mock video I/O)
-    - Single place for optimization
-    - Handles codec compatibility issues
-
-    Why both OpenCV and FFmpeg:
-    - OpenCV: Frame-accurate reading, computer vision operations
-    - FFmpeg: Audio handling, codec support, fast encoding
+    Why Sakoe-Chiba band constraint:
+    - Reduces complexity from O(N²) to O(N×window)
+    - Prevents extreme time warping
+    - Makes algorithm practical for long videos
     """
 
-    def get_video_info(self, video_path: str) -> VideoInfo:
-        """Extract video metadata using ffprobe.
-
-        Why ffprobe instead of OpenCV:
-        - More reliable metadata extraction
-        - Handles all video formats
-        - Provides accurate duration/framerate
-        - Detects audio streams properly
-
-        Why we need this info:
-        - FPS determines temporal alignment strategy
-        - Resolution needed for spatial alignment
-        - Duration for progress estimation
-        - Audio presence for alignment method selection
+    def __init__(self, window: int = 100):
+        """Initialize DTW aligner with constraints.
 
         Args:
-            video_path: Path to video file
-
-        Returns:
-            VideoInfo object with metadata
-
-        Raises:
-            ValueError: If video cannot be probed
+            window: Maximum deviation from diagonal path
+                              (Sakoe-Chiba band width). Set to 0 to use default.
         """
-        logger.debug(f"Probing video: {video_path}")
+        self.window = window
+        self.default_window = 100
 
-        try:
-            probe = ffmpeg.probe(video_path)
-
-            # Find video stream
-            video_stream = next(
-                (s for s in probe["streams"] if s["codec_type"] == "video"), None
-            )
-
-            if not video_stream:
-                msg = f"No video stream found in {video_path}"
-                raise ValueError(msg)
-
-            # Extract properties
-            width = int(video_stream["width"])
-            height = int(video_stream["height"])
-
-            # Parse frame rate
-            fps_str = video_stream.get("r_frame_rate", "0/1")
-            if "/" in fps_str:
-                num, den = map(int, fps_str.split("/"))
-                fps = num / den if den != 0 else 0
-            else:
-                fps = float(fps_str)
-
-            duration = float(probe["format"].get("duration", 0))
-
-            # Calculate frame count
-            frame_count = int(video_stream.get("nb_frames", 0))
-            if frame_count == 0 and duration > 0 and fps > 0:
-                frame_count = int(duration * fps)
-
-            # Check audio
-            audio_stream = next(
-                (s for s in probe["streams"] if s["codec_type"] == "audio"), None
-            )
-
-            has_audio = audio_stream is not None
-            audio_sample_rate = None
-            audio_channels = None
-
-            if audio_stream:
-                audio_sample_rate = int(audio_stream.get("sample_rate", 0))
-                audio_channels = int(audio_stream.get("channels", 0))
-
-            info = VideoInfo(
-                width=width,
-                height=height,
-                fps=fps,
-                duration=duration,
-                frame_count=frame_count,
-                has_audio=has_audio,
-                audio_sample_rate=audio_sample_rate,
-                audio_channels=audio_channels,
-                path=video_path,
-            )
-
-            logger.info(
-                f"Video info for {Path(video_path).name}: "
-                f"{width}x{height}, {fps:.2f} fps, {duration:.2f}s, "
-                f"{frame_count} frames, audio: {'yes' if has_audio else 'no'}"
-            )
-
-            return info
-
-        except Exception as e:
-            logger.error(f"Failed to probe video {video_path}: {e}")
-            raise
-
-    def extract_frames(
-        self, video_path: str, frame_indices: list[int], resize_factor: float = 1.0
-    ) -> list[np.ndarray]:
-        """Extract specific frames from video.
-
-        Why selective frame extraction:
-        - Loading full video would exhaust memory
-        - We only need specific frames for matching
-        - Random access is fast with modern codecs
-
-        Why resize option:
-        - Faster processing on smaller frames
-        - SSIM works fine at lower resolution
-        - Reduces memory usage significantly
-
-        Why progress bar for large extractions:
-        - Frame seeking can be slow on some codecs
-        - Users need feedback for long operations
-        - Helps identify performance issues
+    def set_window(self, window: int):
+        """Set the window constraint for DTW alignment.
 
         Args:
-            video_path: Path to video file
-            frame_indices: List of frame indices to extract
-            resize_factor: Factor to resize frames (for performance)
-
-        Returns:
-            List of frames as numpy arrays
+            window: Window size for sliding frame matching. 0 means use default.
         """
-        frames = []
-        cap = cv2.VideoCapture(video_path)
+        if window > 0:
+            self.window = window
+        else:
+            self.window = self.default_window
 
-        if not cap.isOpened():
-            logger.error(f"Failed to open video: {video_path}")
-            return frames
-
-        try:
-            # Only show progress for large frame extractions
-            if len(frame_indices) > 50:
-                with Progress(
-                    TextColumn("[progress.description]{task.description}"),
-                    BarColumn(),
-                    TimeRemainingColumn(),
-                    console=console,
-                    transient=True,
-                ) as progress:
-                    task = progress.add_task(
-                        f"    Extracting {len(frame_indices)} frames...",
-                        total=len(frame_indices),
-                    )
-
-                    for idx in frame_indices:
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-                        ret, frame = cap.read()
-
-                        if ret:
-                            if resize_factor != 1.0:
-                                height, width = frame.shape[:2]
-                                new_width = int(width * resize_factor)
-                                new_height = int(height * resize_factor)
-                                frame = cv2.resize(frame, (new_width, new_height))
-                            frames.append(frame)
-                        else:
-                            logger.warning(
-                                f"Failed to read frame {idx} from {video_path}"
-                            )
-
-                        progress.update(task, advance=1)
-            else:
-                # No progress bar for small extractions
-                for idx in frame_indices:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-                    ret, frame = cap.read()
-
-                    if ret:
-                        if resize_factor != 1.0:
-                            height, width = frame.shape[:2]
-                            new_width = int(width * resize_factor)
-                            new_height = int(height * resize_factor)
-                            frame = cv2.resize(frame, (new_width, new_height))
-                        frames.append(frame)
-                    else:
-                        logger.warning(f"Failed to read frame {idx} from {video_path}")
-
-        finally:
-            cap.release()
-
-        return frames
-
-    def extract_frame_range(
+    def align_videos(
         self,
-        video_path: str,
-        start_frame: int,
-        end_frame: int,
-        step: int = 1,
-        resize_factor: float = 1.0,
-    ) -> list[tuple[int, np.ndarray]]:
-        """Extract a range of frames with their indices.
+        fg_fingerprints: dict[int, dict[str, np.ndarray]],
+        bg_fingerprints: dict[int, dict[str, np.ndarray]],
+        fingerprint_compare_func: Callable,
+        show_progress: bool = True,
+    ) -> list[tuple[int, int, float]]:
+        """Find optimal monotonic alignment using DTW.
 
         Args:
-            video_path: Path to video
-            start_frame: Starting frame index
-            end_frame: Ending frame index (exclusive)
-            step: Frame step size
-            resize_factor: Resize factor for frames
+            fg_fingerprints: Foreground video fingerprints {frame_idx: fingerprint}
+            bg_fingerprints: Background video fingerprints {frame_idx: fingerprint}
+            fingerprint_compare_func: Function to compare two fingerprints (0-1 similarity)
+            show_progress: Whether to show progress bar
 
         Returns:
-            List of (frame_index, frame) tuples
+            List of (bg_idx, fg_idx, confidence) tuples representing optimal alignment
+
+        Why this approach:
+        - Works on pre-computed fingerprints for speed
+        - Returns confidence scores for quality assessment
+        - Maintains fg frame order (as required)
         """
-        frames = []
-        cap = cv2.VideoCapture(video_path)
+        fg_indices = sorted(fg_fingerprints.keys())
+        bg_indices = sorted(bg_fingerprints.keys())
 
-        if not cap.isOpened():
-            logger.error(f"Failed to open video: {video_path}")
-            return frames
+        n_fg = len(fg_indices)
+        n_bg = len(bg_indices)
 
-        try:
-            for idx in range(start_frame, end_frame, step):
-                cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-                ret, frame = cap.read()
+        logger.info(
+            f"Starting DTW alignment: {n_fg} fg frames × {n_bg} bg frames, "
+            f"window={self.window}"
+        )
 
-                if ret:
-                    if resize_factor != 1.0:
-                        height, width = frame.shape[:2]
-                        new_width = int(width * resize_factor)
-                        new_height = int(height * resize_factor)
-                        frame = cv2.resize(frame, (new_width, new_height))
-                    frames.append((idx, frame))
-                else:
-                    break
+        # Build DTW cost matrix
+        dtw_matrix = self._build_dtw_matrix(
+            fg_indices,
+            bg_indices,
+            fg_fingerprints,
+            bg_fingerprints,
+            fingerprint_compare_func,
+            show_progress,
+        )
 
-        finally:
-            cap.release()
+        # Find optimal path
+        path = self._find_optimal_path(dtw_matrix, n_fg, n_bg)
 
-        return frames
+        # Convert path to frame alignments with confidence scores
+        alignments = self._path_to_alignments(
+            path,
+            fg_indices,
+            bg_indices,
+            fg_fingerprints,
+            bg_fingerprints,
+            fingerprint_compare_func,
+        )
 
-    def create_video_writer(
-        self, output_path: str, width: int, height: int, fps: float, codec: str = "mp4v"
-    ) -> cv2.VideoWriter:
-        """Create OpenCV video writer.
+        logger.info(f"DTW completed: {len(alignments)} frame alignments")
 
-        Why H.264/mp4v codec:
-        - Universal compatibility
-        - Good compression ratio
-        - Hardware acceleration available
-        - Supports high resolutions
+        return alignments
 
-        Why we write silent video first:
-        - OpenCV VideoWriter doesn't handle audio
-        - Gives us perfect frame control
-        - Audio added later with FFmpeg
+    def _build_dtw_matrix(
+        self,
+        fg_indices: list[int],
+        bg_indices: list[int],
+        fg_fingerprints: dict[int, dict[str, np.ndarray]],
+        bg_fingerprints: dict[int, dict[str, np.ndarray]],
+        compare_func: Callable,
+        show_progress: bool,
+    ) -> np.ndarray:
+        """Build DTW cost matrix with Sakoe-Chiba band constraint.
 
-        Args:
-            output_path: Output video path
-            width: Video width
-            height: Video height
-            fps: Frame rate
-            codec: Video codec (default mp4v)
-
-        Returns:
-            VideoWriter object
+        Why band constraint:
+        - Prevents extreme time warping
+        - Reduces computation from O(N²) to O(N×window)
+        - Enforces reasonable temporal alignment
         """
-        fourcc = cv2.VideoWriter_fourcc(*codec)
-        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        n_fg = len(fg_indices)
+        n_bg = len(bg_indices)
 
-        if not writer.isOpened():
-            msg = f"Failed to create video writer for {output_path}"
-            raise ValueError(msg)
+        # Initialize with infinity
+        dtw = np.full((n_fg + 1, n_bg + 1), np.inf)
+        dtw[0, 0] = 0
 
-        return writer
-    
-    def extract_all_frames(
-        self, video_path: str, resize_factor: float = 1.0
-    ) -> np.ndarray | None:
-        """Extract all frames from video as a numpy array.
-        
-        This is used by the precise alignment engine which needs
-        access to all frames for multi-resolution processing.
-        
-        Args:
-            video_path: Path to video file
-            resize_factor: Factor to resize frames (for performance)
-            
-        Returns:
-            Array of frames or None if extraction fails
-        """
-        cap = cv2.VideoCapture(video_path)
-        
-        if not cap.isOpened():
-            logger.error(f"Failed to open video: {video_path}")
-            return None
-        
-        try:
-            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            
-            # Calculate resized dimensions
-            if resize_factor != 1.0:
-                new_width = int(width * resize_factor)
-                new_height = int(height * resize_factor)
-            else:
-                new_width, new_height = width, height
-            
-            # Pre-allocate array for efficiency
-            frames = np.zeros((frame_count, new_height, new_width, 3), dtype=np.uint8)
-            
-            logger.info(f"Extracting all {frame_count} frames at {new_width}x{new_height}")
-            
-            # Extract frames with progress bar
-            with Progress(
+        # Progress tracking
+        if show_progress:
+            progress = Progress(
                 TextColumn("[progress.description]{task.description}"),
                 BarColumn(),
                 TimeRemainingColumn(),
                 console=console,
                 transient=True,
-            ) as progress:
-                task = progress.add_task(
-                    f"    Extracting {frame_count} frames...",
-                    total=frame_count,
+            )
+            task = progress.add_task("  Building DTW matrix...", total=n_fg)
+            progress.start()
+
+        # Fill DTW matrix with band constraint
+        for i in range(1, n_fg + 1):
+            # Sakoe-Chiba band: only compute within window of diagonal
+            j_start = max(1, i - self.window)
+            j_end = min(n_bg + 1, i + self.window)
+
+            for j in range(j_start, j_end):
+                # Get fingerprints
+                fg_fp = fg_fingerprints[fg_indices[i - 1]]
+                bg_fp = bg_fingerprints[bg_indices[j - 1]]
+
+                # Compute cost (1 - similarity)
+                similarity = compare_func(fg_fp, bg_fp)
+                cost = 1.0 - similarity
+
+                # DTW recursion: min of three possible paths
+                dtw[i, j] = cost + min(
+                    dtw[i - 1, j],  # Skip bg frame (insertion)
+                    dtw[i, j - 1],  # Skip fg frame (deletion)
+                    dtw[i - 1, j - 1],  # Match frames
                 )
-                
-                frame_idx = 0
-                while True:
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                    
-                    if resize_factor != 1.0:
-                        frame = cv2.resize(frame, (new_width, new_height))
-                    
-                    if frame_idx < frame_count:
-                        frames[frame_idx] = frame
-                        frame_idx += 1
-                        progress.update(task, advance=1)
-                    else:
-                        logger.warning(f"More frames than expected in {video_path}")
-                        break
-            
-            # Trim array if we got fewer frames than expected
-            if frame_idx < frame_count:
-                logger.warning(f"Got {frame_idx} frames, expected {frame_count}")
-                frames = frames[:frame_idx]
-            
-            logger.info(f"Extracted {len(frames)} frames from {Path(video_path).name}")
-            return frames
-            
-        except Exception as e:
-            logger.error(f"Failed to extract frames from {video_path}: {e}")
-            return None
-        finally:
-            cap.release()
+
+            if show_progress:
+                progress.update(task, advance=1)
+
+        if show_progress:
+            progress.stop()
+
+        return dtw
+
+    def _find_optimal_path(
+        self, dtw: np.ndarray, n_fg: int, n_bg: int
+    ) -> list[tuple[int, int]]:
+        """Backtrack through DTW matrix to find optimal path.
+
+        Why backtracking:
+        - Recovers the actual alignment from cost matrix
+        - Guarantees monotonic path
+        - Handles insertions/deletions/matches
+        """
+        path = []
+        i, j = n_fg, n_bg
+
+        # Backtrack from end to start
+        while i > 0 or j > 0:
+            path.append((i, j))
+
+            if i == 0:
+                j -= 1
+            elif j == 0:
+                i -= 1
+            else:
+                # Choose direction with minimum cost
+                costs = [
+                    (i - 1, j, dtw[i - 1, j]),  # From above
+                    (i, j - 1, dtw[i, j - 1]),  # From left
+                    (i - 1, j - 1, dtw[i - 1, j - 1]),  # From diagonal
+                ]
+
+                # Filter out invalid positions
+                valid_costs = [
+                    (pi, pj, cost) for pi, pj, cost in costs if cost != np.inf
+                ]
+
+                if valid_costs:
+                    i, j, _ = min(valid_costs, key=lambda x: x[2])
+                else:
+                    # Fallback: move diagonally
+                    i, j = i - 1, j - 1
+
+        # Reverse to get forward path
+        path.reverse()
+
+        # Remove dummy start position
+        if path and path[0] == (0, 0):
+            path = path[1:]
+
+        return path
+
+    def _path_to_alignments(
+        self,
+        path: list[tuple[int, int]],
+        fg_indices: list[int],
+        bg_indices: list[int],
+        fg_fingerprints: dict[int, dict[str, np.ndarray]],
+        bg_fingerprints: dict[int, dict[str, np.ndarray]],
+        compare_func: Callable,
+    ) -> list[tuple[int, int, float]]:
+        """Convert DTW path to frame alignments with confidence scores.
+
+        Why confidence scores:
+        - Helps identify problematic alignments
+        - Enables quality-based filtering
+        - Provides feedback for debugging
+        """
+        alignments = []
+
+        for i, j in path:
+            # Skip boundary positions
+            if i == 0 or j == 0:
+                continue
+
+            # Get actual frame indices
+            fg_idx = fg_indices[i - 1]
+            bg_idx = bg_indices[j - 1]
+
+            # Compute confidence as similarity score
+            fg_fp = fg_fingerprints[fg_idx]
+            bg_fp = bg_fingerprints[bg_idx]
+            confidence = compare_func(fg_fp, bg_fp)
+
+            alignments.append((bg_idx, fg_idx, confidence))
+
+        # Remove duplicate fg frames (keep best match)
+        unique_alignments = {}
+        for bg_idx, fg_idx, conf in alignments:
+            if fg_idx not in unique_alignments or conf > unique_alignments[fg_idx][1]:
+                unique_alignments[fg_idx] = (bg_idx, conf)
+
+        # Convert back to list format
+        final_alignments = [
+            (bg_idx, fg_idx, conf)
+            for fg_idx, (bg_idx, conf) in sorted(unique_alignments.items())
+        ]
+
+        return final_alignments
+
+    def create_frame_alignments(
+        self,
+        dtw_matches: list[tuple[int, int, float]],
+        total_fg_frames: int,
+        total_bg_frames: int,
+    ) -> list[FrameAlignment]:
+        """Create complete frame-to-frame alignment from DTW matches.
+
+        Args:
+            dtw_matches: List of (bg_idx, fg_idx, confidence) from DTW
+            total_fg_frames: Total number of foreground frames
+            total_bg_frames: Total number of background frames
+
+        Returns:
+            List of FrameAlignment objects for every fg frame
+
+        Why interpolation:
+        - DTW may skip some frames
+        - Need alignment for EVERY fg frame
+        - Smooth interpolation prevents jumps
+        """
+        if not dtw_matches:
+            # Fallback to simple linear mapping
+            return self._create_linear_alignment(total_fg_frames, total_bg_frames)
+
+        # Sort by fg index
+        dtw_matches.sort(key=lambda x: x[1])
+
+        # Create alignment for every fg frame
+        alignments = []
+
+        for fg_idx in range(total_fg_frames):
+            # Find surrounding DTW matches
+            prev_match = None
+            next_match = None
+
+            for match in dtw_matches:
+                if match[1] <= fg_idx:
+                    prev_match = match
+                elif match[1] > fg_idx and next_match is None:
+                    next_match = match
+                    break
+
+            # Interpolate or extrapolate
+            if prev_match is None and next_match is None:
+                # No matches at all - use linear
+                bg_idx = int(fg_idx * total_bg_frames / total_fg_frames)
+                confidence = 0.5
+            elif prev_match is None:
+                # Before first match - extrapolate
+                bg_idx = max(0, next_match[0] - (next_match[1] - fg_idx))
+                confidence = next_match[2] * 0.8
+            elif next_match is None:
+                # After last match - extrapolate
+                bg_idx = min(
+                    total_bg_frames - 1, prev_match[0] + (fg_idx - prev_match[1])
+                )
+                confidence = prev_match[2] * 0.8
+            # Between matches - interpolate
+            elif prev_match[1] == next_match[1]:
+                # Same fg frame
+                bg_idx = prev_match[0]
+                confidence = prev_match[2]
+            else:
+                # Linear interpolation
+                ratio = (fg_idx - prev_match[1]) / (next_match[1] - prev_match[1])
+                bg_idx = int(prev_match[0] + ratio * (next_match[0] - prev_match[0]))
+                confidence = prev_match[2] * (1 - ratio) + next_match[2] * ratio
+
+            # Ensure valid bg index
+            bg_idx = max(0, min(bg_idx, total_bg_frames - 1))
+
+            alignments.append(
+                FrameAlignment(
+                    fg_frame_idx=fg_idx,
+                    bg_frame_idx=bg_idx,
+                    similarity_score=confidence,
+                )
+            )
+
+        return alignments
+
+    def _create_linear_alignment(
+        self, total_fg_frames: int, total_bg_frames: int
+    ) -> list[FrameAlignment]:
+        """Create simple linear frame mapping as fallback.
+
+        Why we need fallback:
+        - DTW might fail on very dissimilar videos
+        - Better than no alignment at all
+        - Maintains temporal order
+        """
+        ratio = total_bg_frames / total_fg_frames if total_fg_frames > 0 else 1.0
+
+        alignments = []
+        for fg_idx in range(total_fg_frames):
+            bg_idx = min(int(fg_idx * ratio), total_bg_frames - 1)
+
+            alignments.append(
+                FrameAlignment(
+                    fg_frame_idx=fg_idx,
+                    bg_frame_idx=bg_idx,
+                    similarity_score=0.5,  # Unknown confidence
+                )
+            )
+
+        return alignments
+
+    def _compute_cost_matrix(
+        self, fg_features: np.ndarray, bg_features: np.ndarray
+    ) -> np.ndarray:
+        """Compute cost matrix for DTW from feature arrays.
+
+        Args:
+            fg_features: Foreground feature vectors (N, D)
+            bg_features: Background feature vectors (M, D)
+
+        Returns:
+            Cost matrix (N, M)
+        """
+        n_fg = len(fg_features)
+        n_bg = len(bg_features)
+
+        # Initialize cost matrix
+        cost_matrix = np.zeros((n_fg, n_bg))
+
+        # Compute pairwise distances
+        for i in range(n_fg):
+            for j in range(n_bg):
+                # Euclidean distance between feature vectors
+                cost_matrix[i, j] = np.linalg.norm(fg_features[i] - bg_features[j])
+
+        # Normalize costs to [0, 1]
+        if cost_matrix.max() > 0:
+            cost_matrix = cost_matrix / cost_matrix.max()
+
+        return cost_matrix
+
+    def _compute_path(self, cost_matrix: np.ndarray) -> list[tuple[int, int]]:
+        """Compute optimal DTW path from cost matrix.
+
+        Args:
+            cost_matrix: Cost matrix (N, M)
+
+        Returns:
+            List of (i, j) indices representing the optimal path
+        """
+        n_fg, n_bg = cost_matrix.shape
+
+        # Initialize DTW matrix
+        dtw = np.full((n_fg + 1, n_bg + 1), np.inf)
+        dtw[0, 0] = 0
+
+        # Fill DTW matrix with window constraint
+        for i in range(1, n_fg + 1):
+            # Sakoe-Chiba band
+            j_start = max(1, i - self.window)
+            j_end = min(n_bg + 1, i + self.window)
+
+            for j in range(j_start, j_end):
+                cost = cost_matrix[i - 1, j - 1]
+
+                # DTW recursion
+                dtw[i, j] = cost + min(
+                    dtw[i - 1, j],  # Insertion
+                    dtw[i, j - 1],  # Deletion
+                    dtw[i - 1, j - 1],  # Match
+                )
+
+        # Backtrack to find path
+        path = []
+        i, j = n_fg, n_bg
+
+        while i > 0 and j > 0:
+            path.append((i - 1, j - 1))  # Convert to 0-based indices
+
+            # Choose direction with minimum cost
+            if i == 1:
+                j -= 1
+            elif j == 1:
+                i -= 1
+            else:
+                costs = [
+                    dtw[i - 1, j],  # From above
+                    dtw[i, j - 1],  # From left
+                    dtw[i - 1, j - 1],  # From diagonal
+                ]
+
+                min_idx = np.argmin(costs)
+                if min_idx == 0:
+                    i -= 1
+                elif min_idx == 1:
+                    j -= 1
+                else:
+                    i -= 1
+                    j -= 1
+
+        # Add remaining path to origin
+        while i > 0:
+            i -= 1
+            path.append((i, 0))
+        while j > 0:
+            j -= 1
+            path.append((0, j))
+
+        path.reverse()
+
+        # Remove any invalid entries
+        path = [(i, j) for i, j in path if i >= 0 and j >= 0]
+
+        return path
 </file>
 
 <file path="src/vidkompy/__version__.py">
@@ -5047,6 +4423,428 @@ $END$
 END SPECIFICATION
 </file>
 
+<file path="src/vidkompy/core/video_processor.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/core/video_processor.py
+
+"""
+Core video processing functionality.
+
+Handles video I/O, metadata extraction, and frame operations.
+"""
+
+import cv2
+import ffmpeg
+import numpy as np
+from pathlib import Path
+from loguru import logger
+from rich.progress import (
+    Progress,
+    TextColumn,
+    BarColumn,
+    TimeRemainingColumn,
+)
+from rich.console import Console
+
+from vidkompy.models import VideoInfo
+
+console = Console()
+
+
+class VideoProcessor:
+    """Handles core video processing operations.
+
+    This module provides the foundation for all video I/O operations.
+    It abstracts away the complexity of video codecs and formats.
+
+    Why separate video processing:
+    - Isolates platform-specific code
+    - Makes testing easier (can mock video I/O)
+    - Single place for optimization
+    - Handles codec compatibility issues
+
+    Why both OpenCV and FFmpeg:
+    - OpenCV: Frame-accurate reading, computer vision operations
+    - FFmpeg: Audio handling, codec support, fast encoding
+    """
+
+    def get_video_info(self, video_path: str) -> VideoInfo:
+        """Extract video metadata using ffprobe.
+
+        Why ffprobe instead of OpenCV:
+        - More reliable metadata extraction
+        - Handles all video formats
+        - Provides accurate duration/framerate
+        - Detects audio streams properly
+
+        Why we need this info:
+        - FPS determines temporal alignment strategy
+        - Resolution needed for spatial alignment
+        - Duration for progress estimation
+        - Audio presence for alignment method selection
+
+        Args:
+            video_path: Path to video file
+
+        Returns:
+            VideoInfo object with metadata
+
+        Raises:
+            ValueError: If video cannot be probed
+        """
+        logger.debug(f"Probing video: {video_path}")
+
+        try:
+            probe = ffmpeg.probe(video_path)
+
+            # Find video stream
+            video_stream = next(
+                (s for s in probe["streams"] if s["codec_type"] == "video"), None
+            )
+
+            if not video_stream:
+                msg = f"No video stream found in {video_path}"
+                raise ValueError(msg)
+
+            # Extract properties
+            width = int(video_stream["width"])
+            height = int(video_stream["height"])
+
+            # Parse frame rate
+            fps_str = video_stream.get("r_frame_rate", "0/1")
+            if "/" in fps_str:
+                num, den = map(int, fps_str.split("/"))
+                fps = num / den if den != 0 else 0
+            else:
+                fps = float(fps_str)
+
+            duration = float(probe["format"].get("duration", 0))
+
+            # Calculate frame count
+            frame_count = int(video_stream.get("nb_frames", 0))
+            if frame_count == 0 and duration > 0 and fps > 0:
+                frame_count = int(duration * fps)
+
+            # Check audio
+            audio_stream = next(
+                (s for s in probe["streams"] if s["codec_type"] == "audio"), None
+            )
+
+            has_audio = audio_stream is not None
+            audio_sample_rate = None
+            audio_channels = None
+
+            if audio_stream:
+                audio_sample_rate = int(audio_stream.get("sample_rate", 0))
+                audio_channels = int(audio_stream.get("channels", 0))
+
+            info = VideoInfo(
+                width=width,
+                height=height,
+                fps=fps,
+                duration=duration,
+                frame_count=frame_count,
+                has_audio=has_audio,
+                audio_sample_rate=audio_sample_rate,
+                audio_channels=audio_channels,
+                path=video_path,
+            )
+
+            logger.info(
+                f"Video info for {Path(video_path).name}: "
+                f"{width}x{height}, {fps:.2f} fps, {duration:.2f}s, "
+                f"{frame_count} frames, audio: {'yes' if has_audio else 'no'}"
+            )
+
+            return info
+
+        except Exception as e:
+            logger.error(f"Failed to probe video {video_path}: {e}")
+            raise
+
+    def extract_frames(
+        self, video_path: str, frame_indices: list[int], resize_factor: float = 1.0
+    ) -> list[np.ndarray]:
+        """Extract specific frames from video.
+
+        Why selective frame extraction:
+        - Loading full video would exhaust memory
+        - We only need specific frames for matching
+        - Random access is fast with modern codecs
+
+        Why resize option:
+        - Faster processing on smaller frames
+        - SSIM works fine at lower resolution
+        - Reduces memory usage significantly
+
+        Why progress bar for large extractions:
+        - Frame seeking can be slow on some codecs
+        - Users need feedback for long operations
+        - Helps identify performance issues
+
+        Args:
+            video_path: Path to video file
+            frame_indices: List of frame indices to extract
+            resize_factor: Factor to resize frames (for performance)
+
+        Returns:
+            List of frames as numpy arrays
+        """
+        frames = []
+        cap = cv2.VideoCapture(video_path)
+
+        if not cap.isOpened():
+            logger.error(f"Failed to open video: {video_path}")
+            return frames
+
+        try:
+            # Only show progress for large frame extractions
+            if len(frame_indices) > 50:
+                with Progress(
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TimeRemainingColumn(),
+                    console=console,
+                    transient=True,
+                ) as progress:
+                    task = progress.add_task(
+                        f"    Extracting {len(frame_indices)} frames...",
+                        total=len(frame_indices),
+                    )
+
+                    for idx in frame_indices:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                        ret, frame = cap.read()
+
+                        if ret:
+                            if resize_factor != 1.0:
+                                height, width = frame.shape[:2]
+                                new_width = int(width * resize_factor)
+                                new_height = int(height * resize_factor)
+                                frame = cv2.resize(frame, (new_width, new_height))
+                            frames.append(frame)
+                        else:
+                            logger.warning(
+                                f"Failed to read frame {idx} from {video_path}"
+                            )
+
+                        progress.update(task, advance=1)
+            else:
+                # No progress bar for small extractions
+                for idx in frame_indices:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                    ret, frame = cap.read()
+
+                    if ret:
+                        if resize_factor != 1.0:
+                            height, width = frame.shape[:2]
+                            new_width = int(width * resize_factor)
+                            new_height = int(height * resize_factor)
+                            frame = cv2.resize(frame, (new_width, new_height))
+                        frames.append(frame)
+                    else:
+                        logger.warning(f"Failed to read frame {idx} from {video_path}")
+
+        finally:
+            cap.release()
+
+        return frames
+
+    def extract_frame_range(
+        self,
+        video_path: str,
+        start_frame: int,
+        end_frame: int,
+        step: int = 1,
+        resize_factor: float = 1.0,
+    ) -> list[tuple[int, np.ndarray]]:
+        """Extract a range of frames with their indices.
+
+        Args:
+            video_path: Path to video
+            start_frame: Starting frame index
+            end_frame: Ending frame index (exclusive)
+            step: Frame step size
+            resize_factor: Resize factor for frames
+
+        Returns:
+            List of (frame_index, frame) tuples
+        """
+        frames = []
+        cap = cv2.VideoCapture(video_path)
+
+        if not cap.isOpened():
+            logger.error(f"Failed to open video: {video_path}")
+            return frames
+
+        try:
+            for idx in range(start_frame, end_frame, step):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                ret, frame = cap.read()
+
+                if ret:
+                    if resize_factor != 1.0:
+                        height, width = frame.shape[:2]
+                        new_width = int(width * resize_factor)
+                        new_height = int(height * resize_factor)
+                        frame = cv2.resize(frame, (new_width, new_height))
+                    frames.append((idx, frame))
+                else:
+                    break
+
+        finally:
+            cap.release()
+
+        return frames
+
+    def create_video_writer(
+        self, output_path: str, width: int, height: int, fps: float, codec: str = "mp4v"
+    ) -> cv2.VideoWriter:
+        """Create OpenCV video writer.
+
+        Why H.264/mp4v codec:
+        - Universal compatibility
+        - Good compression ratio
+        - Hardware acceleration available
+        - Supports high resolutions
+
+        Why we write silent video first:
+        - OpenCV VideoWriter doesn't handle audio
+        - Gives us perfect frame control
+        - Audio added later with FFmpeg
+
+        Args:
+            output_path: Output video path
+            width: Video width
+            height: Video height
+            fps: Frame rate
+            codec: Video codec (default mp4v)
+
+        Returns:
+            VideoWriter object
+        """
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+        if not writer.isOpened():
+            msg = f"Failed to create video writer for {output_path}"
+            raise ValueError(msg)
+
+        return writer
+    
+    def extract_all_frames(
+        self, video_path: str, resize_factor: float = 1.0, crop: tuple[int, int, int, int] | None = None
+    ) -> np.ndarray | None:
+        """Extract all frames from video as a numpy array.
+        
+        This is used by the precise alignment engine which needs
+        access to all frames for multi-resolution processing.
+        
+        Args:
+            video_path: Path to video file
+            resize_factor: Factor to resize frames (for performance)
+            crop: Optional (x, y, width, height) tuple to crop frames
+            
+        Returns:
+            Array of frames or None if extraction fails
+        """
+        cap = cv2.VideoCapture(video_path)
+        
+        if not cap.isOpened():
+            logger.error(f"Failed to open video: {video_path}")
+            return None
+        
+        try:
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            
+            # Calculate resized dimensions
+            if resize_factor != 1.0:
+                new_width = int(width * resize_factor)
+                new_height = int(height * resize_factor)
+            else:
+                new_width, new_height = width, height
+            
+            # Apply crop dimensions if specified
+            if crop:
+                crop_x, crop_y, crop_w, crop_h = crop
+                # Scale crop coordinates by resize factor
+                crop_x = int(crop_x * resize_factor)
+                crop_y = int(crop_y * resize_factor)
+                crop_w = int(crop_w * resize_factor)
+                crop_h = int(crop_h * resize_factor)
+                
+                # Ensure crop is within bounds
+                crop_x = max(0, min(crop_x, new_width - 1))
+                crop_y = max(0, min(crop_y, new_height - 1))
+                crop_w = min(crop_w, new_width - crop_x)
+                crop_h = min(crop_h, new_height - crop_y)
+                
+                final_width = crop_w
+                final_height = crop_h
+            else:
+                final_width = new_width
+                final_height = new_height
+            
+            # Pre-allocate array for efficiency
+            frames = np.zeros((frame_count, final_height, final_width, 3), dtype=np.uint8)
+            
+            if crop:
+                logger.info(f"Extracting all {frame_count} frames at {new_width}x{new_height}, cropped to {final_width}x{final_height}")
+            else:
+                logger.info(f"Extracting all {frame_count} frames at {new_width}x{new_height}")
+            
+            # Extract frames with progress bar
+            with Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TimeRemainingColumn(),
+                console=console,
+                transient=True,
+            ) as progress:
+                task = progress.add_task(
+                    f"    Extracting {frame_count} frames...",
+                    total=frame_count,
+                )
+                
+                frame_idx = 0
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    
+                    if resize_factor != 1.0:
+                        frame = cv2.resize(frame, (new_width, new_height))
+                    
+                    # Apply cropping if specified
+                    if crop:
+                        frame = frame[crop_y:crop_y+crop_h, crop_x:crop_x+crop_w]
+                    
+                    if frame_idx < frame_count:
+                        frames[frame_idx] = frame
+                        frame_idx += 1
+                        progress.update(task, advance=1)
+                    else:
+                        logger.warning(f"More frames than expected in {video_path}")
+                        break
+            
+            # Trim array if we got fewer frames than expected
+            if frame_idx < frame_count:
+                logger.warning(f"Got {frame_idx} frames, expected {frame_count}")
+                frames = frames[:frame_idx]
+            
+            logger.info(f"Extracted {len(frames)} frames from {Path(video_path).name}")
+            return frames
+            
+        except Exception as e:
+            logger.error(f"Failed to extract frames from {video_path}: {e}")
+            return None
+        finally:
+            cap.release()
+</file>
+
 <file path="src/vidkompy/core/alignment_engine.py">
 #!/usr/bin/env python3
 # this_file: src/vidkompy/core/alignment_engine.py
@@ -5108,6 +4906,7 @@ class AlignmentEngine:
         verbose: bool = False,
         max_keyframes: int = 2000,
         use_precise_engine: bool = False,
+        drift_interval: int = 100,
         window: int = 100,
     ):
         """Initialize alignment engine.
@@ -5117,11 +4916,12 @@ class AlignmentEngine:
             verbose: Enable verbose logging
             max_keyframes: Maximum keyframes for frame matching
             use_precise_engine: Use the new precise temporal alignment engine
+            drift_interval: Frame interval for drift correction in precise engine
         """
         self.processor = processor
         self.spatial_aligner = SpatialAligner()
         self.temporal_aligner = TemporalAligner(
-            processor, max_keyframes, use_precise_engine, window
+            processor, max_keyframes, use_precise_engine, drift_interval, window
         )
         self.verbose = verbose
 
@@ -5614,110 +5414,6 @@ class AlignmentEngine:
             logger.warning("Saved video without audio")
 </file>
 
-<file path="CHANGELOG.md">
-# Changelog
-
-All notable changes to vidkompy will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
-
-### Fixed
-
-- **Parameter Mismatch**: Fixed DTWAligner constructor parameter name from 'window' to 'window' in precise alignment engines to resolve TypeError during precise alignment initialization
-
-### Added
-
-- **Multi-Engine Architecture**: Added --engine CLI parameter to support multiple temporal alignment engines
-- **Precise Engine Implementation**: Implemented advanced multi-resolution temporal alignment engine with drift correction
-- **Engine Validation**: Added proper validation and error messages for engine selection
-- **Comprehensive Engine Documentation**: Updated README.md with detailed explanations of both fast and precise engines
-- **Performance Benchmarks**: Added real-world performance comparison data showing 2x vs 40x real-time processing
-- **Usage Examples**: Added multiple CLI examples demonstrating different engine configurations
-
-### Major Refactoring: Code Simplification & Performance
-
-### Removed
-
-- **Audio Alignment**: Removed all audio-based temporal alignment functionality (align_audio, extract_audio)
-- **Feature Matching**: Removed ORB feature-based spatial alignment method
-- **FAST Mode**: Removed audio-first temporal alignment mode
-- **CLI Complexity**: Simplified CLI to essential parameters only
-- **Redundant Options**: Removed match_time, match_space, temporal_align, skip_spatial_align, trim, max_keyframes, and window parameters
-- **Dependencies**: Removed soundfile and scipy.signal as no longer needed
-
-### Changed
-
-- **Fixed Configuration**: Always uses border mode with DTW and template matching
-- **Simplified API**: Reduced CLI to just bg, fg, output, border, blend, gpu, and verbose
-- **Single Path**: Each operation now has only one implementation path
-- **Code Reduction**: Approximately 40% reduction in codebase size
-
-### Implementation Status vs Original Specs
-
-- **SPEC5**: Fully implemented all quick wins and drift elimination features
-- **SPEC4**: Partially implemented - removed alternative methods but kept optimized versions instead of full rewrite with FAISS/phase correlation
-
-### Performance Improvements from SPEC5 Implementation
-
-### Fixed
-
-- **Temporal Drift**: Implemented adaptive keyframe density to prevent drift based on FPS differences
-- **Border Mode Performance**: Enabled DTW with masked perceptual hashing for fast border mode alignment
-- **Critical Performance**: Fixed compositing bottleneck by implementing sequential reading with generators
-- **UI Bug**: Resolved "Only one live display may be active at once" error from nested Progress contexts
-- **Compositing Speed**: Eliminated costly random seeks in video files during frame composition
-- **Progress UX**: Removed annoying spinner displays for quick operations
-
-### Added
-
-- **Masked Fingerprinting**: Added compute_masked_fingerprint() method for border-aware perceptual hashing
-- **Adaptive Keyframes**: calculate_adaptive_keyframe_count() adjusts density based on video characteristics
-- **Benchmark Suite**: Created benchmark.py for comprehensive performance testing
-- **Border Mode + DTW**: DTW temporal alignment now works with masked regions
-- Sequential frame generators for optimal video reading performance
-- Detailed frame composition progress bar with percentage, frame count, and time remaining
-- Spatial alignment results now logged in non-verbose mode for better visibility
-- Temporal alignment results now logged in non-verbose mode showing method, offset, and frame count
-- Comprehensive docstrings explaining the "why" behind design decisions in all core modules
-- SPEC4.md: Detailed performance improvement plan with DTW algorithm and perceptual hashing
-- SPEC5.md: Drift elimination and performance optimization specification
-- Border-based temporal alignment mode with mask generation
-- Smooth alpha blending for frame edges
-- Sliding window constraint for frame matching optimization
-
-### Changed
-
-- **Default Keyframes**: Reduced from 2000 to 200 for better drift prevention
-- **Parallel Processing**: Cost matrix building already uses ThreadPoolExecutor for parallel computation
-- **Border Mode Logic**: DTW no longer falls back to classic alignment in border mode
-- **Performance**: Compositing now uses forward-only sequential reads instead of random seeks (10-100x speedup)
-- **Performance**: Significantly reduced keyframe sampling when using SSIM (e.g., in border mode fallback), drastically improving speed for that specific path
-- **Progress UX**: Quick tasks (video analysis, spatial alignment) now use simple logging instead of spinners
-- **Progress Bars**: Frame composition shows meaningful progress bar instead of percentage logging
-- **Default Mode**: Border-based temporal alignment is now the default for improved accuracy
-- Progress bars now show time remaining for better user experience
-- Maintained useful progress bars for time-intensive operations (DTW, cost matrix building)
-
-### Documentation
-
-- Added detailed docstrings to alignment_engine.py explaining architecture decisions
-- Added detailed docstrings to spatial_alignment.py explaining algorithm choices
-- Added detailed docstrings to temporal_alignment.py explaining current limitations
-- Added detailed docstrings to video_processor.py explaining tool choices
-- Created SPEC4.md with comprehensive improvement plan addressing performance and quality issues
-- Created SPEC5.md with drift elimination strategies and performance targets
-
-### Technical Details
-
-- Implemented \_precompute_masked_video_fingerprints() for border mode DTW support
-- Added \_compute_masked_frame_hash() for efficient masked perceptual hashing
-- Removed SpinnerColumn from inner progress bars to prevent conflicts
-- Added TimeRemainingColumn for better progress estimation
-- Made outer progress transient to reduce visual clutter
-</file>
-
 <file path="README.md">
 # `vidkompy`
 
@@ -6045,6 +5741,113 @@ hatch run fix
 This project is licensed under the MIT License. See the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
 </file>
 
+<file path="CHANGELOG.md">
+# Changelog
+
+All notable changes to vidkompy will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Fixed
+
+- **Parameter Mismatch**: Fixed DTWAligner constructor parameter name from 'window' to 'window' in precise alignment engines to resolve TypeError during precise alignment initialization
+- **Temporal Drift Issue**: Fixed severe drift at 5-second mark by implementing spatial cropping during temporal alignment and adjusting drift correction parameters
+- **Spatial Cropping**: Added background frame cropping to match foreground region during temporal alignment, eliminating false dissimilarities from non-overlapping areas
+- **Drift Correction Tuning**: Increased drift correction interval from 32 to 100 frames and blend factor from 0.7 to 0.85 to prevent overcorrection
+
+### Added
+
+- **Multi-Engine Architecture**: Added --engine CLI parameter to support multiple temporal alignment engines
+- **Precise Engine Implementation**: Implemented advanced multi-resolution temporal alignment engine with drift correction
+- **Engine Validation**: Added proper validation and error messages for engine selection
+- **Comprehensive Engine Documentation**: Updated README.md with detailed explanations of both fast and precise engines
+- **Performance Benchmarks**: Added real-world performance comparison data showing 2x vs 40x real-time processing
+- **Usage Examples**: Added multiple CLI examples demonstrating different engine configurations
+
+### Major Refactoring: Code Simplification & Performance
+
+### Removed
+
+- **Audio Alignment**: Removed all audio-based temporal alignment functionality (align_audio, extract_audio)
+- **Feature Matching**: Removed ORB feature-based spatial alignment method
+- **FAST Mode**: Removed audio-first temporal alignment mode
+- **CLI Complexity**: Simplified CLI to essential parameters only
+- **Redundant Options**: Removed match_time, match_space, temporal_align, skip_spatial_align, trim, max_keyframes, and window parameters
+- **Dependencies**: Removed soundfile and scipy.signal as no longer needed
+
+### Changed
+
+- **Fixed Configuration**: Always uses border mode with DTW and template matching
+- **Simplified API**: Reduced CLI to just bg, fg, output, border, blend, gpu, and verbose
+- **Single Path**: Each operation now has only one implementation path
+- **Code Reduction**: Approximately 40% reduction in codebase size
+
+### Implementation Status vs Original Specs
+
+- **SPEC5**: Fully implemented all quick wins and drift elimination features
+- **SPEC4**: Partially implemented - removed alternative methods but kept optimized versions instead of full rewrite with FAISS/phase correlation
+
+### Performance Improvements from SPEC5 Implementation
+
+### Fixed
+
+- **Temporal Drift**: Implemented adaptive keyframe density to prevent drift based on FPS differences
+- **Border Mode Performance**: Enabled DTW with masked perceptual hashing for fast border mode alignment
+- **Critical Performance**: Fixed compositing bottleneck by implementing sequential reading with generators
+- **UI Bug**: Resolved "Only one live display may be active at once" error from nested Progress contexts
+- **Compositing Speed**: Eliminated costly random seeks in video files during frame composition
+- **Progress UX**: Removed annoying spinner displays for quick operations
+
+### Added
+
+- **Masked Fingerprinting**: Added compute_masked_fingerprint() method for border-aware perceptual hashing
+- **Adaptive Keyframes**: calculate_adaptive_keyframe_count() adjusts density based on video characteristics
+- **Benchmark Suite**: Created benchmark.py for comprehensive performance testing
+- **Border Mode + DTW**: DTW temporal alignment now works with masked regions
+- Sequential frame generators for optimal video reading performance
+- Detailed frame composition progress bar with percentage, frame count, and time remaining
+- Spatial alignment results now logged in non-verbose mode for better visibility
+- Temporal alignment results now logged in non-verbose mode showing method, offset, and frame count
+- Comprehensive docstrings explaining the "why" behind design decisions in all core modules
+- SPEC4.md: Detailed performance improvement plan with DTW algorithm and perceptual hashing
+- SPEC5.md: Drift elimination and performance optimization specification
+- Border-based temporal alignment mode with mask generation
+- Smooth alpha blending for frame edges
+- Sliding window constraint for frame matching optimization
+
+### Changed
+
+- **Default Keyframes**: Reduced from 2000 to 200 for better drift prevention
+- **Parallel Processing**: Cost matrix building already uses ThreadPoolExecutor for parallel computation
+- **Border Mode Logic**: DTW no longer falls back to classic alignment in border mode
+- **Performance**: Compositing now uses forward-only sequential reads instead of random seeks (10-100x speedup)
+- **Performance**: Significantly reduced keyframe sampling when using SSIM (e.g., in border mode fallback), drastically improving speed for that specific path
+- **Progress UX**: Quick tasks (video analysis, spatial alignment) now use simple logging instead of spinners
+- **Progress Bars**: Frame composition shows meaningful progress bar instead of percentage logging
+- **Default Mode**: Border-based temporal alignment is now the default for improved accuracy
+- Progress bars now show time remaining for better user experience
+- Maintained useful progress bars for time-intensive operations (DTW, cost matrix building)
+
+### Documentation
+
+- Added detailed docstrings to alignment_engine.py explaining architecture decisions
+- Added detailed docstrings to spatial_alignment.py explaining algorithm choices
+- Added detailed docstrings to temporal_alignment.py explaining current limitations
+- Added detailed docstrings to video_processor.py explaining tool choices
+- Created SPEC4.md with comprehensive improvement plan addressing performance and quality issues
+- Created SPEC5.md with drift elimination strategies and performance targets
+
+### Technical Details
+
+- Implemented \_precompute_masked_video_fingerprints() for border mode DTW support
+- Added \_compute_masked_frame_hash() for efficient masked perceptual hashing
+- Removed SpinnerColumn from inner progress bars to prevent conflicts
+- Added TimeRemainingColumn for better progress estimation
+- Made outer progress transient to reduce visual clutter
+</file>
+
 <file path="PROGRESS.md">
 # Progress: vidkompy Performance Improvements
 
@@ -6059,6 +5862,15 @@ This project is licensed under the MIT License. See the [LICENSE](https://www.go
 - [x] Tested both engines and confirmed performance characteristics
 - [x] Updated README.md with comprehensive documentation of both engines
 - [x] Added detailed performance benchmarks and usage examples
+
+### Drift Issue Resolution
+- [x] Identified root cause of 5-second drift issue in precise engine
+- [x] Implemented spatial cropping for temporal alignment (crop background to foreground region)
+- [x] Added crop parameter support to VideoProcessor.extract_all_frames()
+- [x] Integrated spatial alignment step before temporal alignment in precise engine
+- [x] Tuned drift correction parameters (interval: 32→100, blend factor: 0.7→0.85)
+- [x] Added drift tracking and logging for debugging
+- [x] Verified fix resolves hand movement synchronization issue
 
 ## Future Optimizations (Not Yet Implemented)
 
@@ -6113,6 +5925,7 @@ def main(
     fg: str | Path,
     output: str | Path | None = None,
     engine: str = "fast",
+    drift_interval: int = 100,
     margin: int = 8,
     smooth: bool = False,
     gpu: bool = False,  # Future GPU acceleration support
@@ -6126,6 +5939,7 @@ def main(
         fg: Foreground video path
         output: Output video path (auto-generated if not provided)
         engine: Temporal alignment engine - 'fast' (current) or 'precise' (default: 'fast')
+        drift_interval: Frame interval for drift correction in precise engine (default: 100)
         margin: Border thickness for border matching mode (default: 8)
         smooth: Enable smooth blending at frame edges
         gpu: Enable GPU acceleration (future feature)
@@ -6203,6 +6017,7 @@ def main(
         verbose=verbose,
         max_keyframes=max_keyframes,
         use_precise_engine=use_precise_engine,
+        drift_interval=drift_interval,
         window=window,
     )
 
@@ -6257,6 +6072,7 @@ from .video_processor import VideoProcessor
 from .frame_fingerprint import FrameFingerprinter
 from .dtw_aligner import DTWAligner
 from .precise_temporal_alignment import PreciseTemporalAlignment
+from .spatial_alignment import SpatialAligner
 
 console = Console()
 
@@ -6282,6 +6098,7 @@ class TemporalAligner:
         processor: VideoProcessor,
         max_keyframes: int = 200,
         use_precise_engine: bool = False,
+        drift_interval: int = 100,
         window: int = 100,
     ):
         """Initialize temporal aligner.
@@ -6290,9 +6107,11 @@ class TemporalAligner:
             processor: Video processor instance
             max_keyframes: Maximum keyframes for frame matching
             use_precise_engine: Use the new precise temporal alignment engine
+            drift_interval: Frame interval for drift correction in precise engine
         """
         self.processor = processor
         self.max_keyframes = max_keyframes
+        self.drift_interval = drift_interval
         self.use_perceptual_hash = True
         self.hash_cache: dict[str, dict[int, dict[str, np.ndarray]]] = {}
         self._current_mask: np.ndarray | None = None
@@ -6444,11 +6263,43 @@ class TemporalAligner:
             self.precise_aligner = PreciseTemporalAlignment(
                 self.fingerprinter,
                 verbose=False,  # Use default verbosity
+                interval=self.drift_interval,
             )
 
+        # Perform spatial alignment first to get crop coordinates
+        logger.info("Performing spatial alignment to determine crop region...")
+        spatial_aligner = SpatialAligner()
+        
+        # Extract sample frames for spatial alignment
+        bg_frames = self.processor.extract_frames(bg_info.path, [bg_info.frame_count // 2])
+        fg_frames = self.processor.extract_frames(fg_info.path, [fg_info.frame_count // 2])
+        
+        if not bg_frames or not fg_frames:
+            logger.error("Failed to extract sample frames for spatial alignment")
+            return self._create_direct_mapping(bg_info, fg_info)
+            
+        bg_sample = bg_frames[0]
+        fg_sample = fg_frames[0]
+        
+        if bg_sample is None or fg_sample is None:
+            logger.error("Failed to extract sample frames for spatial alignment")
+            return self._create_direct_mapping(bg_info, fg_info)
+        
+        # Get spatial alignment
+        spatial_result = spatial_aligner.align(bg_sample, fg_sample)
+        x_offset = spatial_result.x_offset
+        y_offset = spatial_result.y_offset
+        
+        logger.info(f"Spatial alignment: offset=({x_offset}, {y_offset}), confidence={spatial_result.confidence:.3f}")
+        
         # Extract all frames for precise alignment
         logger.info("Extracting frames for precise alignment...")
-        bg_frames = self.processor.extract_all_frames(bg_info.path, resize_factor=0.25)
+        
+        # For background, extract with cropping to match foreground region
+        crop_region = (x_offset, y_offset, fg_info.width, fg_info.height)
+        bg_frames = self.processor.extract_all_frames(bg_info.path, resize_factor=0.25, crop=crop_region)
+        
+        # For foreground, extract without cropping
         fg_frames = self.processor.extract_all_frames(fg_info.path, resize_factor=0.25)
 
         if bg_frames is None or fg_frames is None:
@@ -7718,15 +7569,27 @@ class TemporalAligner:
 <file path="TODO.md">
 # TODO
 
-The recent changes (check the git) worsened the drift. Around 5 seconds in the test video, suddenly the bg video speeds up and the fg video goes at normal speed, the hand movement is like 1 second delayed in the fg vs. bg. 
+```
+#!/usr/bin/env bash
+for engine in fast precise; do
+    for drift in 1 16 32 64 128; do
+        for window in 1 16 32 64 128; do
+            base="o-${engine}-d${drift}-w${window}"
+            echo ${base}
+            time python -m vidkompy -b tests/bg.mp4 -f tests/fg.mp4 -e ${engine} -d ${drift} -w ${window} -o tests/${base}.mp4 --verbose >tests/${base}.txt 2>tests/${base}.err.txt
+        done
+    done
+done
+```
 
-One important question: 
+The logs are in `tests/` (like `tests/o-fast-d1-w1.err.txt`)
 
-When we're extracting frames, the general assumption is that fg is smaller than bg. So shouldn't we spatially align the fg to the bg, and then for the purpose of temoral alignment analysis, we should crop the bg frames to the size of the fg? 
+- Between the fast and precise engines, the fast engine is actually better. The precise engine has weird "flag wave drifts", that is the lower part (the bg) goes faster and then slower. 
+- The various differences in `-d` and `-w` parameters don’t see to make a difference. 
 
-TASK: Fix the error. Look at the git changes and what has changed. And think about what I just said about the cropping. 
+So: I’m happy with how the fast engine is working. 
 
-Carefully, very carefully analyze the precise alignment algorithm. Then make a plan in SPEC.md in which you describe the precise your steps to fix the problem.
+But I’m not happy with the precise engine. Really, really, there must be a way to temporally aligh the fg frames to the cropped bg frames which is better than what we have now. It can be SLOWER, I don’t care (if I want fast, I have the fast engine).
 </file>
 
 </files>

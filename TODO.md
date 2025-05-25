@@ -1,13 +1,31 @@
 # TODO
 
-The recent changes (check the git) worsened the drift. Around 5 seconds in the test video, suddenly the bg video speeds up and the fg video goes at normal speed, the hand movement is like 1 second delayed in the fg vs. bg. 
+```
+#!/usr/bin/env bash
+for engine in fast precise; do
+    for drift in 1 16 32 64 128; do
+        for window in 1 16 32 64 128; do
+            base="o-${engine}-d${drift}-w${window}"
+            echo ${base}
+            time python -m vidkompy -b tests/bg.mp4 -f tests/fg.mp4 -e ${engine} -d ${drift} -w ${window} -o tests/${base}.mp4 --verbose >tests/${base}.txt 2>tests/${base}.err.txt
+        done
+    done
+done
+```
 
-One important question: 
+The logs are in `tests/` (like `tests/o-fast-d1-w1.err.txt`)
 
-When we're extracting frames, the general assumption is that fg is smaller than bg. So shouldn't we spatially align the fg to the bg, and then, for the purpose of temoral alignment analysis, we should crop the bg frames to the size of the fg? 
+- Between the fast and precise engines, the fast engine is actually better. The precise engine has weird "flag wave drifts", that is the lower part (the bg) goes faster and then slower. 
+- The various differences in `-d` and `-w` parameters don’t see to make a difference. 
 
-TASK: Fix the error. Look at the git changes and what has changed. And think about what I just said about the cropping. 
+So: I’m happy with how the fast engine is working. 
 
-Carefully, very carefully analyze the precise alignment algorithm. Then make a plan in SPEC.md in which you describe the precise your steps to fix the problem. 
+But I’m not happy with the precise engine. Really, really, there must be a way to temporally aligh the fg frames to the cropped bg frames which is better than what we have now. It can be SLOWER, I don’t care (if I want fast, I have the fast engine). 
 
-EXECUTE THE TASK (= write SPEC.md) now. 
+Analyze the entire codebase. 
+
+Then in `SPEC.md` write down a detailed documentation that explains how exactly the precise engine is currently working. 
+
+Then in `SPEC.md` write down three ideas for how to improve the temporal alignment precision of the precise engine. 
+
+Then in `SPEC.md` write down a detailed specification that instructs a junior dev to take the steps you will take to improve the temporal alignment precision of the precise engine. 
