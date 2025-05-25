@@ -27,6 +27,7 @@ from vidkompy.models import VideoInfo, FrameAlignment, TemporalAlignment
 from .video_processor import VideoProcessor
 from .frame_fingerprint import FrameFingerprinter
 from .dtw_aligner import DTWAligner
+from .precise_temporal_alignment import PreciseTemporalAlignment
 
 console = Console()
 
@@ -47,23 +48,31 @@ class TemporalAligner:
     Future versions will use Dynamic Time Warping (see SPEC4.md).
     """
 
-    def __init__(self, processor: VideoProcessor, max_keyframes: int = 200):
+    def __init__(
+        self,
+        processor: VideoProcessor,
+        max_keyframes: int = 200,
+        use_precise_engine: bool = False,
+    ):
         """Initialize temporal aligner.
 
         Args:
             processor: Video processor instance
             max_keyframes: Maximum keyframes for frame matching
+            use_precise_engine: Use the new precise temporal alignment engine
         """
         self.processor = processor
         self.max_keyframes = max_keyframes
         self.use_perceptual_hash = True
         self.hash_cache: dict[str, dict[int, dict[str, np.ndarray]]] = {}
         self._current_mask: np.ndarray | None = None
+        self.use_precise_engine = use_precise_engine
 
         self.fingerprinter: FrameFingerprinter | None = None
         self.dtw_aligner = DTWAligner(window_constraint=100)
         self.use_dtw = True
         self.hasher: cv2.img_hash.PHash | None = None
+        self.precise_aligner = None
 
         try:
             if hasattr(cv2, "img_hash") and hasattr(cv2.img_hash, "PHash_create"):
@@ -146,6 +155,11 @@ class TemporalAligner:
         """
         logger.info("Starting frame-based temporal alignment")
 
+        # Use precise engine if enabled
+        if self.use_precise_engine:
+            logger.info("Using precise temporal alignment engine")
+            return self._align_frames_precise(bg_info, fg_info, trim)
+
         # Use DTW if enabled (default)
         if self.use_dtw:
             return self._align_frames_dtw(bg_info, fg_info, trim)
@@ -172,6 +186,110 @@ class TemporalAligner:
             frame_alignments=frame_alignments,
             method_used="frames",
             confidence=self._calculate_alignment_confidence(keyframe_matches),
+        )
+
+    def _align_frames_precise(
+        self, bg_info: VideoInfo, fg_info: VideoInfo, trim: bool = False
+    ) -> TemporalAlignment:
+        """Align videos using the precise multi-resolution engine.
+
+        This method uses advanced techniques including:
+        - Multi-resolution temporal pyramids
+        - Keyframe anchoring
+        - Bidirectional DTW
+        - Sliding window refinement
+
+        Args:
+            bg_info: Background video metadata
+            fg_info: Foreground video metadata
+            trim: Whether to trim to overlapping segment
+
+        Returns:
+            TemporalAlignment with frame mappings
+        """
+        # Initialize precise aligner if not already done
+        if self.precise_aligner is None:
+            if self.fingerprinter is None:
+                self.fingerprinter = FrameFingerprinter()
+            self.precise_aligner = PreciseTemporalAlignment(
+                self.fingerprinter,
+                verbose=False,  # Use default verbosity
+            )
+
+        # Extract all frames for precise alignment
+        logger.info("Extracting frames for precise alignment...")
+        bg_frames = self.processor.extract_all_frames(bg_info.path, resize_factor=0.25)
+        fg_frames = self.processor.extract_all_frames(fg_info.path, resize_factor=0.25)
+
+        if bg_frames is None or fg_frames is None:
+            logger.error("Failed to extract frames")
+            return self._create_direct_mapping(bg_info, fg_info)
+
+        # Perform precise alignment
+        try:
+            frame_mapping, confidence = self.precise_aligner.align(fg_frames, bg_frames)
+        except Exception as e:
+            logger.error(f"Precise alignment failed: {e}")
+            logger.info("Falling back to standard alignment")
+            return self._align_frames_dtw(bg_info, fg_info, trim)
+
+        # Convert mapping to frame alignments
+        frame_alignments = []
+
+        # Determine range based on trim flag
+        if trim and len(frame_mapping) > 0:
+            # Find valid range where background frames are available
+            start_idx = 0
+            end_idx = len(frame_mapping)
+
+            # Find first valid mapping
+            for i in range(len(frame_mapping)):
+                if frame_mapping[i] >= 0:
+                    start_idx = i
+                    break
+
+            # Find last valid mapping
+            for i in range(len(frame_mapping) - 1, -1, -1):
+                if frame_mapping[i] < bg_info.frame_count:
+                    end_idx = i + 1
+                    break
+        else:
+            start_idx = 0
+            end_idx = len(frame_mapping)
+
+        # Build frame alignments
+        for fg_idx in range(start_idx, end_idx):
+            if fg_idx < len(frame_mapping):
+                bg_idx = int(frame_mapping[fg_idx])
+                # Ensure bg_idx is within bounds
+                bg_idx = max(0, min(bg_idx, bg_info.frame_count - 1))
+
+                frame_alignments.append(
+                    FrameAlignment(
+                        fg_frame_idx=fg_idx,
+                        bg_frame_idx=bg_idx,
+                        similarity_score=confidence,  # Use overall confidence
+                    )
+                )
+
+        # Calculate temporal offset
+        if frame_alignments:
+            first_align = frame_alignments[0]
+            offset_seconds = (first_align.bg_frame_idx / bg_info.fps) - (
+                first_align.fg_frame_idx / fg_info.fps
+            )
+        else:
+            offset_seconds = 0.0
+
+        logger.info(
+            f"Precise alignment complete. Mapped {len(frame_alignments)} frames with confidence {confidence:.3f}"
+        )
+
+        return TemporalAlignment(
+            offset_seconds=offset_seconds,
+            frame_alignments=frame_alignments,
+            method_used="precise",
+            confidence=confidence,
         )
 
     def _precompute_frame_hashes(
@@ -317,7 +435,6 @@ class TemporalAligner:
             if effective_target_keyframes > 200:  # Threshold for SSIM warning
                 logger.warning(
                     f"SSIM mode active for keyframe matching with a high target of {effective_target_keyframes} keyframes. "
-                    f"This may be very slow. Consider reducing --max_keyframes or ensuring perceptual hashing is available."
                 )
             else:
                 logger.info(

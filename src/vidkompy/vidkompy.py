@@ -91,23 +91,21 @@ def main(
         logger.error(f"Invalid engine: {engine}. Must be 'fast' or 'precise'")
         return
 
-    if engine == "precise":
-        logger.error("Precise engine not yet implemented. Please use 'fast' for now.")
-        return
-
     # Configure based on engine choice
+    use_precise_engine = False
     if engine == "fast":
         # Current implementation - force direct mapping due to drift issues
         time_mode = MatchTimeMode.PRECISE
         space_method = "template"
         temporal_method = TemporalMethod.CLASSIC
         max_keyframes = 1  # Force fallback to direct mapping
-    else:  # engine == "precise" (for future implementation)
-        # Future precise engine configuration
+    else:  # engine == "precise"
+        # Precise engine configuration
+        use_precise_engine = True
         time_mode = MatchTimeMode.PRECISE
         space_method = "template"
-        temporal_method = TemporalMethod.CLASSIC  # Will be replaced with new method
-        max_keyframes = 1000  # Dense sampling
+        temporal_method = TemporalMethod.CLASSIC  # Not used in precise mode
+        max_keyframes = 1000  # Not used in precise mode
 
     if gpu:
         logger.info("GPU acceleration not yet implemented")
@@ -115,7 +113,10 @@ def main(
     # Create processor and alignment engine
     processor = VideoProcessor()
     alignment = AlignmentEngine(
-        processor=processor, verbose=verbose, max_keyframes=max_keyframes
+        processor=processor, 
+        verbose=verbose, 
+        max_keyframes=max_keyframes,
+        use_precise_engine=use_precise_engine
     )
 
     # Process the videos

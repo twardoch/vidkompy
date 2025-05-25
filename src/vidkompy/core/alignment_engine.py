@@ -57,6 +57,7 @@ class AlignmentEngine:
         processor: VideoProcessor,
         verbose: bool = False,
         max_keyframes: int = 2000,
+        use_precise_engine: bool = False,
     ):
         """Initialize alignment engine.
 
@@ -64,10 +65,11 @@ class AlignmentEngine:
             processor: Video processor instance
             verbose: Enable verbose logging
             max_keyframes: Maximum keyframes for frame matching
+            use_precise_engine: Use the new precise temporal alignment engine
         """
         self.processor = processor
         self.spatial_aligner = SpatialAligner()
-        self.temporal_aligner = TemporalAligner(processor, max_keyframes)
+        self.temporal_aligner = TemporalAligner(processor, max_keyframes, use_precise_engine)
         self.verbose = verbose
 
     def process(

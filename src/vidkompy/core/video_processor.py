@@ -305,3 +305,86 @@ class VideoProcessor:
             raise ValueError(msg)
 
         return writer
+    
+    def extract_all_frames(
+        self, video_path: str, resize_factor: float = 1.0
+    ) -> np.ndarray | None:
+        """Extract all frames from video as a numpy array.
+        
+        This is used by the precise alignment engine which needs
+        access to all frames for multi-resolution processing.
+        
+        Args:
+            video_path: Path to video file
+            resize_factor: Factor to resize frames (for performance)
+            
+        Returns:
+            Array of frames or None if extraction fails
+        """
+        cap = cv2.VideoCapture(video_path)
+        
+        if not cap.isOpened():
+            logger.error(f"Failed to open video: {video_path}")
+            return None
+        
+        try:
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            
+            # Calculate resized dimensions
+            if resize_factor != 1.0:
+                new_width = int(width * resize_factor)
+                new_height = int(height * resize_factor)
+            else:
+                new_width, new_height = width, height
+            
+            # Pre-allocate array for efficiency
+            frames = np.zeros((frame_count, new_height, new_width, 3), dtype=np.uint8)
+            
+            logger.info(f"Extracting all {frame_count} frames at {new_width}x{new_height}")
+            
+            # Extract frames with progress bar
+            with Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TimeRemainingColumn(),
+                console=console,
+                transient=True,
+            ) as progress:
+                task = progress.add_task(
+                    f"    Extracting {frame_count} frames...",
+                    total=frame_count,
+                )
+                
+                frame_idx = 0
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    
+                    if resize_factor != 1.0:
+                        frame = cv2.resize(frame, (new_width, new_height))
+                    
+                    if frame_idx < frame_count:
+                        frames[frame_idx] = frame
+                        frame_idx += 1
+                        progress.update(task, advance=1)
+                    else:
+                        logger.warning(f"More frames than expected in {video_path}")
+                        break
+            
+            # Trim array if we got fewer frames than expected
+            if frame_idx < frame_count:
+                logger.warning(f"Got {frame_idx} frames, expected {frame_count}")
+                frames = frames[:frame_idx]
+            
+            logger.info(f"Extracted {len(frames)} frames from {Path(video_path).name}")
+            return frames
+            
+        except Exception as e:
+            logger.error(f"Failed to extract frames from {video_path}: {e}")
+            return None
+        finally:
+            cap.release()
