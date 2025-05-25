@@ -159,3 +159,50 @@ python benchmark.py
 ```
 
 This will run vidkompy with different settings and report performance metrics.
+
+
+```
+INFO: Showing help with the command '__main__.py -- --help'.
+
+NAME
+    __main__.py - Overlay foreground video onto background video with intelligent alignment.
+
+SYNOPSIS
+    __main__.py BG FG <flags>
+
+DESCRIPTION
+    Overlay foreground video onto background video with intelligent alignment.
+
+POSITIONAL ARGUMENTS
+    BG
+        Type: str
+        Background video path
+    FG
+        Type: str
+        Foreground video path
+
+FLAGS
+    -o, --output=OUTPUT
+        Type: Optional[str | None]
+        Default: None
+        Output video path (auto-generated if not provided)
+    --border=BORDER
+        Type: int
+        Default: 8
+        Border thickness for border matching mode (default: 8)
+    --blend=BLEND
+        Type: bool
+        Default: False
+        Enable smooth blending at frame edges
+    -g, --gpu=GPU
+        Type: bool
+        Default: False
+        Enable GPU acceleration (future feature)
+    -v, --verbose=VERBOSE
+        Type: bool
+        Default: False
+        Enable verbose logging
+
+NOTES
+    You can also use flags syntax for POSITIONAL ARGUMENTS
+```

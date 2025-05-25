@@ -28,8 +28,8 @@ def main(
     bg: str,
     fg: str,
     output: str | None = None,
-    border: int = 8,
-    blend: bool = False,
+    margin: int = 8,
+    smooth: bool = False,
     gpu: bool = False,  # Future GPU acceleration support
     verbose: bool = False,
 ):
@@ -39,8 +39,8 @@ def main(
         bg: Background video path
         fg: Foreground video path
         output: Output video path (auto-generated if not provided)
-        border: Border thickness for border matching mode (default: 8)
-        blend: Enable smooth blending at frame edges
+        margin: Border thickness for border matching mode (default: 8)
+        smooth: Enable smooth blending at frame edges
         gpu: Enable GPU acceleration (future feature)
         verbose: Enable verbose logging
     """
@@ -85,12 +85,12 @@ def main(
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Fixed configuration based on SPEC4
-    # Always use border mode with DTW and template matching
-    time_mode = MatchTimeMode.BORDER
+    # Hotfix: Use direct mapping for reliable temporal alignment
+    # Both DTW and CLASSIC are failing on this video pair
+    time_mode = MatchTimeMode.PRECISE
     space_method = "template"
-    temporal_method = TemporalMethod.DTW
-    max_keyframes = 200  # Optimal default
+    temporal_method = TemporalMethod.CLASSIC
+    max_keyframes = 1  # Force fallback to direct mapping
 
     if gpu:
         logger.info("GPU acceleration not yet implemented")
@@ -112,14 +112,10 @@ def main(
             temporal_method=temporal_method,
             skip_spatial=False,  # Always align
             trim=True,  # Always trim
-            border_thickness=border,
-            blend=blend,
+            border_thickness=margin,
+            blend=smooth,
             window=0,  # Auto-determined
         )
     except Exception as e:
         logger.error(f"Processing failed: {e}")
         raise
-
-
-if __name__ == "__main__":
-    fire.Fire(main)

@@ -6,5 +6,10 @@
 import fire
 from vidkompy.vidkompy import main
 
-if __name__ == "__main__":
+
+def cli():
     fire.Fire(main)
+
+
+if __name__ == "__main__":
+    cli()
