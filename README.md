@@ -50,10 +50,12 @@ The process works as follows:
 
 1.  **Standardization**: The input frame is resized to a small, standard size (e.g., 64x64 pixels) and converted to grayscale. This ensures consistency and focuses on structural information over color.
 2.  **Multi-Algorithm Hashing**: To improve robustness, `vidkompy` computes several types of perceptual hashes for each frame, as different algorithms are sensitive to different visual features:
+
 - `pHash` (Perceptual Hash): Analyzes the frequency domain (using DCT), making it robust to changes in brightness, contrast, and gamma correction.
 - `AverageHash`: Computes a hash based on the average color of the frame.
 - `ColorMomentHash`: Captures the color distribution statistics of the frame.
 - `MarrHildrethHash`: Detects edges and shapes, making it sensitive to structural features.
+
 3.  **Combined Fingerprint**: The results from these hashers, along with a color histogram, are combined into a single "fingerprint" dictionary for the frame.
 4.  **Comparison**: To compare two frames, their fingerprints are compared. The similarity is calculated using a weighted average of the normalized Hamming distance between their hashes and the correlation between their histograms. The weights are tuned based on the reliability of each hash type for video content. This entire process is parallelized across multiple CPU cores for maximum speed.
 
@@ -74,6 +76,7 @@ Spatial alignment determines the `(x, y)` coordinates at which to overlay the fo
 ### Temporal Alignment Engines
 
 `vidkompy` offers two high-performance temporal alignment engines optimized for different scenarios:
+
 - **Full** (default): Direct pixel comparison with sliding windows for maximum accuracy
 - **Mask**: Content-focused comparison with intelligent masking for letterboxed content
 
@@ -86,11 +89,13 @@ Temporal alignment is the most critical and complex part of `vidkompy`. The goal
 The **Full Engine** uses direct pixel-by-pixel frame comparison with a sliding window approach for maximum accuracy:
 
 1. **Bidirectional Matching**:
+
    - **Forward Pass**: Starts from the first FG frame, searches for best match in BG within a sliding window
    - **Backward Pass**: Starts from the last FG frame, searches backward
    - Merges both passes for robust alignment
 
 2. **Sliding Window Constraint**:
+
    - Enforces monotonicity by design - can only search forward from the last matched frame
    - Window size controls the maximum temporal displacement
    - Prevents temporal jumps and ensures smooth progression
@@ -101,6 +106,7 @@ The **Full Engine** uses direct pixel-by-pixel frame comparison with a sliding w
    - More sensitive to compression artifacts but potentially more accurate
 
 **Characteristics:**
+
 - Processing time: ~40 seconds for an 8-second video (d10-w10 configuration)
 - Zero drift by design due to monotonic constraints
 - Perfect confidence scores (1.000)
@@ -111,11 +117,13 @@ The **Full Engine** uses direct pixel-by-pixel frame comparison with a sliding w
 The **Mask Engine** extends the Full engine approach with intelligent masking for letterboxed or pillarboxed content:
 
 1. **Content Mask Generation**:
+
    - Automatically detects content regions (non-black areas) in FG frames
    - Creates binary mask to focus comparison on actual content
    - Helps with letterboxed or pillarboxed videos
 
 2. **Masked Comparison**:
+
    - Only compares pixels within the mask region
    - Ignores black borders and letterboxing
    - More robust for videos with varying aspect ratios
@@ -126,22 +134,22 @@ The **Mask Engine** extends the Full engine approach with intelligent masking fo
    - Maintains monotonicity constraints
 
 **Characteristics:**
-- Processing time: ~45 seconds for an 8-second video (d10-w10 configuration) 
+
+- Processing time: ~45 seconds for an 8-second video (d10-w10 configuration)
 - Perfect confidence scores (1.000)
 - Better handling of videos with black borders
 - Ideal for videos where content doesn't fill the entire frame
 
-
 #### Engine Comparison
 
-| Aspect | Full | Mask |
-|--------|------|------|
-| **Algorithm** | Direct pixel comparison | Masked pixel comparison |
-| **Speed** | ~5x real-time | ~5x real-time |
-| **Drift** | Zero (monotonic) | Zero (monotonic) |
-| **Memory** | Medium | Medium |
-| **Confidence** | Perfect (1.000) | Perfect (1.000) |
-| **Best For** | Standard videos | Letterboxed/pillarboxed content |
+| Aspect         | Full                    | Mask                            |
+| -------------- | ----------------------- | ------------------------------- |
+| **Algorithm**  | Direct pixel comparison | Masked pixel comparison         |
+| **Speed**      | ~5x real-time           | ~5x real-time                   |
+| **Drift**      | Zero (monotonic)        | Zero (monotonic)                |
+| **Memory**     | Medium                  | Medium                          |
+| **Confidence** | Perfect (1.000)         | Perfect (1.000)                 |
+| **Best For**   | Standard videos         | Letterboxed/pillarboxed content |
 
 ## Usage
 
@@ -243,7 +251,7 @@ Recent updates have significantly improved `vidkompy`'s performance and accuracy
 Based on actual benchmarks with an 8-second test video (1920x1080 background, 1920x870 foreground, ~480 frames):
 
 | Engine | Processing Time | Speed Ratio | Confidence | Notes |
-|--------|----------------|-------------|------------|-------|
+| --- | --- | --- | --- | --- |
 | **Full (default)** | 40.9 seconds | ~5x real-time | 1.000 (perfect) | Fastest overall with zero drift |
 | **Mask** | 45.8 seconds | ~6x real-time | 1.000 (perfect) | Best for letterboxed content |
 
@@ -264,12 +272,14 @@ Based on actual benchmarks with an 8-second test video (1920x1080 background, 19
 ### Choosing the Right Engine
 
 **Use the Full Engine (default) when:**
+
 - Working with standard videos without letterboxing
 - You need the fastest processing with perfect accuracy
 - Videos have consistent content filling the frame
 - General-purpose video synchronization
 
 **Use the Mask Engine when:**
+
 - Working with letterboxed or pillarboxed content
 - Videos have significant black borders
 - Content doesn't fill the entire frame

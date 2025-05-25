@@ -255,10 +255,9 @@ class AlignmentEngine:
         - Works with all videos regardless of audio
         - Handles all edge cases reliably
         """
-        # Configure temporal aligner based on method and window
-        self.temporal_aligner.use_dtw = temporal_method == TemporalMethod.DTW
+        # Configure temporal aligner window size for tunnel engines
         if window > 0:
-            self.temporal_aligner.dtw_aligner.set_window(window)
+            self.temporal_aligner.cli_window_size = window
 
         if mode == MatchTimeMode.BORDER:
             # Use border-based alignment with mask

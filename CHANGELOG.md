@@ -9,74 +9,79 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Removed - Major Engine Simplification
 
 - **Fast Engine**: Completely removed the 'fast' engine and all DTW-based alignment functionality
-    - Removed _align_frames_dtw method and related keyframe matching code
-    - Removed perceptual hashing methods for old engines
-    - Removed cost matrix building and optimal path finding algorithms
-    - Removed frame alignment building and interpolation methods
+  - Removed \_align_frames_dtw method and related keyframe matching code
+  - Removed perceptual hashing methods for old engines
+  - Removed cost matrix building and optimal path finding algorithms
+  - Removed frame alignment building and interpolation methods
 - **Precise Engine**: Completely removed the 'precise' engine and multi-resolution alignment
-    - Removed precise_temporal_alignment.py module integration
-    - Removed multi-resolution pyramid processing
-    - Removed keyframe anchoring and bidirectional DTW
-    - Removed sliding window refinement functionality
+  - Removed precise_temporal_alignment.py module integration
+  - Removed multi-resolution pyramid processing
+  - Removed keyframe anchoring and bidirectional DTW
+  - Removed sliding window refinement functionality
 - **Mask Engine**: Removed the 'mask' engine (was part of precise engine system)
-    - Removed masked alignment functionality from precise engine
-    - Cleaned up border-mode specific code for old engines
+  - Removed masked alignment functionality from precise engine
+  - Cleaned up border-mode specific code for old engines
 
 ### Changed - Engine Renaming & Defaults
 
 - **Engine Names**: Renamed tunnel engines for simplicity
-    - `tunnel_full` → `full` (now the default engine)
-    - `tunnel_mask` → `mask`
+  - `tunnel_full` → `full` (now the default engine)
+  - `tunnel_mask` → `mask`
 - **Default Parameters**: Updated optimal defaults based on performance testing
-    - Changed drift interval default from 100 to 10 (optimal for tunnel engines)
-    - Changed window default from 0 to 10 (optimal performance)
+  - Changed drift interval default from 100 to 10 (optimal for tunnel engines)
+  - Changed window default from 0 to 10 (optimal performance)
 - **CLI Validation**: Updated engine validation to only accept 'full' and 'mask'
 - **Documentation**: Updated all engine references in CLI help and comments
 
 ### Added - Previous Features
 
 - **Tunnel-Based Temporal Alignment Engines**: Implemented two new alignment engines based on direct frame comparison
-    - `full` (formerly tunnel_full): Uses full frame pixel comparison with sliding window approach
-    - `mask` (formerly tunnel_mask): Uses masked frame comparison focusing on content regions
-    - Both engines perform bidirectional matching (forward and backward passes)
-    - Monotonicity enforced by design through sliding window constraints
-    - Configurable window size, downsampling, and early stopping thresholds
-    - Designed to eliminate temporal drift through direct frame matching
+  - `full` (formerly tunnel_full): Uses full frame pixel comparison with sliding window approach
+  - `mask` (formerly tunnel_mask): Uses masked frame comparison focusing on content regions
+  - Both engines perform bidirectional matching (forward and backward passes)
+  - Monotonicity enforced by design through sliding window constraints
+  - Configurable window size, downsampling, and early stopping thresholds
+  - Designed to eliminate temporal drift through direct frame matching
 
 ### Added
+
 - **Numba JIT Optimization**: Integrated Numba JIT compilation for performance-critical operations
-    - Added `numba>=0.58.0` dependency to `pyproject.toml`
-    - Created `numba_optimizations.py` module with optimized implementations
-    - DTW cost matrix computation now 5-20x faster with parallelized distance calculations
-    - Frame fingerprint batch comparisons now 3-10x faster with vectorized operations
-    - Multi-resolution drift correction optimized with JIT-compiled polynomial fitting
-    - Automatic fallback to standard implementation if Numba compilation fails
-    - First-run compilation overhead mitigated by caching compiled functions
+  - Added `numba>=0.58.0` dependency to `pyproject.toml`
+  - Created `numba_optimizations.py` module with optimized implementations
+  - DTW cost matrix computation now 5-20x faster with parallelized distance calculations
+  - Frame fingerprint batch comparisons now 3-10x faster with vectorized operations
+  - Multi-resolution drift correction optimized with JIT-compiled polynomial fitting
+  - Automatic fallback to standard implementation if Numba compilation fails
+  - First-run compilation overhead mitigated by caching compiled functions
 
 ### Changed
+
 - **DTW Algorithm Performance**: Optimized DTWAligner with Numba JIT compilation
-    - `_build_dtw_matrix()` uses parallel computation for large alignments
-    - `_find_optimal_path()` uses optimized backtracking algorithm
-    - Added feature extraction method for converting fingerprints to numpy arrays
-    - Intelligent switching between Numba and standard implementation based on problem size
+
+  - `_build_dtw_matrix()` uses parallel computation for large alignments
+  - `_find_optimal_path()` uses optimized backtracking algorithm
+  - Added feature extraction method for converting fingerprints to numpy arrays
+  - Intelligent switching between Numba and standard implementation based on problem size
 
 - **Frame Fingerprinting Performance**: Enhanced FrameFingerprinter with batch operations
-    - Added `compare_fingerprints_batch()` method for parallel fingerprint comparisons
-    - Optimized histogram correlation computation with Numba
-    - Weighted similarity calculation now JIT-compiled
-    - Batch Hamming distance computation parallelized across multiple cores
+
+  - Added `compare_fingerprints_batch()` method for parallel fingerprint comparisons
+  - Optimized histogram correlation computation with Numba
+  - Weighted similarity calculation now JIT-compiled
+  - Batch Hamming distance computation parallelized across multiple cores
 
 - **Multi-Resolution Alignment**: Accelerated drift correction in precise engine
-    - Polynomial drift correction now uses Numba-optimized implementation
-    - Adaptive blend factor calculation accelerated
-    - Monotonicity enforcement optimized with compiled loops
+
+  - Polynomial drift correction now uses Numba-optimized implementation
+  - Adaptive blend factor calculation accelerated
+  - Monotonicity enforcement optimized with compiled loops
 
 - **Precise Engine Enhancement**: Implemented Idea 1 from `SPEC.md` for the `precise` temporal alignment engine.
-    - Updated `PreciseEngineConfig` in `multi_resolution_aligner.py` to include new parameters for enhanced drift correction (polynomial model, adaptive blend factor) and Savitzky-Golay smoothing.
-    - Modified `MultiResolutionAligner.apply_drift_correction` to use polynomial regression as a baseline for drift correction and to incorporate an adaptive blend factor, offering more nuanced adjustments than simple linear interpolation.
-    - Added a global Savitzky-Golay smoothing pass in `MultiResolutionAligner.align` after drift correction and before the final interpolation to full resolution. This aims to reduce high-frequency oscillations ("flag wave" effect) in the temporal mapping.
-    - Improved internal logic in `apply_drift_correction` and `refine_alignment` for clarity and robustness, including better handling of segment boundaries and loop variables.
-    - Added safety checks in `interpolate_full_mapping` and `align` to handle empty or very short mappings, preventing potential errors.
+  - Updated `PreciseEngineConfig` in `multi_resolution_aligner.py` to include new parameters for enhanced drift correction (polynomial model, adaptive blend factor) and Savitzky-Golay smoothing.
+  - Modified `MultiResolutionAligner.apply_drift_correction` to use polynomial regression as a baseline for drift correction and to incorporate an adaptive blend factor, offering more nuanced adjustments than simple linear interpolation.
+  - Added a global Savitzky-Golay smoothing pass in `MultiResolutionAligner.align` after drift correction and before the final interpolation to full resolution. This aims to reduce high-frequency oscillations ("flag wave" effect) in the temporal mapping.
+  - Improved internal logic in `apply_drift_correction` and `refine_alignment` for clarity and robustness, including better handling of segment boundaries and loop variables.
+  - Added safety checks in `interpolate_full_mapping` and `align` to handle empty or very short mappings, preventing potential errors.
 
 ### Fixed
 

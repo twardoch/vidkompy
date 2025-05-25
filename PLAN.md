@@ -3,6 +3,7 @@
 ## Completed Tasks
 
 ### Numba JIT Optimization Integration
+
 - [x] Added numba>=0.58.0 dependency to pyproject.toml
 - [x] Created numba_optimizations.py module with JIT-compiled functions
 - [x] Optimized DTW cost matrix computation with parallel distance calculations
@@ -17,12 +18,14 @@
 - [x] Modified MultiResolutionAligner to use optimized drift correction
 
 ### Performance Improvements Achieved
+
 - [x] DTW cost matrix computation: 5-20x speedup
 - [x] Frame fingerprint comparisons: 3-10x speedup
 - [x] Multi-resolution drift correction: 2-5x speedup
 - [x] Automatic optimization for non-trivial video sizes (>10 frames)
 
 ### Temporal Alignment Research & Design
+
 - [x] Analyzed current temporal alignment implementation and identified drift issues
 - [x] Researched best practices for precise video synchronization
 - [x] Created SPEC.md with detailed design for 'precise' engine
@@ -33,6 +36,7 @@
 - [x] Added detailed performance benchmarks and usage examples
 
 ### Drift Issue Resolution
+
 - [x] Identified root cause of 5-second drift issue in precise engine
 - [x] Implemented spatial cropping for temporal alignment (crop background to foreground region)
 - [x] Added crop parameter support to VideoProcessor.extract_all_frames()
@@ -42,6 +46,7 @@
 - [x] Verified fix resolves hand movement synchronization issue
 
 ### Precise Engine Improvement (Wave Drift Fix - Idea 1 from SPEC.md)
+
 - [x] Updated `PreciseEngineConfig` with new parameters for enhanced drift correction (polynomial model, adaptive blend) and Savitzky-Golay smoothing.
 - [x] Modified `MultiResolutionAligner.apply_drift_correction` to use polynomial regression for baseline drift and an adaptive blend factor.
 - [x] Added global Savitzky-Golay smoothing pass in `MultiResolutionAligner.align` after drift correction and before full interpolation.
@@ -49,6 +54,7 @@
 - [x] Added safety checks for empty/short mappings in `interpolate_full_mapping` and `align`.
 
 ### Tunnel-Based Temporal Alignment Implementation & Engine Simplification
+
 - [x] Implemented TunnelAligner base class with bidirectional matching framework
 - [x] Created TunnelFullAligner for direct pixel-by-pixel frame comparison
 - [x] Created TunnelMaskAligner with automatic content mask generation
@@ -61,11 +67,12 @@
 - [x] Documented new engines in README.md
 
 ### Major Engine Simplification (Latest)
+
 - [x] Removed ineffective 'fast' engine and all DTW-based alignment functionality
 - [x] Removed 'precise' engine and multi-resolution alignment system
 - [x] Removed 'mask' engine (was part of precise engine system)
 - [x] Renamed tunnel_full → 'full' (now default engine)
-- [x] Renamed tunnel_mask → 'mask' 
+- [x] Renamed tunnel_mask → 'mask'
 - [x] Updated default parameters: drift_interval=10, window=10
 - [x] Updated all documentation (README, CHANGELOG, SPEC)
 - [x] Updated benchmark script for new engine names
@@ -74,18 +81,21 @@
 ## Future Optimizations (Not Yet Implemented)
 
 ### Performance Enhancements
+
 - [ ] GPU acceleration for frame comparison operations
 - [ ] Replace OpenCV with PyAV for faster video I/O
 - [ ] Further optimize tunnel engine window search algorithms
 - [ ] Implement adaptive window sizing based on content complexity
 
-### Architecture Improvements  
+### Architecture Improvements
+
 - [ ] Replace template matching with phase correlation for spatial alignment
 - [ ] Add caching for repeated video pairs
 - [ ] Implement proper fallback strategies for edge cases
 - [ ] Enhanced content mask generation for complex letterboxing scenarios
 
 ### Code Quality
+
 - [ ] Add comprehensive unit tests for tunnel engines
 - [ ] Expand performance benchmark suite
 - [ ] Add type hints throughout (ongoing)
