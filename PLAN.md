@@ -74,24 +74,20 @@
 ## Future Optimizations (Not Yet Implemented)
 
 ### Performance Enhancements
-- [ ] GPU acceleration with CuPy for phase correlation
-- [ ] FAISS integration for fast similarity search
+- [ ] GPU acceleration for frame comparison operations
 - [ ] Replace OpenCV with PyAV for faster video I/O
-- [ ] Implement sliding window refinement for drift correction (This was part of the precise engine, but could be reviewed/enhanced based on Idea 1's impact)
-- [ ] Hierarchical multi-resolution matching (This is part of the precise engine, could be tuned)
+- [ ] Further optimize tunnel engine window search algorithms
+- [ ] Implement adaptive window sizing based on content complexity
 
-### Architecture Improvements
+### Architecture Improvements  
 - [ ] Replace template matching with phase correlation for spatial alignment
-- [ ] Use neural embeddings (MobileNet) instead of perceptual hashes
-- [ ] Implement proper fallback strategies for edge cases
 - [ ] Add caching for repeated video pairs
-- [ ] Implement Improvement Idea 2 (Optical Flow-Assisted Consistency) from SPEC.md
-- [ ] Implement Improvement Idea 3 (Dominant Path DTW) from SPEC.md
-- [ ] Fix CLI `-w` (window) parameter bug for `precise` engine (not used effectively).
+- [ ] Implement proper fallback strategies for edge cases
+- [ ] Enhanced content mask generation for complex letterboxing scenarios
 
 ### Code Quality
-- [ ] Add comprehensive unit tests for new drift correction and smoothing.
-- [ ] Create performance benchmark suite (or adapt existing `benchmark.sh` to test new config parameters).
-- [ ] Add type hints throughout (ongoing).
-- [ ] Improve error handling and recovery.
-- [ ] Resolve remaining linter errors for line length in `multi_resolution_aligner.py`.
+- [ ] Add comprehensive unit tests for tunnel engines
+- [ ] Expand performance benchmark suite
+- [ ] Add type hints throughout (ongoing)
+- [ ] Improve error handling and recovery
+- [ ] Code cleanup and documentation improvements
