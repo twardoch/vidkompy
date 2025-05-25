@@ -75,7 +75,7 @@ Now I can see the issue. Let me look at where DTWAligner is being instantiated w
 
 ---
 
-I found the issue! The problem is that the `DTWAligner` class constructor expects a parameter named `window_constraint`, but multiple parts of the code are calling it with `window`. Let me check the DTWAligner constructor to confirm:
+I found the issue! The problem is that the `DTWAligner` class constructor expects a parameter named `window`, but multiple parts of the code are calling it with `window`. Let me check the DTWAligner constructor to confirm:
 
 ---
 
@@ -83,7 +83,7 @@ Read file: src/vidkompy/core/dtw_aligner.py
 
 ---
 
-Perfect! Now I can see the issue clearly. The `DTWAligner.__init__()` method expects a parameter named `window_constraint`, but several files are calling it with `window`. I need to fix these mismatched parameter names.
+Perfect! Now I can see the issue clearly. The `DTWAligner.__init__()` method expects a parameter named `window`, but several files are calling it with `window`. I need to fix these mismatched parameter names.
 
 Let me fix the files that are calling DTWAligner with the wrong parameter name:
 
@@ -521,7 +521,7 @@ Model provided invalid arguments to terminal tool.
 ---
 
 ```bash
-python -c "from src.vidkompy.core.dtw_aligner import DTWAligner; from src.vidkompy.core.precise_temporal_alignment import PreciseTemporalAlignment; from src.vidkompy.core.multi_resolution_aligner import MultiResolutionAligner; from src.vidkompy.core.frame_fingerprint import FrameFingerprinter; dtw = DTWAligner(window_constraint=100); print(f'DTWAligner initialized successfully with window: {dtw.window}'); fingerprinter = FrameFingerprinter(use_phash=True); aligner = PreciseTemporalAlignment(fingerprinter); print('PreciseTemporalAlignment initialized successfully'); print('All imports and initializations work correctly!')"
+python -c "from src.vidkompy.core.dtw_aligner import DTWAligner; from src.vidkompy.core.precise_temporal_alignment import PreciseTemporalAlignment; from src.vidkompy.core.multi_resolution_aligner import MultiResolutionAligner; from src.vidkompy.core.frame_fingerprint import FrameFingerprinter; dtw = DTWAligner(window=100); print(f'DTWAligner initialized successfully with window: {dtw.window}'); fingerprinter = FrameFingerprinter(use_phash=True); aligner = PreciseTemporalAlignment(fingerprinter); print('PreciseTemporalAlignment initialized successfully'); print('All imports and initializations work correctly!')"
 ```
 
 ```
@@ -549,7 +549,7 @@ I can see that the FrameFingerprinter constructor only takes a `log_init` parame
 ---
 
 ```bash
-python -c "from src.vidkompy.core.dtw_aligner import DTWAligner; from src.vidkompy.core.precise_temporal_alignment import PreciseTemporalAlignment; from src.vidkompy.core.frame_fingerprint import FrameFingerprinter; dtw = DTWAligner(window_constraint=100); print(f'DTWAligner initialized successfully with window: {dtw.window}'); fingerprinter = FrameFingerprinter(); aligner = PreciseTemporalAlignment(fingerprinter); print('PreciseTemporalAlignment initialized successfully'); print('All imports and initializations work correctly!')"
+python -c "from src.vidkompy.core.dtw_aligner import DTWAligner; from src.vidkompy.core.precise_temporal_alignment import PreciseTemporalAlignment; from src.vidkompy.core.frame_fingerprint import FrameFingerprinter; dtw = DTWAligner(window=100); print(f'DTWAligner initialized successfully with window: {dtw.window}'); fingerprinter = FrameFingerprinter(); aligner = PreciseTemporalAlignment(fingerprinter); print('PreciseTemporalAlignment initialized successfully'); print('All imports and initializations work correctly!')"
 ```
 
 ```
@@ -597,22 +597,22 @@ Perfect! Now let me summarize what was fixed:
 I've successfully fixed the **"DTWAligner.__init__() got an unexpected keyword argument 'window'"** error that was preventing the precise alignment engine from working.
 
 ### **The Problem**
-The `DTWAligner` class constructor expected a parameter named `window_constraint`, but multiple files were calling it with `window` instead, causing a TypeError when the precise engine tried to initialize.
+The `DTWAligner` class constructor expected a parameter named `window`, but multiple files were calling it with `window` instead, causing a TypeError when the precise engine tried to initialize.
 
 ### **The Solution** 
 I corrected the parameter name in the following files:
 
 1. **`src/vidkompy/core/precise_temporal_alignment.py`**:
-   - Line 106: `DTWAligner(window=len(bg_keyframes))` → `DTWAligner(window_constraint=len(bg_keyframes))`
-   - Line 135: `DTWAligner(window=window)` → `DTWAligner(window_constraint=window)`
+   - Line 106: `DTWAligner(window=len(bg_keyframes))` → `DTWAligner(window=len(bg_keyframes))`
+   - Line 135: `DTWAligner(window=window)` → `DTWAligner(window=window)`
 
 2. **`src/vidkompy/core/multi_resolution_aligner.py`**:
-   - Line 121: `DTWAligner(window=window_size)` → `DTWAligner(window_constraint=window_size)`
-   - Line 189: `DTWAligner(window=window)` → `DTWAligner(window_constraint=window)`
+   - Line 121: `DTWAligner(window=window_size)` → `DTWAligner(window=window_size)`
+   - Line 189: `DTWAligner(window=window)` → `DTWAligner(window=window)`
 
 ### **Verification**
 - ✅ All tests are passing
-- ✅ DTWAligner can be initialized correctly with `window_constraint=100`
+- ✅ DTWAligner can be initialized correctly with `window=100`
 - ✅ PreciseTemporalAlignment initializes successfully
 - ✅ All the hash algorithms are working (PHash, AverageHash, ColorMomentHash, MarrHildrethHash)
 - ✅ Code formatting and linting passed
@@ -631,9 +631,9 @@ The precise alignment engine should now work correctly without the TypeError!
         
 | File | Line | Match |
 |------|------|-------|
-| `file:///Users/adam/Developer/vcs/github.twardoch/pub/vidkompy/LLM.txt` | L2150 | `def __init__(self, window_constraint: int = 100):` |
-| `file:///Users/adam/Developer/vcs/github.twardoch/pub/vidkompy/.specstory/history/2025-05-24_22-29-chat-name-generation.md` | L1741 | `def __init__(self, window_constraint: int = 100):` |
-| `file:///Users/adam/Developer/vcs/github.twardoch/pub/vidkompy/src/vidkompy/core/dtw_aligner.py` | L36 | `def __init__(self, window_constraint: int = 100):` |
+| `file:///Users/adam/Developer/vcs/github.twardoch/pub/vidkompy/LLM.txt` | L2150 | `def __init__(self, window: int = 100):` |
+| `file:///Users/adam/Developer/vcs/github.twardoch/pub/vidkompy/.specstory/history/2025-05-24_22-29-chat-name-generation.md` | L1741 | `def __init__(self, window: int = 100):` |
+| `file:///Users/adam/Developer/vcs/github.twardoch/pub/vidkompy/src/vidkompy/core/dtw_aligner.py` | L36 | `def __init__(self, window: int = 100):` |
 
 </details>
 
@@ -700,7 +700,7 @@ Read file: src/vidkompy/vidkompy.py
 
 Perfect! I can see that the precise engine is correctly integrated. The error message that originally occurred was "Precise alignment failed: DTWAligner.__init__() got an unexpected keyword argument 'window'", which happens specifically during the processing when the precise engine attempts to create DTWAligner instances.
 
-Our fix has addressed this issue by correcting the parameter names from `window` to `window_constraint` in all the relevant places where DTWAligner is instantiated within the precise engine components.
+Our fix has addressed this issue by correcting the parameter names from `window` to `window` in all the relevant places where DTWAligner is instantiated within the precise engine components.
 
 **The fix is complete and comprehensive.** The original error should no longer occur when users try to use the precise engine with `--engine precise`.
 

@@ -34,7 +34,8 @@ class PreciseEngineConfig:
 
     # Performance tuning
     max_frames_to_process: int = 10000  # Limit for very long videos
-    drift_correction_interval: int = 100  # Reset alignment every N frames
+    drift_correction_interval: int = 100  # Reset alignment every N frames (increased from 32)
+    drift_blend_factor: float = 0.85  # How much to trust original mapping vs linear interpolation
 
 
 class MultiResolutionAligner:
@@ -115,7 +116,7 @@ class MultiResolutionAligner:
 
         # Use DTW with large window
         window_size = int(len(bg_coarse) * self.config.initial_window_ratio)
-        dtw = DTWAligner(window_constraint=window_size)
+        dtw = DTWAligner(window=window_size)
 
         # Compute cost matrix
         cost_matrix = dtw._compute_cost_matrix(fg_coarse, bg_coarse)
@@ -183,7 +184,7 @@ class MultiResolutionAligner:
 
             # Local DTW alignment
             window = min(len(bg_segment) // 2, 10)
-            dtw = DTWAligner(window_constraint=window)
+            dtw = DTWAligner(window=window)
 
             try:
                 cost_matrix = dtw._compute_cost_matrix(fg_segment, bg_segment)
@@ -272,10 +273,15 @@ class MultiResolutionAligner:
                     )
 
                     # Blend original mapping with expected progression
-                    blend_factor = 0.7  # Trust original mapping more
+                    blend_factor = self.config.drift_blend_factor  # Use config value (0.85)
                     corrected[i] = int(
                         blend_factor * mapping[i] + (1 - blend_factor) * expected
                     )
+                    
+                    # Log significant corrections
+                    drift = abs(corrected[i] - mapping[i])
+                    if drift > 5 and self.verbose:
+                        logger.debug(f"Frame {i}: drift correction of {drift} frames applied")
 
         # Ensure final mapping is monotonic
         for i in range(1, len(corrected)):

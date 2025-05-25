@@ -8,7 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Fixed
 
-- **Parameter Mismatch**: Fixed DTWAligner constructor parameter name from 'window' to 'window_constraint' in precise alignment engines to resolve TypeError during precise alignment initialization
+- **Parameter Mismatch**: Fixed DTWAligner constructor parameter name from 'window' to 'window' in precise alignment engines to resolve TypeError during precise alignment initialization
+- **Temporal Drift Issue**: Fixed severe drift at 5-second mark by implementing spatial cropping during temporal alignment and adjusting drift correction parameters
+- **Spatial Cropping**: Added background frame cropping to match foreground region during temporal alignment, eliminating false dissimilarities from non-overlapping areas
+- **Drift Correction Tuning**: Increased drift correction interval from 32 to 100 frames and blend factor from 0.7 to 0.85 to prevent overcorrection
 
 ### Added
 

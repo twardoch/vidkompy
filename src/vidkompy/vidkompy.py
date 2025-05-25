@@ -28,9 +28,11 @@ def main(
     fg: str | Path,
     output: str | Path | None = None,
     engine: str = "fast",
+    drift_interval: int = 100,
     margin: int = 8,
     smooth: bool = False,
     gpu: bool = False,  # Future GPU acceleration support
+    window: int = 0,
     verbose: bool = False,
 ):
     """Overlay foreground video onto background video with intelligent alignment.
@@ -39,7 +41,8 @@ def main(
         bg: Background video path
         fg: Foreground video path
         output: Output video path (auto-generated if not provided)
-        engine: Temporal alignment engine - 'fast' (current) or 'precise' (coming soon) (default: 'fast')
+        engine: Temporal alignment engine - 'fast' (current) or 'precise' (default: 'fast')
+        drift_interval: Frame interval for drift correction in precise engine (default: 100)
         margin: Border thickness for border matching mode (default: 8)
         smooth: Enable smooth blending at frame edges
         gpu: Enable GPU acceleration (future feature)
@@ -113,10 +116,12 @@ def main(
     # Create processor and alignment engine
     processor = VideoProcessor()
     alignment = AlignmentEngine(
-        processor=processor, 
-        verbose=verbose, 
+        processor=processor,
+        verbose=verbose,
         max_keyframes=max_keyframes,
-        use_precise_engine=use_precise_engine
+        use_precise_engine=use_precise_engine,
+        drift_interval=drift_interval,
+        window=window,
     )
 
     # Process the videos
@@ -132,7 +137,7 @@ def main(
             trim=True,  # Always trim
             border_thickness=margin,
             blend=smooth,
-            window=0,  # Auto-determined
+            window=window,  # Auto-determined
         )
     except Exception as e:
         logger.error(f"Processing failed: {e}")

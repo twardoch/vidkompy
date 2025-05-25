@@ -12,6 +12,15 @@
 - [x] Updated README.md with comprehensive documentation of both engines
 - [x] Added detailed performance benchmarks and usage examples
 
+### Drift Issue Resolution
+- [x] Identified root cause of 5-second drift issue in precise engine
+- [x] Implemented spatial cropping for temporal alignment (crop background to foreground region)
+- [x] Added crop parameter support to VideoProcessor.extract_all_frames()
+- [x] Integrated spatial alignment step before temporal alignment in precise engine
+- [x] Tuned drift correction parameters (interval: 32→100, blend factor: 0.7→0.85)
+- [x] Added drift tracking and logging for debugging
+- [x] Verified fix resolves hand movement synchronization issue
+
 ## Future Optimizations (Not Yet Implemented)
 
 ### Performance Enhancements

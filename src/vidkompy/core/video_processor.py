@@ -307,7 +307,7 @@ class VideoProcessor:
         return writer
     
     def extract_all_frames(
-        self, video_path: str, resize_factor: float = 1.0
+        self, video_path: str, resize_factor: float = 1.0, crop: tuple[int, int, int, int] | None = None
     ) -> np.ndarray | None:
         """Extract all frames from video as a numpy array.
         
@@ -317,6 +317,7 @@ class VideoProcessor:
         Args:
             video_path: Path to video file
             resize_factor: Factor to resize frames (for performance)
+            crop: Optional (x, y, width, height) tuple to crop frames
             
         Returns:
             Array of frames or None if extraction fails
@@ -340,10 +341,34 @@ class VideoProcessor:
             else:
                 new_width, new_height = width, height
             
-            # Pre-allocate array for efficiency
-            frames = np.zeros((frame_count, new_height, new_width, 3), dtype=np.uint8)
+            # Apply crop dimensions if specified
+            if crop:
+                crop_x, crop_y, crop_w, crop_h = crop
+                # Scale crop coordinates by resize factor
+                crop_x = int(crop_x * resize_factor)
+                crop_y = int(crop_y * resize_factor)
+                crop_w = int(crop_w * resize_factor)
+                crop_h = int(crop_h * resize_factor)
+                
+                # Ensure crop is within bounds
+                crop_x = max(0, min(crop_x, new_width - 1))
+                crop_y = max(0, min(crop_y, new_height - 1))
+                crop_w = min(crop_w, new_width - crop_x)
+                crop_h = min(crop_h, new_height - crop_y)
+                
+                final_width = crop_w
+                final_height = crop_h
+            else:
+                final_width = new_width
+                final_height = new_height
             
-            logger.info(f"Extracting all {frame_count} frames at {new_width}x{new_height}")
+            # Pre-allocate array for efficiency
+            frames = np.zeros((frame_count, final_height, final_width, 3), dtype=np.uint8)
+            
+            if crop:
+                logger.info(f"Extracting all {frame_count} frames at {new_width}x{new_height}, cropped to {final_width}x{final_height}")
+            else:
+                logger.info(f"Extracting all {frame_count} frames at {new_width}x{new_height}")
             
             # Extract frames with progress bar
             with Progress(
@@ -366,6 +391,10 @@ class VideoProcessor:
                     
                     if resize_factor != 1.0:
                         frame = cv2.resize(frame, (new_width, new_height))
+                    
+                    # Apply cropping if specified
+                    if crop:
+                        frame = frame[crop_y:crop_y+crop_h, crop_x:crop_x+crop_w]
                     
                     if frame_idx < frame_count:
                         frames[frame_idx] = frame

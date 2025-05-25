@@ -28,6 +28,7 @@ from .video_processor import VideoProcessor
 from .frame_fingerprint import FrameFingerprinter
 from .dtw_aligner import DTWAligner
 from .precise_temporal_alignment import PreciseTemporalAlignment
+from .spatial_alignment import SpatialAligner
 
 console = Console()
 
@@ -53,6 +54,8 @@ class TemporalAligner:
         processor: VideoProcessor,
         max_keyframes: int = 200,
         use_precise_engine: bool = False,
+        drift_interval: int = 100,
+        window: int = 100,
     ):
         """Initialize temporal aligner.
 
@@ -60,16 +63,18 @@ class TemporalAligner:
             processor: Video processor instance
             max_keyframes: Maximum keyframes for frame matching
             use_precise_engine: Use the new precise temporal alignment engine
+            drift_interval: Frame interval for drift correction in precise engine
         """
         self.processor = processor
         self.max_keyframes = max_keyframes
+        self.drift_interval = drift_interval
         self.use_perceptual_hash = True
         self.hash_cache: dict[str, dict[int, dict[str, np.ndarray]]] = {}
         self._current_mask: np.ndarray | None = None
         self.use_precise_engine = use_precise_engine
 
         self.fingerprinter: FrameFingerprinter | None = None
-        self.dtw_aligner = DTWAligner(window_constraint=100)
+        self.dtw_aligner = DTWAligner(window=window)
         self.use_dtw = True
         self.hasher: cv2.img_hash.PHash | None = None
         self.precise_aligner = None
@@ -214,11 +219,43 @@ class TemporalAligner:
             self.precise_aligner = PreciseTemporalAlignment(
                 self.fingerprinter,
                 verbose=False,  # Use default verbosity
+                interval=self.drift_interval,
             )
 
+        # Perform spatial alignment first to get crop coordinates
+        logger.info("Performing spatial alignment to determine crop region...")
+        spatial_aligner = SpatialAligner()
+        
+        # Extract sample frames for spatial alignment
+        bg_frames = self.processor.extract_frames(bg_info.path, [bg_info.frame_count // 2])
+        fg_frames = self.processor.extract_frames(fg_info.path, [fg_info.frame_count // 2])
+        
+        if not bg_frames or not fg_frames:
+            logger.error("Failed to extract sample frames for spatial alignment")
+            return self._create_direct_mapping(bg_info, fg_info)
+            
+        bg_sample = bg_frames[0]
+        fg_sample = fg_frames[0]
+        
+        if bg_sample is None or fg_sample is None:
+            logger.error("Failed to extract sample frames for spatial alignment")
+            return self._create_direct_mapping(bg_info, fg_info)
+        
+        # Get spatial alignment
+        spatial_result = spatial_aligner.align(bg_sample, fg_sample)
+        x_offset = spatial_result.x_offset
+        y_offset = spatial_result.y_offset
+        
+        logger.info(f"Spatial alignment: offset=({x_offset}, {y_offset}), confidence={spatial_result.confidence:.3f}")
+        
         # Extract all frames for precise alignment
         logger.info("Extracting frames for precise alignment...")
-        bg_frames = self.processor.extract_all_frames(bg_info.path, resize_factor=0.25)
+        
+        # For background, extract with cropping to match foreground region
+        crop_region = (x_offset, y_offset, fg_info.width, fg_info.height)
+        bg_frames = self.processor.extract_all_frames(bg_info.path, resize_factor=0.25, crop=crop_region)
+        
+        # For foreground, extract without cropping
         fg_frames = self.processor.extract_all_frames(fg_info.path, resize_factor=0.25)
 
         if bg_frames is None or fg_frames is None:

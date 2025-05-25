@@ -1739,14 +1739,14 @@ class DTWAligner:
     - Makes algorithm practical for long videos
     """
 
-    def __init__(self, window_constraint: int = 100):
+    def __init__(self, window: int = 100):
         """Initialize DTW aligner with constraints.
 
         Args:
-            window_constraint: Maximum deviation from diagonal path
+            window: Maximum deviation from diagonal path
                               (Sakoe-Chiba band width). Set to 0 to use default.
         """
-        self.window = window_constraint
+        self.window = window
         self.default_window = 100
 
     def set_window(self, window: int):
@@ -4068,7 +4068,7 @@ class TemporalAligner:
 
         # Initialize new components
         self.fingerprinter = None
-        self.dtw_aligner = DTWAligner(window_constraint=100)
+        self.dtw_aligner = DTWAligner(window=100)
         self.use_dtw = True  # Enable DTW by default
 
         # Try to initialize perceptual hasher
@@ -5482,7 +5482,7 @@ I will edit `src/vidkompy/core/temporal_alignment.py`.
 -         # Initialize new components
 -         self.fingerprinter = None
 +         self.fingerprinter: FrameFingerprinter | None = None
-          self.dtw_aligner = DTWAligner(window_constraint=100)
+          self.dtw_aligner = DTWAligner(window=100)
 -         self.use_dtw = True  # Enable DTW by default
 +         self.use_dtw = True
   
@@ -5531,7 +5531,7 @@ I will edit `src/vidkompy/core/temporal_alignment.py`.
 ---
 
 ```diff
-          self.dtw_aligner = DTWAligner(window_constraint=100)
+          self.dtw_aligner = DTWAligner(window=100)
           self.use_dtw = True
 +         self.hasher: cv2.img_hash.PHash | None = None
   

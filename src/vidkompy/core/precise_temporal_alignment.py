@@ -21,7 +21,12 @@ from .dtw_aligner import DTWAligner
 class PreciseTemporalAlignment:
     """Precise temporal alignment with drift elimination."""
 
-    def __init__(self, fingerprinter: FrameFingerprinter, verbose: bool = False):
+    def __init__(
+        self,
+        fingerprinter: FrameFingerprinter,
+        verbose: bool = False,
+        interval: int = 100,
+    ):
         """Initialize precise temporal alignment.
 
         Args:
@@ -33,7 +38,7 @@ class PreciseTemporalAlignment:
 
         # Initialize multi-resolution aligner
         config = PreciseEngineConfig(
-            max_resolutions=4, base_resolution=16, drift_correction_interval=100
+            max_resolutions=4, base_resolution=16, drift_correction_interval=interval
         )
         self.multi_res_aligner = MultiResolutionAligner(fingerprinter, config, verbose)
 
@@ -92,7 +97,7 @@ class PreciseTemporalAlignment:
         bg_kf_prints = bg_fingerprints[bg_keyframes]
 
         # Use DTW for keyframe alignment
-        dtw = DTWAligner(window_constraint=len(bg_keyframes))
+        dtw = DTWAligner(window=len(bg_keyframes))
         cost_matrix = dtw._compute_cost_matrix(fg_kf_prints, bg_kf_prints)
         path = dtw._compute_path(cost_matrix)
 
@@ -121,7 +126,7 @@ class PreciseTemporalAlignment:
         Returns:
             Averaged bidirectional alignment
         """
-        dtw = DTWAligner(window_constraint=window)
+        dtw = DTWAligner(window=window)
 
         # Forward alignment
         logger.debug("Computing forward DTW alignment")
