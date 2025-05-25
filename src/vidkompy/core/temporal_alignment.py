@@ -288,7 +288,7 @@ class TemporalAligner:
         # Calculate temporal offset from first alignment
         if frame_alignments:
             first_align = frame_alignments[0]
-            offset_seconds = (first_align.bg_frame / bg_info.fps) - (first_align.fg_frame / fg_info.fps)
+            offset_seconds = (first_align.bg_frame_idx / bg_info.fps) - (first_align.fg_frame_idx / fg_info.fps)
         else:
             offset_seconds = 0.0
 
