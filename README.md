@@ -73,11 +73,16 @@ Spatial alignment determines the `(x, y)` coordinates at which to overlay the fo
 
 ### Temporal Alignment Engines
 
-`vidkompy` offers two temporal alignment engines: **Fast** for quick processing with good results, and **Precise** for maximum accuracy with advanced drift correction. Both find the optimal "path" through time that perfectly syncs the foreground to the background.
+`vidkompy` offers five temporal alignment engines, each with different trade-offs between speed, accuracy, and approach:
+- **Fast** (default): Quick processing with perceptual hashing
+- **Precise**: Maximum accuracy with multi-resolution alignment
+- **Mask**: Enhanced precise engine with explicit masking
+- **Tunnel Full**: Direct pixel comparison with sliding windows
+- **Tunnel Mask**: Pixel comparison focused on content regions
 
 ---
 
-Temporal alignment is the most critical and complex part of `vidkompy`. The goal is to create a mapping `FrameAlignment(fg_frame_idx, bg_frame_idx)` for every single foreground frame. `vidkompy` provides two distinct engines for this task:
+Temporal alignment is the most critical and complex part of `vidkompy`. The goal is to create a mapping `FrameAlignment(fg_frame_idx, bg_frame_idx)` for every single foreground frame. `vidkompy` provides five distinct engines for this task:
 
 #### Fast Engine (Default)
 
@@ -134,17 +139,65 @@ The **Precise Engine** implements a sophisticated multi-resolution approach for 
 - Handles complex scenarios with varying frame rates and content changes
 - Best for critical applications requiring perfect synchronization
 
+#### Tunnel Full Engine (Direct Comparison)
+
+The **Tunnel Full Engine** uses direct pixel-by-pixel frame comparison with a sliding window approach:
+
+1. **Bidirectional Matching**:
+   - **Forward Pass**: Starts from the first FG frame, searches for best match in BG within a sliding window
+   - **Backward Pass**: Starts from the last FG frame, searches backward
+   - Merges both passes for robust alignment
+
+2. **Sliding Window Constraint**:
+   - Enforces monotonicity by design - can only search forward from the last matched frame
+   - Window size controls the maximum temporal displacement
+   - Prevents temporal jumps and ensures smooth progression
+
+3. **Direct Pixel Comparison**:
+   - Compares actual pixel values between FG and BG frames
+   - No information loss from hashing or fingerprinting
+   - More sensitive to compression artifacts but potentially more accurate
+
+**Characteristics:**
+- Processing time: Varies with window size and video resolution
+- Zero drift by design due to monotonic constraints
+- Best for videos with minimal compression artifacts
+- Suitable when perceptual hashing misses subtle details
+
+#### Tunnel Mask Engine (Content-Focused Comparison)
+
+The **Tunnel Mask Engine** extends the tunnel approach with intelligent masking:
+
+1. **Content Mask Generation**:
+   - Automatically detects content regions (non-black areas) in FG frames
+   - Creates binary mask to focus comparison on actual content
+   - Helps with letterboxed or pillarboxed videos
+
+2. **Masked Comparison**:
+   - Only compares pixels within the mask region
+   - Ignores black borders and letterboxing
+   - More robust for videos with varying aspect ratios
+
+3. **Same Bidirectional Approach**:
+   - Uses forward and backward passes like Tunnel Full
+   - Applies mask during all comparisons
+   - Maintains monotonicity constraints
+
+**Characteristics:**
+- Similar performance to Tunnel Full
+- Better handling of videos with black borders
+- More accurate for content with letterboxing
+- Ideal for videos where content doesn't fill the entire frame
+
 #### Engine Comparison
 
-| Aspect | Fast Engine | Precise Engine |
-|--------|-------------|----------------|
-| **Algorithm** | Single-pass DTW with perceptual hashing | Multi-resolution hierarchical alignment |
-| **Processing Time** | ~2x real-time | ~40x real-time |
-| **Drift Handling** | Direct mapping (no drift) or interpolation | Active correction + keyframe anchoring |
-| **Frame Extraction** | On-demand during composition | Full extraction before alignment |
-| **Memory Usage** | Low (streaming) | High (all frames in memory) |
-| **Accuracy** | Good, minimal drift at endpoints | Excellent, no drift throughout |
-| **Best For** | Quick processing, standard videos | Critical applications, complex content |
+| Aspect | Fast | Precise | Mask | Tunnel Full | Tunnel Mask |
+|--------|------|---------|------|-------------|-------------|
+| **Algorithm** | DTW + hashing | Multi-res DTW | Multi-res + mask | Direct pixel | Masked pixel |
+| **Speed** | ~2x real-time | ~40x real-time | ~40x real-time | ~10-20x real-time | ~10-20x real-time |
+| **Drift** | Minimal | Minimal | Minimal | Zero (monotonic) | Zero (monotonic) |
+| **Memory** | Low | High | High | Medium | Medium |
+| **Best For** | Quick results | Complex videos | Cropped content | Clean sources | Letterboxed |
 
 ## Usage
 
@@ -177,6 +230,10 @@ python -m vidkompy --bg background.mp4 --fg foreground.mp4
 
 # Precise engine for maximum accuracy (slower but perfect sync)
 python -m vidkompy --bg background.mp4 --fg foreground.mp4 --engine precise
+
+# Tunnel engines for direct pixel comparison (no drift)
+python -m vidkompy --bg bg.mp4 --fg fg.mp4 --engine tunnel_full --window 60
+python -m vidkompy --bg bg.mp4 --fg letterboxed.mp4 --engine tunnel_mask
 
 # Custom output path
 python -m vidkompy --bg bg.mp4 --fg fg.mp4 --output result.mp4
@@ -212,7 +269,7 @@ FLAGS
     -e, --engine=ENGINE
         Type: str
         Default: 'fast'
-        Temporal alignment engine - 'fast' (current) or 'precise' (coming soon) (default: 'fast')
+        Temporal alignment engine - 'fast', 'precise', 'mask', 'tunnel_full', or 'tunnel_mask' (default: 'fast')
     -m, --margin=MARGIN
         Type: int
         Default: 8

@@ -2158,6 +2158,54 @@ Pass `cli_window_size` to the `PreciseEngineConfig`.
 Again, these are pre-existing linter errors (unused typing imports and long comment lines). I'll clean them up.
 
 Now, **Step 3: Modify `MultiResolutionAligner.coarse_alignment` in `src/vidkompy/core/multi_resolution_aligner.py`**
+Use `self.config.cli_dtw_window` if it's > 0.
+
+
+---
+
+_**User**_
+
+A certain "flag wave drift" still occurs in both mask and precise engine. This is simply ridiculous. I want precise and mask engines to be MORE PRECISE, without compromise
+
+---
+
+_**Assistant**_
+
+
+
+---
+
+Okay, I understand the frustration with the persistent "flag wave drift." It's a clear sign that our current similarity metrics and alignment strategies aren't fully capturing the essence of smooth temporal progression, especially for the `precise` and `mask` engines. Your demand for MORE PRECISION, even at the cost of speed for these engines, is noted.
+
+We've recently integrated Idea 1 (Enhanced Drift Correction & Smoothing in `MultiResolutionAligner`), and you've also added some Numba optimizations, which is great.
+
+Given the "flag wave" nature of the problem, **Idea 2: Optical Flow-Assisted Consistency Check & Refinement** from `SPEC.md` seems like the most direct way to tackle this. It will help the system "see" if the background motion is smooth or jerky based on the frame choices.
+
+Before diving into optical flow, I need to complete the task I was working on: ensuring the `-w` (DTW window) CLI parameter is correctly plumbed through and respected by the relevant DTW stages in the `precise` and `mask` engines. This is important for consistent testing and giving you proper control.
+
+**Current Task: Finalizing `-w` (DTW Window) CLI Parameter Integration**
+
+I'll proceed with the following steps:
+
+1.  **Clean up `PreciseTemporalAlignment`**: Remove unused imports and reformat long comment lines in `src/vidkompy/core/precise_temporal_alignment.py`.
+2.  **Modify `MultiResolutionAligner.coarse_alignment`**: Update it to use `self.config.cli_dtw_window` (passed from `PreciseTemporalAlignment`) if this window size is greater than 0.
+3.  **Modify `PreciseTemporalAlignment.align_keyframes`**: Update it to use `self.cli_window_size` if it's `> 0`.
+4.  **Modify `PreciseTemporalAlignment.bidirectional_dtw`**: Update it to use `self.cli_window_size` if it's `> 0`.
+
+Let's start by cleaning up `src/vidkompy/core/precise_temporal_alignment.py`.
+
+
+---
+
+_**User**_
+
+
+How exactly do the "mask" and "precise" methods perform the temporal frame matching of bg frames to fg frames? 
+
+---
+
+_**Assistant**_
+
 
 
 ---

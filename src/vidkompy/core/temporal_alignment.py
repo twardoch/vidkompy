@@ -29,6 +29,7 @@ from .frame_fingerprint import FrameFingerprinter
 from .dtw_aligner import DTWAligner
 from .precise_temporal_alignment import PreciseTemporalAlignment
 from .spatial_alignment import SpatialAligner
+from .tunnel_aligner import TunnelFullAligner, TunnelMaskAligner, TunnelConfig
 
 console = Console()
 
@@ -75,6 +76,7 @@ class TemporalAligner:
         self._current_mask: np.ndarray | None = None
         self.engine_mode = engine_mode
         self.use_precise_engine = engine_mode == "precise" or engine_mode == "mask"
+        self.use_tunnel_engine = engine_mode == "tunnel_full" or engine_mode == "tunnel_mask"
         self.cli_window_size = window
 
         self.fingerprinter: FrameFingerprinter | None = None
@@ -82,6 +84,7 @@ class TemporalAligner:
         self.use_dtw = True
         self.hasher: cv2.img_hash.PHash | None = None  # type: ignore
         self.precise_aligner = None
+        self.tunnel_aligner = None
 
         try:
             if hasattr(cv2, "img_hash") and hasattr(cv2.img_hash, "PHash_create"):
@@ -160,6 +163,11 @@ class TemporalAligner:
         """
         logger.info("Starting frame-based temporal alignment")
 
+        # Use tunnel engine if enabled
+        if self.use_tunnel_engine:
+            logger.info(f"Using {self.engine_mode} temporal alignment engine")
+            return self._align_frames_tunnel(bg_info, fg_info, trim)
+
         # Use precise engine if enabled
         if self.use_precise_engine:
             logger.info("Using precise temporal alignment engine")
@@ -191,6 +199,104 @@ class TemporalAligner:
             frame_alignments=frame_alignments,
             method_used="frames",
             confidence=self._calculate_alignment_confidence(keyframe_matches),
+        )
+
+    def _align_frames_tunnel(
+        self, bg_info: VideoInfo, fg_info: VideoInfo, trim: bool = False
+    ) -> TemporalAlignment:
+        """Align videos using tunnel-based direct frame comparison.
+
+        Args:
+            bg_info: Background video metadata
+            fg_info: Foreground video metadata
+            trim: Whether to trim to overlapping segment
+
+        Returns:
+            TemporalAlignment with frame mappings
+        """
+        # Initialize tunnel aligner if not already done
+        if self.tunnel_aligner is None:
+            config = TunnelConfig(
+                window_size=self.cli_window_size if self.cli_window_size > 0 else 30,
+                downsample_factor=0.5,  # Downsample to 50% for faster processing
+                early_stop_threshold=0.05,
+                merge_strategy="confidence_weighted"
+            )
+            
+            if self.engine_mode == "tunnel_full":
+                self.tunnel_aligner = TunnelFullAligner(config)
+            else:  # tunnel_mask
+                self.tunnel_aligner = TunnelMaskAligner(config)
+
+        # Perform spatial alignment first
+        logger.info("Performing spatial alignment for tunnel engine...")
+        spatial_aligner = SpatialAligner()
+
+        # Extract sample frames for spatial alignment
+        bg_frames = self.processor.extract_frames(
+            bg_info.path, [bg_info.frame_count // 2]
+        )
+        fg_frames = self.processor.extract_frames(
+            fg_info.path, [fg_info.frame_count // 2]
+        )
+
+        if not bg_frames or not fg_frames:
+            logger.error("Failed to extract sample frames for spatial alignment")
+            return self._create_direct_mapping(bg_info, fg_info)
+
+        bg_sample = bg_frames[0]
+        fg_sample = fg_frames[0]
+
+        # Get spatial alignment
+        spatial_result = spatial_aligner.align(bg_sample, fg_sample)
+        x_offset, y_offset = spatial_result.x_offset, spatial_result.y_offset
+        
+        logger.info(f"Spatial offset: ({x_offset}, {y_offset})")
+
+        # Extract all frames for tunnel alignment
+        logger.info("Extracting all frames for tunnel alignment...")
+        
+        # For tunnel engines, we need full frames without pre-cropping
+        fg_all_frames = self.processor.extract_all_frames(
+            fg_info.path,
+            resize_factor=0.25  # Use 25% size for processing
+        )
+        
+        bg_all_frames = self.processor.extract_all_frames(
+            bg_info.path,
+            resize_factor=0.25  # Use 25% size for processing
+        )
+
+        if fg_all_frames is None or bg_all_frames is None:
+            logger.error("Failed to extract frames for tunnel alignment")
+            return self._create_direct_mapping(bg_info, fg_info)
+
+        # Scale offsets for downsampled frames
+        scaled_x_offset = int(x_offset * 0.25)
+        scaled_y_offset = int(y_offset * 0.25)
+
+        # Perform tunnel alignment
+        logger.info(f"Performing {self.engine_mode} alignment...")
+        frame_alignments, confidence = self.tunnel_aligner.align(
+            fg_all_frames,
+            bg_all_frames,
+            scaled_x_offset,
+            scaled_y_offset,
+            verbose=True
+        )
+
+        # Calculate temporal offset from first alignment
+        if frame_alignments:
+            first_align = frame_alignments[0]
+            offset_seconds = (first_align.bg_frame / bg_info.fps) - (first_align.fg_frame / fg_info.fps)
+        else:
+            offset_seconds = 0.0
+
+        return TemporalAlignment(
+            offset_seconds=offset_seconds,
+            frame_alignments=frame_alignments,
+            method_used=self.engine_mode,
+            confidence=confidence,
         )
 
     def _align_frames_precise(

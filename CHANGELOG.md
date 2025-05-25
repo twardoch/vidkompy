@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased]
 
 ### Added
+
+- **Tunnel-Based Temporal Alignment Engines**: Implemented two new alignment engines based on direct frame comparison
+    - `tunnel_full`: Uses full frame pixel comparison with sliding window approach
+    - `tunnel_mask`: Uses masked frame comparison focusing on content regions
+    - Both engines perform bidirectional matching (forward and backward passes)
+    - Monotonicity enforced by design through sliding window constraints
+    - Configurable window size, downsampling, and early stopping thresholds
+    - Designed to eliminate temporal drift through direct frame matching
+
+### Added
 - **Numba JIT Optimization**: Integrated Numba JIT compilation for performance-critical operations
     - Added `numba>=0.58.0` dependency to `pyproject.toml`
     - Created `numba_optimizations.py` module with optimized implementations

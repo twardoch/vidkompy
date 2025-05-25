@@ -44,8 +44,8 @@ def main(
         bg: Background video path
         fg: Foreground video path
         output: Output video path (auto-generated if not provided)
-        engine: Temporal alignment engine - 'fast', 'precise', or 'mask'
-                (default: 'fast')
+        engine: Temporal alignment engine - 'fast', 'precise', 'mask', 
+                'tunnel_full', or 'tunnel_mask' (default: 'fast')
         drift_interval: Frame interval for drift correction in precise/mask
                         engine (default: 100)
         margin: Border thickness for border matching mode (default: 8)
@@ -67,6 +67,20 @@ def main(
         logger.add(sys.stderr, format=log_format_verbose, level="DEBUG")
     else:
         logger.add(sys.stderr, format=log_format_default, level="INFO")
+    
+    # Log CLI options if verbose mode is enabled
+    if verbose:
+        logger.info("CLI options used:")
+        logger.info(f"  Background video: {bg}")
+        logger.info(f"  Foreground video: {fg}")
+        logger.info(f"  Output path: {output}")
+        logger.info(f"  Engine: {engine}")
+        logger.info(f"  Drift interval: {drift_interval}")
+        logger.info(f"  Window: {window}")
+        logger.info(f"  Margin: {margin}")
+        logger.info(f"  Smooth blending: {smooth}")
+        logger.info(f"  GPU acceleration: {gpu}")
+        logger.info(f"  Verbose logging: {verbose}")
 
     # Validate inputs
     bg_path = Path(bg)
@@ -99,8 +113,8 @@ def main(
     output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
     # Validate engine parameter
-    if engine not in ["fast", "precise", "mask"]:
-        err_msg = f"Invalid engine: {engine}. Must be 'fast', 'precise', or 'mask'."
+    if engine not in ["fast", "precise", "mask", "tunnel_full", "tunnel_mask"]:
+        err_msg = f"Invalid engine: {engine}. Must be 'fast', 'precise', 'mask', 'tunnel_full', or 'tunnel_mask'."
         logger.error(err_msg)
         return
 
@@ -118,6 +132,10 @@ def main(
         # These are placeholders, actual behavior is in AlignmentEngine/TemporalAligner
         temporal_method = TemporalMethod.CLASSIC
         max_keyframes = 1000
+    elif engine == "tunnel_full" or engine == "tunnel_mask":
+        # Tunnel engines use direct frame comparison
+        temporal_method = TemporalMethod.CLASSIC
+        max_keyframes = 1  # Not used by tunnel engines
     # No else needed as engine is validated
 
     if gpu:
