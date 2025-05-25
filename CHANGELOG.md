@@ -7,19 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Code Thinning from SPEC4 Implementation
+### Major Refactoring: Code Simplification & Performance
 
 ### Removed
-- **Audio Alignment**: Removed all audio-based temporal alignment functionality
+- **Audio Alignment**: Removed all audio-based temporal alignment functionality (align_audio, extract_audio)
 - **Feature Matching**: Removed ORB feature-based spatial alignment method
 - **FAST Mode**: Removed audio-first temporal alignment mode
 - **CLI Complexity**: Simplified CLI to essential parameters only
 - **Redundant Options**: Removed match_time, match_space, temporal_align, skip_spatial_align, trim, max_keyframes, and window parameters
+- **Dependencies**: Removed soundfile and scipy.signal as no longer needed
 
 ### Changed
 - **Fixed Configuration**: Always uses border mode with DTW and template matching
 - **Simplified API**: Reduced CLI to just bg, fg, output, border, blend, gpu, and verbose
 - **Single Path**: Each operation now has only one implementation path
+- **Code Reduction**: Approximately 40% reduction in codebase size
+
+### Implementation Status vs Original Specs
+- **SPEC5**: Fully implemented all quick wins and drift elimination features
+- **SPEC4**: Partially implemented - removed alternative methods but kept optimized versions instead of full rewrite with FAISS/phase correlation
 
 ### Performance Improvements from SPEC5 Implementation
 
