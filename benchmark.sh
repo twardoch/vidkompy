@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Test all engines including the new tunnel engines
+# Test all engines
 
-for engine in tunnel_mask tunnel_full mask precise fast; do
+for engine in mask full; do
     for drift in 10 100; do
         for window in 10 100; do
             base="q-${engine}-d${drift}-w${window}"

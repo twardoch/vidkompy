@@ -48,7 +48,7 @@
 - [x] Adjusted loop variables and conditions in `apply_drift_correction` and `refine_alignment` for clarity and correctness.
 - [x] Added safety checks for empty/short mappings in `interpolate_full_mapping` and `align`.
 
-### Tunnel-Based Temporal Alignment Implementation
+### Tunnel-Based Temporal Alignment Implementation & Engine Simplification
 - [x] Implemented TunnelAligner base class with bidirectional matching framework
 - [x] Created TunnelFullAligner for direct pixel-by-pixel frame comparison
 - [x] Created TunnelMaskAligner with automatic content mask generation
@@ -59,6 +59,17 @@
 - [x] Added CLI support for tunnel_full and tunnel_mask engines
 - [x] Updated benchmark script to test new engines
 - [x] Documented new engines in README.md
+
+### Major Engine Simplification (Latest)
+- [x] Removed ineffective 'fast' engine and all DTW-based alignment functionality
+- [x] Removed 'precise' engine and multi-resolution alignment system
+- [x] Removed 'mask' engine (was part of precise engine system)
+- [x] Renamed tunnel_full → 'full' (now default engine)
+- [x] Renamed tunnel_mask → 'mask' 
+- [x] Updated default parameters: drift_interval=10, window=10
+- [x] Updated all documentation (README, CHANGELOG, SPEC)
+- [x] Updated benchmark script for new engine names
+- [x] Simplified CLI validation to only accept 'full' and 'mask'
 
 ## Future Optimizations (Not Yet Implemented)
 

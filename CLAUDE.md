@@ -23,10 +23,10 @@
 
 Work in rounds: 
 
-- Create `PROGRESS.md` as a detailed flat plan with `[ ]` items. 
+- Create `PLAN.md` as a detailed flat plan with `[ ]` items. 
 - Identify the most important TODO items, and create `TODO.md` with `[ ]` items. 
 - Implement the changes. 
-- Update `PROGRESS.md` and `TODO.md` as you go. 
+- Update `PLAN.md` and `TODO.md` as you go. 
 - After each round of changes, update `CHANGELOG.md` with the changes.
 - Update `README.md` to reflect the changes.
 

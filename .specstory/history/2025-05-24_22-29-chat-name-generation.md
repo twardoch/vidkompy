@@ -7,10 +7,10 @@ _**User**_
 - Always assume that the fg video is the "better quality" video, and never should be re-timed 
 - Use `tests/bg.mp4` and `tests/fg.mp4` for testing. 
 - Work in rounds
-- Create `PROGRESS.md` as a detailed flat plan with `[ ]` items. 
+- Create `PLAN.md` as a detailed flat plan with `[ ]` items. 
 - Identify the most important TODO items, and create `TODO.md` with `[ ]` items. 
 - Implement the changes. 
-- Update `PROGRESS.md` and `TODO.md` as you go. 
+- Update `PLAN.md` and `TODO.md` as you go. 
 - After each round of changes, update `CHANGELOG.md` with the changes.
 - Update `README.md` to reflect the changes.
 
@@ -126,7 +126,7 @@ CHANGELOG.md
 CLAUDE.md
 LICENSE
 package.toml
-PROGRESS.md
+PLAN.md
 pyproject.toml
 README.md
 TODO.md
@@ -689,10 +689,10 @@ When the user’s request involves adding or modifying multiple files, follow th
 
 Work in rounds: 
 
-- Create `PROGRESS.md` as a detailed flat plan with `[ ]` items. 
+- Create `PLAN.md` as a detailed flat plan with `[ ]` items. 
 - Identify the most important TODO items, and create `TODO.md` with `[ ]` items. 
 - Implement the changes. 
-- Update `PROGRESS.md` and `TODO.md` as you go. 
+- Update `PLAN.md` and `TODO.md` as you go. 
 - After each round of changes, update `CHANGELOG.md` with the changes.
 - Update `README.md` to reflect the changes.
 
@@ -975,10 +975,10 @@ repos:
 
 Work in rounds: 
 
-- Create `PROGRESS.md` as a detailed flat plan with `[ ]` items. 
+- Create `PLAN.md` as a detailed flat plan with `[ ]` items. 
 - Identify the most important TODO items, and create `TODO.md` with `[ ]` items. 
 - Implement the changes. 
-- Update `PROGRESS.md` and `TODO.md` as you go. 
+- Update `PLAN.md` and `TODO.md` as you go. 
 - After each round of changes, update `CHANGELOG.md` with the changes.
 - Update `README.md` to reflect the changes.
 
@@ -3489,7 +3489,7 @@ class ProcessingOptions:
     window: int = 0
 </file>
 
-<file path="PROGRESS.md">
+<file path="PLAN.md">
 # Progress: vidkompy Performance Improvements
 
 ## Previous Rounds Complete
@@ -5287,10 +5287,10 @@ if __name__ == "__main__":
 - Always assume that the fg video is the "better quality" video, and never should be re-timed 
 - Use `tests/bg.mp4` and `tests/fg.mp4` for testing. 
 - Work in rounds
-- Create `PROGRESS.md` as a detailed flat plan with `[ ]` items. 
+- Create `PLAN.md` as a detailed flat plan with `[ ]` items. 
 - Identify the most important TODO items, and create `TODO.md` with `[ ]` items. 
 - Implement the changes. 
-- Update `PROGRESS.md` and `TODO.md` as you go. 
+- Update `PLAN.md` and `TODO.md` as you go. 
 - After each round of changes, update `CHANGELOG.md` with the changes.
 - Update `README.md` to reflect the changes.
 
@@ -5885,10 +5885,10 @@ The change to cap keyframes for SSIM was applied, but the persistent linter erro
 
 The key change to cap SSIM keyframes should drastically improve performance in border mode.
 
-I will now update the `PROGRESS.md` and `CHANGELOG.md` files to reflect this performance improvement for the border/SSIM mode and the reasoning.
+I will now update the `PLAN.md` and `CHANGELOG.md` files to reflect this performance improvement for the border/SSIM mode and the reasoning.
 
-Updating `PROGRESS.md`:
-I will edit `PROGRESS.md`.
+Updating `PLAN.md`:
+I will edit `PLAN.md`.
 
 ---
 
@@ -5921,7 +5921,7 @@ I will edit `CHANGELOG.md`.
 
 ---
 
-The performance issue in border mode, caused by an excessive number of SSIM comparisons, should now be substantially mitigated by capping the number of keyframes processed by the SSIM alignment path. The `PROGRESS.md` and `CHANGELOG.md` files have been updated to reflect this.
+The performance issue in border mode, caused by an excessive number of SSIM comparisons, should now be substantially mitigated by capping the number of keyframes processed by the SSIM alignment path. The `PLAN.md` and `CHANGELOG.md` files have been updated to reflect this.
 
 Despite the remaining linter errors in `temporal_alignment.py` (which we've decided to ignore for now after multiple attempts), the core logic for the user's immediate concern (slow border mode) has been addressed.
 
@@ -5957,19 +5957,19 @@ The current change (capping SSIM keyframes) is a significant speed improvement f
 
 For now, the immediate slowness is addressed. The user should test this. If precision in border mode is still an issue, then the deeper enhancement to make DTW mask-aware would be the next logical step.
 
-I've updated the `PROGRESS.md` and `CHANGELOG.md`. The core issue of extreme slowness in the fallback path for border mode has been addressed.
+I've updated the `PLAN.md` and `CHANGELOG.md`. The core issue of extreme slowness in the fallback path for border mode has been addressed.
 
 Final check on user instructions:
 - "Always assume that the fg video is the "better quality" video, and never should be re-timed" - Respected.
 - "Use `tests/bg.mp4` and `tests/fg.mp4` for testing." - User is doing this.
 - "Work in rounds" - This is a round.
-- Update `PROGRESS.md`, `TODO.md`, `CHANGELOG.md`, `README.md` - `PROGRESS` and `CHANGELOG` updated. `TODO.md` already mentions drift. `README.md` describes current functionality and doesn't need immediate change for this performance tweak.
+- Update `PLAN.md`, `TODO.md`, `CHANGELOG.md`, `README.md` - `PROGRESS` and `CHANGELOG` updated. `TODO.md` already mentions drift. `README.md` describes current functionality and doesn't need immediate change for this performance tweak.
 
 The solution directly addresses the performance bottleneck encountered.The extreme slowness you experienced in border mode was because it was falling back to a very computationally intensive SSIM comparison on nearly every frame. I've now implemented a cap on the number of keyframes used when this SSIM fallback occurs, which should make it significantly faster.
 
 Specifically, in `src/vidkompy/core/temporal_alignment.py`, the `_find_keyframe_matches` method will now limit itself to a maximum of 150 keyframes if it has to use SSIM (which happens in border mode currently, as DTW/hashing doesn't yet support masks). This drastically reduces the number of expensive comparisons.
 
-I've updated `PROGRESS.md` and `CHANGELOG.md` to reflect this improvement. Please test with your command again. While this will be much faster, the ideal long-term solution for border mode would be to enhance the DTW and perceptual hashing methods to directly support masked regions, which would offer both speed and precision. For now, this change should provide a substantial speed-up for the current border mode implementation.
+I've updated `PLAN.md` and `CHANGELOG.md` to reflect this improvement. Please test with your command again. While this will be much faster, the ideal long-term solution for border mode would be to enhance the DTW and perceptual hashing methods to directly support masked regions, which would offer both speed and precision. For now, this change should provide a substantial speed-up for the current border mode implementation.
 
 ---
 
@@ -6032,7 +6032,7 @@ Let's adjust `src/vidkompy/core/temporal_alignment.py`.
 
 The requested change to respect `--max_keyframes` with SSIM (while adding a warning for high values) has been applied. However, the same persistent linter errors remain in `src/vidkompy/core/temporal_alignment.py`. As per prior agreement, I will not attempt to fix these linter errors further in this round.
 
-The `PROGRESS.md` and `CHANGELOG.md` files were updated in the previous turn to reflect general performance improvements for the SSIM path. This specific adjustment (respecting `--max_keyframes` for SSIM) is a refinement of that, so the existing entries are still relevant.
+The `PLAN.md` and `CHANGELOG.md` files were updated in the previous turn to reflect general performance improvements for the SSIM path. This specific adjustment (respecting `--max_keyframes` for SSIM) is a refinement of that, so the existing entries are still relevant.
 
 With this change, you now have direct control over the number of keyframes used by the SSIM method via the `--max_keyframes` argument, and you'll receive a warning if this value is high, alerting you to potential performance issues.
 This should allow you to experiment with the balance between speed and precision for the SSIM fallback path more effectively.

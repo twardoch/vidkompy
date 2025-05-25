@@ -1030,9 +1030,9 @@ The user asked for the implementation of `TODO.md`, which involves:
 3.  Writing a detailed specification in `SPEC.md` to instruct a junior dev to take the steps *I will take* to improve it (Done, focused on Idea 1).
 4.  Implementing the specified improvements (Done for Idea 1: Enhanced Drift Correction & Smoothing in Multi-Resolution Aligner).
 
-The next step according to the user's overall instructions (from `.cursorrules` and `AGENT.md`) would be to update `PROGRESS.md`, `TODO.md`, `CHANGELOG.md`, and `README.md`.
+The next step according to the user's overall instructions (from `.cursorrules` and `AGENT.md`) would be to update `PLAN.md`, `TODO.md`, `CHANGELOG.md`, and `README.md`.
 
-First, I'll update `PROGRESS.md`.
+First, I'll update `PLAN.md`.
 
 
 ---
@@ -2108,7 +2108,7 @@ Okay, it's frustrating when drift persists even after improvements! The "flag wa
 
 1.  **Parameter Interaction/Sensitivity**: The new smoothing and drift correction parameters in `PreciseEngineConfig` (polynomial degree, Savitzky-Golay window/polyorder, adaptive blend factor) might need specific tuning for your content. The defaults are general.
 2.  **Insufficiency of Current Fixes**: While Idea 1 (enhanced drift correction in `MultiResolutionAligner`) aimed to help, the drift might stem from other parts of the complex `PreciseTemporalAlignment` pipeline, or the fix itself isn't aggressive/configured enough.
-3.  **`-w` (window) Parameter Ineffectiveness**: As noted in `SPEC.md` and `PROGRESS.md`, the `-w` CLI parameter for DTW window size wasn't fully plumbed through all DTW stages within the `precise` (and thus `mask`) engine. This means your attempts to vary `-w` might not have had the intended effect on all internal alignment steps.
+3.  **`-w` (window) Parameter Ineffectiveness**: As noted in `SPEC.md` and `PLAN.md`, the `-w` CLI parameter for DTW window size wasn't fully plumbed through all DTW stages within the `precise` (and thus `mask`) engine. This means your attempts to vary `-w` might not have had the intended effect on all internal alignment steps.
 
 Let's first address point 3 more thoroughly, as it's a known bug/limitation that could be masking the true behavior of other parameters. If the DTW window isn't being respected where it matters, the alignment quality can suffer.
 

@@ -30,12 +30,12 @@ def main(
     bg: str | Path,
     fg: str | Path,
     output: str | Path | None = None,
-    engine: str = "fast",
-    drift_interval: int = 100,
+    engine: str = "full",
+    drift_interval: int = 10,
     margin: int = 8,
     smooth: bool = False,
     gpu: bool = False,  # Future GPU acceleration support
-    window: int = 0,
+    window: int = 10,
     verbose: bool = False,
 ):
     """Overlay foreground video onto background video with intelligent alignment.
@@ -44,10 +44,8 @@ def main(
         bg: Background video path
         fg: Foreground video path
         output: Output video path (auto-generated if not provided)
-        engine: Temporal alignment engine - 'fast', 'precise', 'mask', 
-                'tunnel_full', or 'tunnel_mask' (default: 'fast')
-        drift_interval: Frame interval for drift correction in precise/mask
-                        engine (default: 100)
+        engine: Temporal alignment engine - 'full' or 'mask' (default: 'full')
+        drift_interval: Frame interval for drift correction (default: 10)
         margin: Border thickness for border matching mode (default: 8)
         smooth: Enable smooth blending at frame edges
         gpu: Enable GPU acceleration (future feature)
@@ -113,30 +111,16 @@ def main(
     output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
     # Validate engine parameter
-    if engine not in ["fast", "precise", "mask", "tunnel_full", "tunnel_mask"]:
-        err_msg = f"Invalid engine: {engine}. Must be 'fast', 'precise', 'mask', 'tunnel_full', or 'tunnel_mask'."
+    if engine not in ["full", "mask"]:
+        err_msg = f"Invalid engine: {engine}. Must be 'full' or 'mask'."
         logger.error(err_msg)
         return
 
-    # Initialize config variables with defaults for 'fast' engine
+    # Initialize config variables with defaults
     time_mode: MatchTimeMode = MatchTimeMode.PRECISE
     space_method: str = "template"
     temporal_method: TemporalMethod = TemporalMethod.CLASSIC
-    max_keyframes: int = 1  # Default for fast engine (direct mapping)
-
-    if engine == "fast":
-        # Configuration for 'fast' is already set by defaults above
-        pass
-    elif engine == "precise" or engine == "mask":
-        # Precise/Mask engines manage temporal method and keyframes internally
-        # These are placeholders, actual behavior is in AlignmentEngine/TemporalAligner
-        temporal_method = TemporalMethod.CLASSIC
-        max_keyframes = 1000
-    elif engine == "tunnel_full" or engine == "tunnel_mask":
-        # Tunnel engines use direct frame comparison
-        temporal_method = TemporalMethod.CLASSIC
-        max_keyframes = 1  # Not used by tunnel engines
-    # No else needed as engine is validated
+    max_keyframes: int = 1  # Not used by alignment engines
 
     if gpu:
         logger.info("GPU acceleration not yet implemented")

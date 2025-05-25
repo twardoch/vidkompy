@@ -87,7 +87,7 @@ CHANGELOG.md
 CLAUDE.md
 LICENSE
 package.toml
-PROGRESS.md
+PLAN.md
 pyproject.toml
 README.md
 SPEC.md
@@ -1147,10 +1147,10 @@ __all__ = ["__version__"]
 
 Work in rounds: 
 
-- Create `PROGRESS.md` as a detailed flat plan with `[ ]` items. 
+- Create `PLAN.md` as a detailed flat plan with `[ ]` items. 
 - Identify the most important TODO items, and create `TODO.md` with `[ ]` items. 
 - Implement the changes. 
-- Update `PROGRESS.md` and `TODO.md` as you go. 
+- Update `PLAN.md` and `TODO.md` as you go. 
 - After each round of changes, update `CHANGELOG.md` with the changes.
 - Update `README.md` to reflect the changes.
 
@@ -2147,10 +2147,10 @@ done
 
 Work in rounds: 
 
-- Create `PROGRESS.md` as a detailed flat plan with `[ ]` items. 
+- Create `PLAN.md` as a detailed flat plan with `[ ]` items. 
 - Identify the most important TODO items, and create `TODO.md` with `[ ]` items. 
 - Implement the changes. 
-- Update `PROGRESS.md` and `TODO.md` as you go. 
+- Update `PLAN.md` and `TODO.md` as you go. 
 - After each round of changes, update `CHANGELOG.md` with the changes.
 - Update `README.md` to reflect the changes.
 
@@ -4192,10 +4192,10 @@ class ProcessingOptions:
 
 Work in rounds: 
 
-- Create `PROGRESS.md` as a detailed flat plan with `[ ]` items. 
+- Create `PLAN.md` as a detailed flat plan with `[ ]` items. 
 - Identify the most important TODO items, and create `TODO.md` with `[ ]` items. 
 - Implement the changes. 
-- Update `PROGRESS.md` and `TODO.md` as you go. 
+- Update `PLAN.md` and `TODO.md` as you go. 
 - After each round of changes, update `CHANGELOG.md` with the changes.
 - Update `README.md` to reflect the changes.
 
@@ -7347,7 +7347,7 @@ def main(
         raise
 </file>
 
-<file path="PROGRESS.md">
+<file path="PLAN.md">
 # Progress: vidkompy Performance Improvements
 
 ## Completed Tasks

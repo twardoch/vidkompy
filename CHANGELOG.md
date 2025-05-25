@@ -6,11 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-### Added
+### Removed - Major Engine Simplification
+
+- **Fast Engine**: Completely removed the 'fast' engine and all DTW-based alignment functionality
+    - Removed _align_frames_dtw method and related keyframe matching code
+    - Removed perceptual hashing methods for old engines
+    - Removed cost matrix building and optimal path finding algorithms
+    - Removed frame alignment building and interpolation methods
+- **Precise Engine**: Completely removed the 'precise' engine and multi-resolution alignment
+    - Removed precise_temporal_alignment.py module integration
+    - Removed multi-resolution pyramid processing
+    - Removed keyframe anchoring and bidirectional DTW
+    - Removed sliding window refinement functionality
+- **Mask Engine**: Removed the 'mask' engine (was part of precise engine system)
+    - Removed masked alignment functionality from precise engine
+    - Cleaned up border-mode specific code for old engines
+
+### Changed - Engine Renaming & Defaults
+
+- **Engine Names**: Renamed tunnel engines for simplicity
+    - `tunnel_full` → `full` (now the default engine)
+    - `tunnel_mask` → `mask`
+- **Default Parameters**: Updated optimal defaults based on performance testing
+    - Changed drift interval default from 100 to 10 (optimal for tunnel engines)
+    - Changed window default from 0 to 10 (optimal performance)
+- **CLI Validation**: Updated engine validation to only accept 'full' and 'mask'
+- **Documentation**: Updated all engine references in CLI help and comments
+
+### Added - Previous Features
 
 - **Tunnel-Based Temporal Alignment Engines**: Implemented two new alignment engines based on direct frame comparison
-    - `tunnel_full`: Uses full frame pixel comparison with sliding window approach
-    - `tunnel_mask`: Uses masked frame comparison focusing on content regions
+    - `full` (formerly tunnel_full): Uses full frame pixel comparison with sliding window approach
+    - `mask` (formerly tunnel_mask): Uses masked frame comparison focusing on content regions
     - Both engines perform bidirectional matching (forward and backward passes)
     - Monotonicity enforced by design through sliding window constraints
     - Configurable window size, downsampling, and early stopping thresholds
