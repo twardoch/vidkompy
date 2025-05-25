@@ -2,12 +2,16 @@
 
 All notable changes to vidkompy will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Parameter Mismatch**: Fixed DTWAligner constructor parameter name from 'window' to 'window_constraint' in precise alignment engines to resolve TypeError during precise alignment initialization
+
 ### Added
+
 - **Multi-Engine Architecture**: Added --engine CLI parameter to support multiple temporal alignment engines
 - **Precise Engine Implementation**: Implemented advanced multi-resolution temporal alignment engine with drift correction
 - **Engine Validation**: Added proper validation and error messages for engine selection
@@ -18,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Major Refactoring: Code Simplification & Performance
 
 ### Removed
+
 - **Audio Alignment**: Removed all audio-based temporal alignment functionality (align_audio, extract_audio)
 - **Feature Matching**: Removed ORB feature-based spatial alignment method
 - **FAST Mode**: Removed audio-first temporal alignment mode
@@ -26,18 +31,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dependencies**: Removed soundfile and scipy.signal as no longer needed
 
 ### Changed
+
 - **Fixed Configuration**: Always uses border mode with DTW and template matching
 - **Simplified API**: Reduced CLI to just bg, fg, output, border, blend, gpu, and verbose
 - **Single Path**: Each operation now has only one implementation path
 - **Code Reduction**: Approximately 40% reduction in codebase size
 
 ### Implementation Status vs Original Specs
+
 - **SPEC5**: Fully implemented all quick wins and drift elimination features
 - **SPEC4**: Partially implemented - removed alternative methods but kept optimized versions instead of full rewrite with FAISS/phase correlation
 
 ### Performance Improvements from SPEC5 Implementation
 
 ### Fixed
+
 - **Temporal Drift**: Implemented adaptive keyframe density to prevent drift based on FPS differences
 - **Border Mode Performance**: Enabled DTW with masked perceptual hashing for fast border mode alignment
 - **Critical Performance**: Fixed compositing bottleneck by implementing sequential reading with generators
@@ -46,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Progress UX**: Removed annoying spinner displays for quick operations
 
 ### Added
+
 - **Masked Fingerprinting**: Added compute_masked_fingerprint() method for border-aware perceptual hashing
 - **Adaptive Keyframes**: calculate_adaptive_keyframe_count() adjusts density based on video characteristics
 - **Benchmark Suite**: Created benchmark.py for comprehensive performance testing
@@ -62,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sliding window constraint for frame matching optimization
 
 ### Changed
+
 - **Default Keyframes**: Reduced from 2000 to 200 for better drift prevention
 - **Parallel Processing**: Cost matrix building already uses ThreadPoolExecutor for parallel computation
 - **Border Mode Logic**: DTW no longer falls back to classic alignment in border mode
@@ -74,6 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Maintained useful progress bars for time-intensive operations (DTW, cost matrix building)
 
 ### Documentation
+
 - Added detailed docstrings to alignment_engine.py explaining architecture decisions
 - Added detailed docstrings to spatial_alignment.py explaining algorithm choices
 - Added detailed docstrings to temporal_alignment.py explaining current limitations
@@ -82,8 +93,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Created SPEC5.md with drift elimination strategies and performance targets
 
 ### Technical Details
-- Implemented _precompute_masked_video_fingerprints() for border mode DTW support
-- Added _compute_masked_frame_hash() for efficient masked perceptual hashing
+
+- Implemented \_precompute_masked_video_fingerprints() for border mode DTW support
+- Added \_compute_masked_frame_hash() for efficient masked perceptual hashing
 - Removed SpinnerColumn from inner progress bars to prevent conflicts
 - Added TimeRemainingColumn for better progress estimation
 - Made outer progress transient to reduce visual clutter
