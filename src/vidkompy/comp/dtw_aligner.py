@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/core/dtw_aligner.py
+# this_file: src/vidkompy/comp/dtw_aligner.py
 
 """
 Dynamic Time Warping (DTW) for video frame alignment.

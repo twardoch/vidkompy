@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/core/frame_fingerprint.py
+# this_file: src/vidkompy/comp/frame_fingerprint.py
 
 """
 Fast frame fingerprinting system using perceptual hashing.
@@ -335,7 +335,7 @@ class FrameFingerprinter:
         Why parallel processing:
         - Frame extraction is I/O bound (use threads)
         - Hash computation is CPU bound (use processes)
-        - Significant speedup on multi-core systems
+        - Significant speedup on multi-comp systems
         """
         # Check cache first
         if video_path in self.fingerprint_cache:

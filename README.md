@@ -1,4 +1,6 @@
 # `vidkompy`
+[![PyPI](https://img.shields.io/pypi/v/vidkompy.svg)](https://pypi.org/project/vidkompy/)
+[![License](https://img.shields.io/github/license/twardoch/vidkompy.svg)](
 
 **Intelligent Video Overlay and Synchronization**
 

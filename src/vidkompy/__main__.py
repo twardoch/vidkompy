@@ -4,8 +4,8 @@
 """Enable running vidkompy as a module with python -m vidkompy."""
 
 import fire
-from vidkompy.vidkompy import composite_videos
-from vidkompy.thumbfind import find_thumbnail
+from src.vidkompy.comp.vidkompy import composite_videos
+from src.vidkompy.comp.vidkompy import find_thumbnail
 
 
 def cli():

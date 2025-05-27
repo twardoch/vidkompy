@@ -1,1 +1,1 @@
-# this_file: src/vidkompy/core/__init__.py
+# this_file: src/vidkompy/comp/__init__.py

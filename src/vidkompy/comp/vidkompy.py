@@ -21,9 +21,9 @@ import sys
 from loguru import logger
 from pathlib import Path
 
-from .core.video_processor import VideoProcessor
-from .core.alignment_engine import AlignmentEngine
-from .models import MatchTimeMode, TemporalMethod
+from src.vidkompy.comp.video_processor import VideoProcessor
+from src.vidkompy.comp.alignment_engine import AlignmentEngine
+from src.vidkompy.comp.models import MatchTimeMode, TemporalMethod
 
 
 def composite_videos(

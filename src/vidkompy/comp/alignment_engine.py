@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/core/alignment_engine.py
+# this_file: src/vidkompy/comp/alignment_engine.py
 
 """
 Main alignment engine that coordinates spatial and temporal alignment.

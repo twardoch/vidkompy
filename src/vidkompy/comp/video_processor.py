@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/core/video_processor.py
+# this_file: src/vidkompy/comp/video_processor.py
 
 """
 Core video processing functionality.
@@ -26,7 +26,7 @@ console = Console()
 
 
 class VideoProcessor:
-    """Handles core video processing operations.
+    """Handles comp video processing operations.
 
     This module provides the foundation for all video I/O operations.
     It abstracts away the complexity of video codecs and formats.

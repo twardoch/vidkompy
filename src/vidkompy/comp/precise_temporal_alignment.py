@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/core/precise_temporal_alignment.py
+# this_file: src/vidkompy/comp/precise_temporal_alignment.py
 
 """
 Precise temporal alignment implementation with advanced techniques.

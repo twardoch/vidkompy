@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/core/temporal_alignment.py
+# this_file: src/vidkompy/comp/temporal_alignment.py
 
 """
 Temporal alignment module for synchronizing videos.

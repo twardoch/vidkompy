@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/core/numba_optimizations.py
+# this_file: src/vidkompy/comp/numba_optimizations.py
 
 """
 Numba-optimized functions for vidkompy performance bottlenecks.

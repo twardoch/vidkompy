@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/core/multi_resolution_aligner.py
+# this_file: src/vidkompy/comp/multi_resolution_aligner.py
 
 """
 Multi-resolution temporal alignment for precise video synchronization.

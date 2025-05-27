@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/core/tunnel_aligner.py
+# this_file: src/vidkompy/comp/tunnel_aligner.py
 """Tunnel-based temporal alignment using direct frame comparison with sliding windows."""
 
 from __future__ import annotations

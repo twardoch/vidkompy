@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/core/spatial_alignment.py
+# this_file: src/vidkompy/comp/spatial_alignment.py
 
 """
 Spatial alignment module for finding optimal overlay positions.
