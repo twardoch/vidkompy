@@ -4,11 +4,12 @@
 """Enable running vidkompy as a module with python -m vidkompy."""
 
 import fire
-from vidkompy.vidkompy import main
+from vidkompy.vidkompy import composite_videos
+from vidkompy.thumbfind import find_thumbnail
 
 
 def cli():
-    fire.Fire(main)
+    fire.Fire({"merge": composite_videos, "find": find_thumbnail})
 
 
 if __name__ == "__main__":

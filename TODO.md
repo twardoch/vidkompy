@@ -1,37 +1,13 @@
 # TODO
 
-### **Performance Optimizations**
+This project has two components: 
 
-- [ ] GPU acceleration for frame comparison operations
-- [ ] Replace OpenCV with PyAV for faster video I/O
-- [ ] Further optimize tunnel engine window search algorithms
-- [ ] Implement adaptive window sizing based on content complexity
+- `vidkompy` - the older project, which we’re ignoring for now
+- `thumbfind` - the newer project, which we’ll focus on. 
 
-### **Architecture Enhancements**
+`varia/thumbfind1.md` describes how `src/vidkompy/thumbfind.py` works. `varia/thumbfind2.md` contains several extensive reports, which served as basis on which `src/vidkompy/thumbfind.py` was developed. 
 
-- [ ] Replace template matching with phase correlation for spatial alignment
-- [ ] Add caching for repeated video pairs
-- [ ] Enhanced content mask generation for complex letterboxing scenarios
-- [ ] Implement proper fallback strategies for edge cases
+But `src/vidkompy/thumbfind.py` is unreliable. Currently for an example video it suggested that the bg video has the thumbnail as 94% scaled down variant of the fg video — but in fact, the bg video was made without scaling, with just shifting of the fg. So `src/vidkompy/thumbfind.py` should have identified the thumbnail as 100% scaled down variant of the fg video. 
 
-### **Code Quality**
+Read `varia/thumbfind1.md` and `varia/thumbfind2.md`, and perform deep intensive thinking on how to improve `src/vidkompy/thumbfind.py`. One thing is that the algorithm should be more robust. The other thing is that the algorithm should prefer scale 100% and only if the confidence is quite high that we actually have a scaled-down version, only then it should suggest the scaled down version. Or perhaps it should report two results: confidence and shift for 100% scale approach, as well as confidence, shift and scale for the scaled down approach. 
 
-- [ ] Add comprehensive unit tests for tunnel engines
-- [ ] Expand performance benchmark suite
-- [ ] Add type hints throughout (ongoing)
-- [ ] Improve error handling and recovery
-- [ ] Code cleanup and documentation improvements
-
----
-
-## 🎯 **Current Status: Complete & Production Ready**
-
-The vidkompy engine simplification project is **complete**. The system now uses:
-
-- **Two high-performance engines**: `full` (default) and `mask`
-- **Perfect alignment**: 1.000 confidence scores with zero drift
-- **Optimal performance**: ~5x real-time processing
-- **Clean codebase**: Removed ~40% of legacy engine code
-- **Simplified CLI**: Only essential, working engine options
-
-The system is ready for production use with significantly improved performance and maintainability.

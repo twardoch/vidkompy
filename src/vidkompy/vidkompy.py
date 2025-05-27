@@ -26,7 +26,7 @@ from .core.alignment_engine import AlignmentEngine
 from .models import MatchTimeMode, TemporalMethod
 
 
-def main(
+def composite_videos(
     bg: str | Path,
     fg: str | Path,
     output: str | Path | None = None,
@@ -65,7 +65,7 @@ def main(
         logger.add(sys.stderr, format=log_format_verbose, level="DEBUG")
     else:
         logger.add(sys.stderr, format=log_format_default, level="INFO")
-    
+
     # Log CLI options if verbose mode is enabled
     if verbose:
         logger.info("CLI options used:")
