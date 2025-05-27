@@ -306,7 +306,6 @@ class TunnelAligner(ABC):
 
         To be implemented by subclasses.
         """
-        pass
 
 
 class TunnelFullAligner(TunnelAligner):

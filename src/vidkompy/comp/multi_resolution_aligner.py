@@ -20,7 +20,6 @@ from .frame_fingerprint import FrameFingerprinter
 try:
     from vidkompy.core.numba_optimizations import (
         apply_polynomial_drift_correction,
-        apply_savitzky_golay_filter,
     )
 
     NUMBA_AVAILABLE = True
