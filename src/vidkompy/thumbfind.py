@@ -249,9 +249,7 @@ class ThumbnailFinder:
                 continue
 
             # Create scaled template
-            scaled_template = cv2.resize(
-                template_small, (int(64 * scale), int(64 * scale))
-            )
+            cv2.resize(template_small, (int(64 * scale), int(64 * scale)))
 
             # Compute histogram correlation with multiple regions
             max_region_corr = -1.0
@@ -839,52 +837,51 @@ class ThumbnailFinder:
         # Process without Rich progress bar to avoid conflicts
         test_count = 0
         for scale in scales:
-                # Resize template
-                new_width = int(template_gray.shape[1] * scale)
-                new_height = int(template_gray.shape[0] * scale)
+            # Resize template
+            new_width = int(template_gray.shape[1] * scale)
+            new_height = int(template_gray.shape[0] * scale)
 
-                # Skip if template becomes too small or too large
-                if new_width < 10 or new_height < 10:
-                    continue
-                if (
-                    new_height >= image_gray.shape[0]
-                    or new_width >= image_gray.shape[1]
-                ):
-                    continue
+            # Skip if template becomes too small or too large
+            if new_width < 10 or new_height < 10:
+                continue
+            if new_height >= image_gray.shape[0] or new_width >= image_gray.shape[1]:
+                continue
 
-                resized_template = cv2.resize(template_gray, (new_width, new_height))
+            resized_template = cv2.resize(template_gray, (new_width, new_height))
 
-                for x in x_positions:
-                    for y in y_positions:
-                        # Check bounds
-                        if (
-                            x + new_width >= image_gray.shape[1]
-                            or y + new_height >= image_gray.shape[0]
-                        ):
-                            continue
+            for x in x_positions:
+                for y in y_positions:
+                    # Check bounds
+                    if (
+                        x + new_width >= image_gray.shape[1]
+                        or y + new_height >= image_gray.shape[0]
+                    ):
+                        continue
 
-                        # Extract the region from the image
-                        region = image_gray[y : y + new_height, x : x + new_width]
+                    # Extract the region from the image
+                    region = image_gray[y : y + new_height, x : x + new_width]
 
-                        # Ensure same size
-                        if region.shape != resized_template.shape:
-                            continue
+                    # Ensure same size
+                    if region.shape != resized_template.shape:
+                        continue
 
-                        # Compute normalized correlation directly
-                        correlation = self.compute_normalized_correlation(
-                            resized_template.astype(np.float32),
-                            region.astype(np.float32),
+                    # Compute normalized correlation directly
+                    correlation = self.compute_normalized_correlation(
+                        resized_template.astype(np.float32),
+                        region.astype(np.float32),
+                    )
+
+                    if correlation > best_correlation:
+                        best_correlation = correlation
+                        best_scale = scale
+                        best_x = x
+                        best_y = y
+
+                    test_count += 1
+                    if self.verbose and test_count % 100 == 0:
+                        logger.debug(
+                            f"Precise refinement progress: {test_count}/{total_tests} tests completed"
                         )
-
-                        if correlation > best_correlation:
-                            best_correlation = correlation
-                            best_scale = scale
-                            best_x = x
-                            best_y = y
-
-                        test_count += 1
-                        if self.verbose and test_count % 100 == 0:
-                            logger.debug(f"Precise refinement progress: {test_count}/{total_tests} tests completed")
 
         improvement = (
             best_correlation
@@ -1035,7 +1032,9 @@ class ThumbnailFinder:
         ballpark_scale, ballpark_confidence = self.ballpark_scale_estimation(
             template, image
         )
-        level_results.append(f"  Level 0 (Ballpark): scale ≈ {ballpark_scale:.1%}, confidence = {ballpark_confidence:.3f}")
+        level_results.append(
+            f"  Level 0 (Ballpark): scale ≈ {ballpark_scale:.1%}, confidence = {ballpark_confidence:.3f}"
+        )
 
         if precision_level == 0:
             return MatchResult(
@@ -1066,14 +1065,17 @@ class ThumbnailFinder:
             level_results.append("  Level 1 (Coarse): No match found")
 
         if precision_level == 1:
-            return (coarse_result or MatchResult(
-                scale=ballpark_scale,
-                x=0,
-                y=0,
-                confidence=ballpark_confidence,
-                method="coarse",
-                processing_time=time.time() - start_time,
-            )), level_results
+            return (
+                coarse_result
+                or MatchResult(
+                    scale=ballpark_scale,
+                    x=0,
+                    y=0,
+                    confidence=ballpark_confidence,
+                    method="coarse",
+                    processing_time=time.time() - start_time,
+                )
+            ), level_results
 
         # Level 2: Balanced matching (quick feature + moderate template)
         feature_result = self.enhanced_feature_matching(template, image)
@@ -1112,14 +1114,17 @@ class ThumbnailFinder:
                 )
 
         if precision_level == 2:
-            return (level2_result or MatchResult(
-                scale=ballpark_scale,
-                x=0,
-                y=0,
-                confidence=ballpark_confidence,
-                method="balanced",
-                processing_time=time.time() - start_time,
-            )), level_results
+            return (
+                level2_result
+                or MatchResult(
+                    scale=ballpark_scale,
+                    x=0,
+                    y=0,
+                    confidence=ballpark_confidence,
+                    method="balanced",
+                    processing_time=time.time() - start_time,
+                )
+            ), level_results
 
         # Level 3: Fine matching (enhanced feature + focused template)
         # Run enhanced feature matching with better parameters
@@ -1166,14 +1171,17 @@ class ThumbnailFinder:
                 )
 
         if precision_level == 3:
-            return (level3_result or MatchResult(
-                scale=ballpark_scale,
-                x=0,
-                y=0,
-                confidence=ballpark_confidence,
-                method="fine",
-                processing_time=time.time() - start_time,
-            )), level_results
+            return (
+                level3_result
+                or MatchResult(
+                    scale=ballpark_scale,
+                    x=0,
+                    y=0,
+                    confidence=ballpark_confidence,
+                    method="fine",
+                    processing_time=time.time() - start_time,
+                )
+            ), level_results
 
         # Level 4: Precise sub-pixel refinement
         if level3_result and level3_result.confidence > 0.3:
@@ -1200,21 +1208,24 @@ class ThumbnailFinder:
             level_results.append(
                 f"  Level 4 (Precise): scale = {precise_result.scale:.3%}, pos = ({precise_result.x}, {precise_result.y}), confidence = {precise_result.confidence:.4f}"
             )
-            
+
             return precise_result, level_results
         else:
             level_results.append(
                 "  Level 4 (Precise): Skipped - insufficient confidence from level 3"
             )
-            
-            return (level3_result or MatchResult(
-                scale=ballpark_scale,
-                x=0,
-                y=0,
-                confidence=ballpark_confidence,
-                method="precise_fallback",
-                processing_time=time.time() - start_time,
-            )), level_results
+
+            return (
+                level3_result
+                or MatchResult(
+                    scale=ballpark_scale,
+                    x=0,
+                    y=0,
+                    confidence=ballpark_confidence,
+                    method="precise_fallback",
+                    processing_time=time.time() - start_time,
+                )
+            ), level_results
 
     def _find_thumbnail_in_frames(
         self,
@@ -1254,7 +1265,7 @@ class ThumbnailFinder:
                     result, precision_log = self.multi_precision_matching(
                         fg_frame, bg_frame, precision_level=precision
                     )
-                    
+
                     # Just store the first frame's precision log for display
                     if i == 0 and j == 0 and precision_log:
                         first_frame_log = precision_log
@@ -1277,7 +1288,7 @@ class ThumbnailFinder:
                             logger.debug(f"FG frame {i} vs BG frame {j}: {result}")
 
                     progress.advance(task)
-        
+
         # Display precision results for the first frame after progress completes
         if first_frame_log:
             console.print("\n[cyan]Precision Analysis (first frame):[/cyan]")
@@ -1558,18 +1569,17 @@ class ThumbnailFinder:
                 analysis_data.get("unity_scale_result")
                 or analysis_data.get("scaled_result")
             ):
-                console.print("\n[bold cyan]Alternative Analysis:[/bold cyan]")
+                console.print("\n[bold blue]Alternative Analysis:[/bold blue]")
 
                 if analysis_data.get("unity_scale_result"):
                     unity = analysis_data["unity_scale_result"]
                     console.print(
-                        f"Unity scale (100%) option: confidence={unity['confidence']:.3f}, position=({unity['x']}, {unity['y']})"
+                        f"  Unity scale option (scale={unity['scale'] * 100:.2f}%): confidence={unity['confidence']:.3f}, position=({unity['x']}, {unity['y']})"
                     )
-
                 if analysis_data.get("scaled_result"):
-                    scaled = analysis_data["scaled_result"]
+                    s_res = analysis_data["scaled_result"]
                     console.print(
-                        f"Scaled option: confidence={scaled['confidence']:.3f}, scale={scaled['scale'] * 100:.2f}%, position=({scaled['x']}, {scaled['y']})"
+                        f"Scaled option: confidence={s_res['confidence']:.3f}, scale={s_res['scale'] * 100:.2f}%, position=({s_res['x']}, {s_res['y']})"
                     )
 
                 console.print(
