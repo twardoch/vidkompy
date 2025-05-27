@@ -22,6 +22,7 @@ try:
         apply_polynomial_drift_correction,
         apply_savitzky_golay_filter,
     )
+
     NUMBA_AVAILABLE = True
 except ImportError:
     logger.warning("Numba optimizations not available for multi-resolution alignment")
@@ -158,7 +159,7 @@ class MultiResolutionAligner:
 
         # Convert path to frame mapping
         mapping = np.zeros(len(fg_coarse), dtype=int)
-        for i, (fg_idx, bg_idx) in enumerate(path):
+        for _i, (fg_idx, bg_idx) in enumerate(path):
             if fg_idx < len(mapping):
                 mapping[fg_idx] = bg_idx
 
@@ -276,7 +277,7 @@ class MultiResolutionAligner:
             return mapping  # Return empty if input is empty
 
         logger.info(f"Drift correction every {interval} frames")
-        
+
         # Try numba optimization for polynomial drift correction
         if self.use_numba and self.config.drift_correction_model == "polynomial":
             try:
@@ -284,13 +285,13 @@ class MultiResolutionAligner:
                     mapping.astype(np.float64),
                     interval,
                     self.config.poly_degree,
-                    self.config.drift_blend_factor
+                    self.config.drift_blend_factor,
                 )
                 return corrected.astype(int)
             except Exception as e:
                 logger.warning(f"Numba drift correction failed: {e}")
                 logger.info("Falling back to standard implementation")
-        
+
         # Standard implementation
         corrected = mapping.copy()
         num_segments = len(mapping) // interval + 1
@@ -407,8 +408,7 @@ class MultiResolutionAligner:
                     self.config.savitzky_golay_polyorder,
                     self.config.savitzky_golay_window - 1,
                 )
-                if polyorder < 0:
-                    polyorder = 0  # Must be non-negative
+                polyorder = max(polyorder, 0)  # Must be non-negative
 
                 smoothed_mapping = savgol_filter(
                     corrected_mapping,

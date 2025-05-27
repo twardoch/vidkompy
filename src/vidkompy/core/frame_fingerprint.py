@@ -21,6 +21,7 @@ try:
         compute_histogram_correlation,
         compute_weighted_similarity,
     )
+
     NUMBA_AVAILABLE = True
 except ImportError:
     logger.warning("Numba optimizations not available for fingerprinting")
@@ -53,7 +54,7 @@ class FrameFingerprinter:
 
         # Cache for computed fingerprints
         self.fingerprint_cache: dict[str, dict[int, dict[str, np.ndarray]]] = {}
-        
+
         # Flag to control numba usage
         self.use_numba = NUMBA_AVAILABLE
 
@@ -227,7 +228,9 @@ class FrameFingerprinter:
         # Try numba optimization for histogram comparison if available
         if self.use_numba and "histogram" in fp1 and "histogram" in fp2:
             try:
-                hist_score = compute_histogram_correlation(fp1["histogram"], fp2["histogram"])
+                hist_score = compute_histogram_correlation(
+                    fp1["histogram"], fp2["histogram"]
+                )
             except Exception:
                 # Fallback to OpenCV
                 hist_score = cv2.compareHist(
@@ -239,39 +242,35 @@ class FrameFingerprinter:
             )
         else:
             hist_score = 0.0
-        
+
         hist_score = max(0, hist_score)  # Ensure non-negative
-        
+
         # Collect hash distances
         hash_distances = []
         hash_names = []
-        
+
         for name in fp1:
             if name not in fp2 or name == "histogram":
                 continue
-            
+
             # Ensure uint8 type for NORM_HAMMING
             h1 = (
-                fp1[name].astype(np.uint8)
-                if fp1[name].dtype != np.uint8
-                else fp1[name]
+                fp1[name].astype(np.uint8) if fp1[name].dtype != np.uint8 else fp1[name]
             )
             h2 = (
-                fp2[name].astype(np.uint8)
-                if fp2[name].dtype != np.uint8
-                else fp2[name]
+                fp2[name].astype(np.uint8) if fp2[name].dtype != np.uint8 else fp2[name]
             )
             distance = cv2.norm(h1, h2, cv2.NORM_HAMMING)
-            
+
             # Normalize to 0-1 distance
             max_bits = h1.shape[0] * 8
             normalized_distance = distance / max_bits
             hash_distances.append(normalized_distance)
             hash_names.append(name)
-        
+
         if not hash_distances and hist_score == 0:
             return 0.0
-        
+
         # Define weights
         weight_map = {
             "phash": 0.4,  # Most reliable
@@ -280,39 +279,39 @@ class FrameFingerprinter:
             "mhash": 0.1,  # Good for edges
             "histogram": 0.1,  # Global color
         }
-        
+
         # Use numba optimization if available
         if self.use_numba and hash_distances:
             try:
                 # Prepare weights array
                 weights = np.array([weight_map.get(name, 0.1) for name in hash_names])
                 weights = np.append(weights, weight_map.get("histogram", 0.1))
-                
+
                 # Convert to numpy arrays
                 hash_dist_array = np.array(hash_distances, dtype=np.float64)
-                
+
                 return compute_weighted_similarity(hash_dist_array, hist_score, weights)
             except Exception:
                 # Fallback to standard implementation
                 pass
-        
+
         # Standard implementation
         total_weight = 0
         total_score = 0
-        
+
         # Add hash similarities
         for i, name in enumerate(hash_names):
             weight = weight_map.get(name, 0.1)
             similarity = 1.0 - hash_distances[i]
             total_score += similarity * weight
             total_weight += weight
-        
+
         # Add histogram score
         if hist_score > 0:
             weight = weight_map.get("histogram", 0.1)
             total_score += hist_score * weight
             total_weight += weight
-        
+
         return total_score / total_weight if total_weight > 0 else 0.0
 
     def precompute_video_fingerprints(
@@ -408,45 +407,43 @@ class FrameFingerprinter:
         # Create a new instance in the worker process without logging
         fingerprinter = FrameFingerprinter(log_init=False)
         return fingerprinter.compute_fingerprint(frame)
-    
+
     def compare_fingerprints_batch(
-        self, 
-        fps1: list[dict[str, np.ndarray]], 
-        fps2: list[dict[str, np.ndarray]]
+        self, fps1: list[dict[str, np.ndarray]], fps2: list[dict[str, np.ndarray]]
     ) -> np.ndarray:
         """Batch comparison of fingerprints using numba optimization.
-        
+
         Args:
             fps1: List of fingerprints from first set
             fps2: List of fingerprints from second set
-            
+
         Returns:
             Similarity matrix (len(fps1), len(fps2))
         """
         n1, n2 = len(fps1), len(fps2)
         similarities = np.zeros((n1, n2), dtype=np.float32)
-        
+
         if self.use_numba and n1 > 5 and n2 > 5:
             try:
                 # Extract hash types from first fingerprint
                 hash_types = [k for k in fps1[0].keys() if k != "histogram"]
-                
+
                 # Prepare batch arrays for each hash type
                 for hash_type in hash_types:
                     if all(hash_type in fp for fp in fps1 + fps2):
                         # Extract hashes for this type
                         hashes1 = np.array([fp[hash_type].flatten() for fp in fps1])
                         hashes2 = np.array([fp[hash_type].flatten() for fp in fps2])
-                        
+
                         # Compute batch distances
                         distances = compute_hamming_distances_batch(
                             hashes1.astype(np.uint8), hashes2.astype(np.uint8)
                         )
-                        
+
                         # Convert to similarities and accumulate
                         max_bits = hashes1.shape[1] * 8
                         hash_similarities = 1.0 - (distances / max_bits)
-                        
+
                         # Apply weight for this hash type
                         weight_map = {
                             "phash": 0.4,
@@ -456,7 +453,7 @@ class FrameFingerprinter:
                         }
                         weight = weight_map.get(hash_type, 0.1)
                         similarities += hash_similarities * weight
-                
+
                 # Add histogram correlations if available
                 if all("histogram" in fp for fp in fps1 + fps2):
                     for i in range(n1):
@@ -465,43 +462,45 @@ class FrameFingerprinter:
                                 fps1[i]["histogram"], fps2[j]["histogram"]
                             )
                             similarities[i, j] += max(0, hist_corr) * 0.1
-                
+
                 # Normalize by total weight
                 total_weight = sum(weight_map.values()) + 0.1  # +0.1 for histogram
                 similarities /= total_weight
-                
+
                 return similarities
-                
+
             except Exception as e:
                 logger.warning(f"Batch comparison failed, falling back: {e}")
-        
+
         # Fallback to individual comparisons
         for i in range(n1):
             for j in range(n2):
                 similarities[i, j] = self.compare_fingerprints(fps1[i], fps2[j])
-        
+
         return similarities
 
     def compute_fingerprints(self, frames: np.ndarray) -> np.ndarray:
         """Compute fingerprints for multiple frames.
-        
+
         Args:
             frames: Array of frames (N, H, W, C) or list of frames
-            
+
         Returns:
             Array of fingerprints as feature vectors
         """
         logger.info(f"Computing fingerprints for {len(frames)} frames...")
         start_time = time.time()
-        
+
         fingerprints = []
-        
+
         # Process frames in batches using multiprocessing
         with ProcessPoolExecutor(max_workers=mp.cpu_count()) as executor:
             # Submit all tasks
-            futures = [executor.submit(self._compute_fingerprint_worker, frame) 
-                      for frame in frames]
-            
+            futures = [
+                executor.submit(self._compute_fingerprint_worker, frame)
+                for frame in frames
+            ]
+
             # Collect results in order
             for future in futures:
                 try:
@@ -513,45 +512,45 @@ class FrameFingerprinter:
                     logger.warning(f"Failed to compute fingerprint: {e}")
                     # Add zero vector as fallback
                     fingerprints.append(np.zeros(self._get_fingerprint_size()))
-        
+
         elapsed = time.time() - start_time
         fps = len(fingerprints) / elapsed if elapsed > 0 else 0
         logger.info(
             f"Computed {len(fingerprints)} fingerprints in {elapsed:.2f}s "
             f"({fps:.1f} fps)"
         )
-        
+
         return np.array(fingerprints)
-    
+
     def _fingerprint_to_vector(self, fingerprint: dict[str, np.ndarray]) -> np.ndarray:
         """Convert fingerprint dictionary to feature vector.
-        
+
         Args:
             fingerprint: Dictionary of hash values and histogram
-            
+
         Returns:
             Flattened feature vector
         """
         features = []
-        
+
         # Extract hash values in consistent order
         for hash_name in ["phash", "ahash", "dhash", "mhash"]:
             if hash_name in fingerprint:
                 features.append(fingerprint[hash_name].flatten())
-        
+
         # Add histogram if present
         if "histogram" in fingerprint:
             features.append(fingerprint["histogram"])
-        
+
         # Concatenate all features
         if features:
             return np.concatenate(features)
         else:
             return np.zeros(self._get_fingerprint_size())
-    
+
     def _get_fingerprint_size(self) -> int:
         """Get the size of the fingerprint feature vector.
-        
+
         Returns:
             Size of feature vector
         """
@@ -561,10 +560,10 @@ class FrameFingerprinter:
         for name in ["phash", "ahash", "dhash", "mhash"]:
             if name in self.hashers:
                 size += 8  # 8 bytes per hash
-        
+
         # Add histogram size (32 bins * 3 channels)
         size += 32 * 3
-        
+
         return size
 
     def clear_cache(self, video_path: str | None = None):

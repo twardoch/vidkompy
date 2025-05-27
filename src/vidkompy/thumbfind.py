@@ -11,18 +11,18 @@ This tool finds the scale and position transformation needed to match a foregrou
 within a background image/video using multi-scale template matching and feature-based approaches.
 """
 
+import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+
 import cv2
 import numpy as np
-import fire
-from pathlib import Path
-from rich.console import Console
-from rich.table import Table
-from rich.progress import Progress
-import logging
 from numba import jit
-from concurrent.futures import ThreadPoolExecutor
-import time
-from dataclasses import dataclass
+from rich.console import Console
+from rich.progress import Progress
+from rich.table import Table
 
 try:
     from skimage.registration import phase_cross_correlation
@@ -183,6 +183,107 @@ class ThumbnailFinder:
 
         return numerator / np.sqrt(template_var * image_var)
 
+    @staticmethod
+    @jit(nopython=True)
+    def histogram_correlation(hist1: np.ndarray, hist2: np.ndarray) -> float:
+        """Fast histogram correlation for ballpark scale estimation."""
+        # Normalize histograms
+        h1 = hist1 / (np.sum(hist1) + 1e-7)
+        h2 = hist2 / (np.sum(hist2) + 1e-7)
+
+        # Compute correlation coefficient
+        mean1 = np.mean(h1)
+        mean2 = np.mean(h2)
+
+        numerator = np.sum((h1 - mean1) * (h2 - mean2))
+        denominator = np.sqrt(np.sum((h1 - mean1) ** 2) * np.sum((h2 - mean2) ** 2))
+
+        if denominator == 0:
+            return 0.0
+
+        return numerator / denominator
+
+    def ballpark_scale_estimation(
+        self,
+        template: np.ndarray,
+        image: np.ndarray,
+        scale_range: tuple[float, float] = (0.3, 1.0),
+    ) -> tuple[float, float]:
+        """
+        Ultra-fast ballpark scale estimation using histogram correlation.
+
+        Returns:
+            Tuple of (estimated_scale, confidence)
+        """
+        # Convert to grayscale and downsample for speed
+        if len(template.shape) == 3:
+            template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+        else:
+            template_gray = template
+
+        if len(image.shape) == 3:
+            image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            image_gray = image
+
+        # Downsample for ultra-fast processing
+        template_small = cv2.resize(template_gray, (64, 64))
+
+        # Compute template histogram
+        template_hist = cv2.calcHist([template_small], [0], None, [64], [0, 256])
+        template_hist = template_hist.flatten()
+
+        # Test coarse scale range
+        scales = np.linspace(scale_range[0], scale_range[1], 10)
+        best_scale = 1.0
+        best_corr = -1.0
+
+        for scale in scales:
+            # Estimate thumbnail size at this scale
+            thumb_h = int(template_gray.shape[0] * scale)
+            thumb_w = int(template_gray.shape[1] * scale)
+
+            if thumb_h < 32 or thumb_w < 32:
+                continue
+            if thumb_h >= image_gray.shape[0] or thumb_w >= image_gray.shape[1]:
+                continue
+
+            # Create scaled template
+            scaled_template = cv2.resize(
+                template_small, (int(64 * scale), int(64 * scale))
+            )
+
+            # Compute histogram correlation with multiple regions
+            max_region_corr = -1.0
+            step = max(1, min(image_gray.shape[0] // 4, image_gray.shape[1] // 4))
+
+            for y in range(0, image_gray.shape[0] - thumb_h, step):
+                for x in range(0, image_gray.shape[1] - thumb_w, step):
+                    # Extract region and compute histogram
+                    region = image_gray[y : y + thumb_h, x : x + thumb_w]
+                    region_small = cv2.resize(
+                        region, (int(64 * scale), int(64 * scale))
+                    )
+                    region_hist = cv2.calcHist(
+                        [region_small], [0], None, [64], [0, 256]
+                    )
+                    region_hist = region_hist.flatten()
+
+                    # Compute correlation
+                    corr = self.histogram_correlation(template_hist, region_hist)
+                    max_region_corr = max(max_region_corr, corr)
+
+            if max_region_corr > best_corr:
+                best_corr = max_region_corr
+                best_scale = scale
+
+        if self.verbose:
+            logger.debug(
+                f"Ballpark estimation: scale={best_scale:.3f}, confidence={best_corr:.3f}"
+            )
+
+        return best_scale, best_corr
+
     def multiscale_template_matching(
         self,
         template: np.ndarray,
@@ -244,8 +345,13 @@ class ThumbnailFinder:
             )
             _, max_val, _, max_loc = cv2.minMaxLoc(result)
 
-            if max_val > best_correlation:
-                best_correlation = max_val
+            # Apply small bias toward unity scale (1.0) for similar confidence scores
+            adjusted_val = max_val
+            if abs(scale - 1.0) < 0.05:  # Within 5% of unity scale
+                adjusted_val *= 1.02  # Small 2% bonus for near-unity scales
+
+            if adjusted_val > best_correlation:
+                best_correlation = max_val  # Store original correlation, not adjusted
                 best_scale = scale
                 best_loc = max_loc
 
@@ -901,27 +1007,237 @@ class ThumbnailFinder:
         logger.debug(f"Hybrid matching final result: {final_result}")
         return final_result
 
-    def find_thumbnail(
+    def multi_precision_matching(
+        self, template: np.ndarray, image: np.ndarray, precision_level: int = 2
+    ) -> MatchResult | None:
+        """
+        Multi-precision matching with graduated refinement levels.
+
+        Precision levels:
+        0: Ultra-fast ballpark (histogram correlation) - ~1ms
+        1: Coarse template matching with wide scale steps - ~10ms
+        2: Balanced feature + template matching - ~25ms
+        3: Fine feature + focused template matching - ~50ms
+        4: Precise sub-pixel refinement - ~200ms
+
+        Args:
+            template: Foreground frame to match
+            image: Background frame to search in
+            precision_level: Precision level 0-4
+
+        Returns:
+            MatchResult with incremental improvements at each level
+        """
+        start_time = time.time()
+        console.print(f"\n[cyan]● Precision Level {precision_level}[/cyan]")
+
+        # Level 0: Ultra-fast ballpark estimation
+        ballpark_scale, ballpark_confidence = self.ballpark_scale_estimation(
+            template, image
+        )
+        console.print(
+            f"  Level 0 (Ballpark): scale ≈ {ballpark_scale:.1%}, confidence = {ballpark_confidence:.3f}"
+        )
+
+        if precision_level == 0:
+            return MatchResult(
+                scale=ballpark_scale,
+                x=0,  # Ballpark doesn't estimate position
+                y=0,
+                confidence=ballpark_confidence,
+                method="ballpark",
+                processing_time=time.time() - start_time,
+            )
+
+        # Level 1: Coarse template matching around ballpark estimate
+        search_margin = 0.2  # ±20% around ballpark estimate
+        coarse_range = (
+            max(0.1, ballpark_scale - search_margin),
+            min(1.0, ballpark_scale + search_margin),
+        )
+
+        coarse_result = self.parallel_multiscale_template_matching(
+            template, image, scale_range=coarse_range, scale_steps=10
+        )
+
+        if coarse_result:
+            console.print(
+                f"  Level 1 (Coarse): scale = {coarse_result.scale:.1%}, pos = ({coarse_result.x}, {coarse_result.y}), confidence = {coarse_result.confidence:.3f}"
+            )
+        else:
+            console.print("  Level 1 (Coarse): No match found")
+
+        if precision_level == 1:
+            return coarse_result or MatchResult(
+                scale=ballpark_scale,
+                x=0,
+                y=0,
+                confidence=ballpark_confidence,
+                method="coarse",
+                processing_time=time.time() - start_time,
+            )
+
+        # Level 2: Balanced matching (quick feature + moderate template)
+        feature_result = self.enhanced_feature_matching(template, image)
+
+        # Use best result so far for focused template search
+        base_result = coarse_result or (
+            feature_result
+            if feature_result and feature_result.confidence > ballpark_confidence
+            else None
+        )
+
+        if base_result:
+            # Moderate template matching around the estimate
+            balanced_range = (
+                max(0.1, base_result.scale - 0.1),
+                min(1.0, base_result.scale + 0.1),
+            )
+            balanced_result = self.parallel_multiscale_template_matching(
+                template, image, scale_range=balanced_range, scale_steps=15
+            )
+        else:
+            balanced_result = None
+
+        # Choose best of feature and balanced template results
+        candidates = [r for r in [feature_result, balanced_result] if r is not None]
+        if candidates:
+            level2_result = max(candidates, key=lambda r: r.confidence)
+            console.print(
+                f"  Level 2 (Balanced): scale = {level2_result.scale:.2%}, pos = ({level2_result.x}, {level2_result.y}), confidence = {level2_result.confidence:.3f}"
+            )
+        else:
+            level2_result = base_result
+            if level2_result:
+                console.print(
+                    f"  Level 2 (Balanced): Using coarse result - scale = {level2_result.scale:.2%}, confidence = {level2_result.confidence:.3f}"
+                )
+
+        if precision_level == 2:
+            return level2_result or MatchResult(
+                scale=ballpark_scale,
+                x=0,
+                y=0,
+                confidence=ballpark_confidence,
+                method="balanced",
+                processing_time=time.time() - start_time,
+            )
+
+        # Level 3: Fine matching (enhanced feature + focused template)
+        # Run enhanced feature matching with better parameters
+        feature_result_fine = self.enhanced_feature_matching(
+            template, image, detector_type="auto"
+        )
+
+        # Use best result so far for very focused template search
+        base_result = (
+            level2_result
+            or coarse_result
+            or (
+                feature_result_fine
+                if feature_result_fine
+                and feature_result_fine.confidence > ballpark_confidence
+                else None
+            )
+        )
+
+        if base_result:
+            # Fine template matching around the estimate
+            fine_range = (
+                max(0.1, base_result.scale - 0.05),
+                min(1.0, base_result.scale + 0.05),
+            )
+            fine_result = self.parallel_multiscale_template_matching(
+                template, image, scale_range=fine_range, scale_steps=20
+            )
+        else:
+            fine_result = None
+
+        # Choose best of feature and fine template results
+        candidates = [r for r in [feature_result_fine, fine_result] if r is not None]
+        if candidates:
+            level3_result = max(candidates, key=lambda r: r.confidence)
+            console.print(
+                f"  Level 3 (Fine): scale = {level3_result.scale:.2%}, pos = ({level3_result.x}, {level3_result.y}), confidence = {level3_result.confidence:.3f}"
+            )
+        else:
+            level3_result = base_result
+            if level3_result:
+                console.print(
+                    f"  Level 3 (Fine): Using previous result - scale = {level3_result.scale:.2%}, confidence = {level3_result.confidence:.3f}"
+                )
+
+        if precision_level == 3:
+            return level3_result or MatchResult(
+                scale=ballpark_scale,
+                x=0,
+                y=0,
+                confidence=ballpark_confidence,
+                method="fine",
+                processing_time=time.time() - start_time,
+            )
+
+        # Level 4: Precise sub-pixel refinement
+        if level3_result and level3_result.confidence > 0.3:
+            refined_scale, refined_x, refined_y, refined_confidence = (
+                self.precise_refinement(
+                    template,
+                    image,
+                    level3_result.scale,
+                    level3_result.x,
+                    level3_result.y,
+                    search_radius=3,
+                    scale_steps=41,  # Higher precision
+                )
+            )
+
+            precise_result = MatchResult(
+                scale=refined_scale,
+                x=refined_x,
+                y=refined_y,
+                confidence=refined_confidence,
+                method="precise",
+                processing_time=time.time() - start_time,
+            )
+            console.print(
+                f"  Level 4 (Precise): scale = {precise_result.scale:.3%}, pos = ({precise_result.x}, {precise_result.y}), confidence = {precise_result.confidence:.4f}"
+            )
+            return precise_result
+        else:
+            console.print(
+                "  Level 4 (Precise): Skipped - insufficient confidence from level 3"
+            )
+            return level3_result or MatchResult(
+                scale=ballpark_scale,
+                x=0,
+                y=0,
+                confidence=ballpark_confidence,
+                method="precise_fallback",
+                processing_time=time.time() - start_time,
+            )
+
+    def _find_thumbnail_in_frames(
         self,
         fg_frames: list[np.ndarray],
         bg_frames: list[np.ndarray],
-        precise: bool = False,
-        method: str = "auto",
-    ) -> tuple[float, float, float, float, float, float, float]:
+        precision: int = 2,
+        unity_scale: bool = True,
+    ) -> tuple[float, float, float, float, float, float, float, dict]:
         """
         Find the best thumbnail match across all frame combinations using advanced algorithms.
 
         Args:
             fg_frames: List of foreground frames to match
             bg_frames: List of background frames to search in
-            precise: Enable precise refinement after initial estimation
-            method: Matching method - "auto", "fast", "accurate", "template", "feature"
+            precision: Precision level 0-4 (0=fastest ballpark, 4=most accurate)
+            unity_scale: If True, bias toward 100% scale (shift-only) detection
 
         Returns:
-            Tuple of (confidence_pct, scale_down_pct, x_shift, y_shift, scale_up_pct, x_shift_upscaled, y_shift_upscaled)
+            Tuple of (confidence_pct, scale_down_pct, x_shift, y_shift, scale_up_pct, x_shift_upscaled, y_shift_upscaled, analysis_data)
         """
         best_result = None
         all_results = []
+        unity_scale_results = []  # Track 100% scale results separately
         processing_start = time.time()
 
         total_combinations = len(fg_frames) * len(bg_frames)
@@ -933,27 +1249,17 @@ class ThumbnailFinder:
 
             for i, fg_frame in enumerate(fg_frames):
                 for j, bg_frame in enumerate(bg_frames):
-                    # Use the selected matching method
-                    if method in ["auto", "fast", "accurate"]:
-                        # Use hybrid approach
-                        match_method = "fast" if method == "fast" else "auto"
-                        result = self.hybrid_matching(
-                            fg_frame, bg_frame, method=match_method
-                        )
-                    elif method == "template":
-                        # Pure template matching
-                        result = self.parallel_multiscale_template_matching(
-                            fg_frame, bg_frame
-                        )
-                    elif method == "feature":
-                        # Pure feature matching
-                        result = self.enhanced_feature_matching(fg_frame, bg_frame)
-                    else:
-                        # Fallback to hybrid auto
-                        result = self.hybrid_matching(fg_frame, bg_frame, method="auto")
+                    # Use precision-based matching - each level uses different algorithms
+                    result = self.multi_precision_matching(
+                        fg_frame, bg_frame, precision_level=precision
+                    )
 
                     if result is not None:
                         all_results.append(result)
+
+                        # Track unity scale results separately
+                        if abs(result.scale - 1.0) < 0.05:  # Within 5% of unity scale
+                            unity_scale_results.append(result)
 
                         # Track best result
                         if (
@@ -969,7 +1275,23 @@ class ThumbnailFinder:
 
         if not all_results:
             logger.warning("No matches found")
-            return (0.0, 0.0, 0, 0, 100.0, 0, 0)
+            return (0.0, 0.0, 0, 0, 100.0, 0, 0, {})
+
+        # Apply unity scale preference if enabled
+        unity_scale_result = None
+        if unity_scale and unity_scale_results:
+            # Find best unity scale result
+            unity_scale_result = max(unity_scale_results, key=lambda r: r.confidence)
+
+            # If unity scale result is competitive (within 10% confidence), prefer it
+            confidence_threshold = 0.1
+            if best_result is None or unity_scale_result.confidence >= (
+                best_result.confidence - confidence_threshold
+            ):
+                logger.debug(
+                    f"Preferring unity scale result: confidence={unity_scale_result.confidence:.3f} vs scaled={best_result.confidence:.3f}"
+                )
+                best_result = unity_scale_result
 
         # Average results for robustness (weight by confidence)
         if len(all_results) > 1:
@@ -1035,6 +1357,37 @@ class ThumbnailFinder:
             int(-best_result.y / best_result.scale) if best_result.scale > 0 else 0
         )
 
+        # Prepare analysis data for dual result reporting
+        analysis_data = {
+            "unity_scale_result": None,
+            "scaled_result": None,
+            "total_results": len(all_results),
+            "unity_scale_count": len(unity_scale_results),
+            "precision_level": precision,
+            "unity_scale": unity_scale,
+        }
+
+        if unity_scale_result:
+            analysis_data["unity_scale_result"] = {
+                "confidence": unity_scale_result.confidence,
+                "scale": unity_scale_result.scale,
+                "x": unity_scale_result.x,
+                "y": unity_scale_result.y,
+                "method": unity_scale_result.method,
+            }
+
+        # Find best non-unity scale result for comparison
+        non_unity_results = [r for r in all_results if abs(r.scale - 1.0) >= 0.05]
+        if non_unity_results:
+            scaled_result = max(non_unity_results, key=lambda r: r.confidence)
+            analysis_data["scaled_result"] = {
+                "confidence": scaled_result.confidence,
+                "scale": scaled_result.scale,
+                "x": scaled_result.x,
+                "y": scaled_result.y,
+                "method": scaled_result.method,
+            }
+
         # Update performance stats
         total_processing_time = time.time() - processing_start
         self.performance_stats["total_processing_time"] = total_processing_time
@@ -1042,7 +1395,10 @@ class ThumbnailFinder:
         if self.verbose:
             logger.info(f"Performance stats: {self.performance_stats}")
             logger.info(
-                f"Best method: {best_result.method}, Total combinations: {total_combinations}"
+                f"Best method: {best_result.method}, Precision level: {precision}, Total combinations: {total_combinations}"
+            )
+            logger.info(
+                f"Unity scale results: {len(unity_scale_results)}, Non-unity: {len(non_unity_results)}"
             )
 
         return (
@@ -1053,16 +1409,17 @@ class ThumbnailFinder:
             scale_up_pct,
             x_shift_upscaled,
             y_shift_upscaled,
+            analysis_data,
         )
 
     def find_thumbnail(
         self,
         fg: str | Path,
         bg: str | Path,
-        frames: int = 7,
+        num_frames: int = 7,
         verbose: bool = False,
-        precise: bool = False,
-        method: str = "auto",
+        precision: int = 2,
+        unity_scale: bool = True,
     ) -> None:
         """
         Main entry point for the thumbnail finder.
@@ -1070,11 +1427,12 @@ class ThumbnailFinder:
         Args:
             fg: Path to foreground image or video (the "input"/original frameset)
             bg: Path to background image or video (the "output"/frameset containing thumbnail)
-            frames: Maximum number of frames to process for videos (default: 7)
+            num_frames: Maximum number of frames to process for videos (default: 7)
             verbose: Enable verbose logging
-            precise: Enable precise refinement after initial estimation (slower but more accurate)
-            method: Matching method - "auto" (hybrid), "fast" (speed optimized), "accurate" (quality optimized), "template" (template only), "feature" (feature only)
+            precision: Precision level 0-4 (0=ballpark ~1ms, 1=coarse ~10ms, 2=balanced ~25ms, 3=fine ~50ms, 4=precise ~200ms)
+            unity_scale: If True, bias toward 100% scale (shift-only) detection
         """
+        frames = num_frames
         if verbose:
             self.verbose = True
             logging.getLogger().setLevel(logging.DEBUG)
@@ -1084,11 +1442,16 @@ class ThumbnailFinder:
             console.print(f"Foreground: {fg}")
             console.print(f"Background: {bg}")
             console.print(f"Max frames: {frames}")
-            if precise:
-                console.print(
-                    "[yellow]Precise mode enabled - may take longer but provides higher accuracy[/yellow]"
-                )
-            console.print(f"Method: {method.upper()}")
+            precision_names = [
+                "Ballpark (~1ms)",
+                "Coarse (~10ms)",
+                "Balanced (~25ms)",
+                "Fine (~50ms)",
+                "Precise (~200ms)",
+            ]
+            console.print(
+                f"[green]Precision Level: {precision}[/green] - {precision_names[precision]}"
+            )
             console.print()
 
             # Extract frames
@@ -1101,8 +1464,11 @@ class ThumbnailFinder:
             console.print()
 
             # Find thumbnail
-            results = self.find_thumbnail(
-                fg_frames, bg_frames, precise=precise, method=method
+            results = self._find_thumbnail_in_frames(
+                fg_frames,
+                bg_frames,
+                precision=precision,
+                unity_scale=unity_scale,
             )
             (
                 confidence_pct,
@@ -1112,6 +1478,7 @@ class ThumbnailFinder:
                 scale_up_pct,
                 x_shift_upscaled,
                 y_shift_upscaled,
+                analysis_data,
             ) = results
 
             # Get filenames for display
@@ -1174,6 +1541,32 @@ class ThumbnailFinder:
                 f"Reverse position: ({x_shift_upscaled}, {y_shift_upscaled}) px"
             )
 
+            # Display dual result analysis if available
+            if analysis_data and (
+                analysis_data.get("unity_scale_result")
+                or analysis_data.get("scaled_result")
+            ):
+                console.print("\n[bold cyan]Alternative Analysis:[/bold cyan]")
+
+                if analysis_data.get("unity_scale_result"):
+                    unity = analysis_data["unity_scale_result"]
+                    console.print(
+                        f"Unity scale (100%) option: confidence={unity['confidence']:.3f}, position=({unity['x']}, {unity['y']})"
+                    )
+
+                if analysis_data.get("scaled_result"):
+                    scaled = analysis_data["scaled_result"]
+                    console.print(
+                        f"Scaled option: confidence={scaled['confidence']:.3f}, scale={scaled['scale'] * 100:.2f}%, position=({scaled['x']}, {scaled['y']})"
+                    )
+
+                console.print(
+                    f"Preference mode: {'Unity scale preferred' if unity_scale else 'Best confidence wins'}"
+                )
+                console.print(
+                    f"Total results analyzed: {analysis_data['total_results']} ({analysis_data['unity_scale_count']} near 100% scale)"
+                )
+
         except Exception as e:
             console.print(f"[bold red]Error:[/bold red] {e}")
             if verbose:
@@ -1185,11 +1578,19 @@ def find_thumbnail(
     bg: str | Path,
     frames: int = 7,
     verbose: bool = False,
-    precise: bool = False,
-    method: str = "auto",
+    precision: int = 2,
+    unity_scale: bool = True,
 ):
     """
     Main entry point for the thumbnail finder.
+
+    Args:
+        fg: Path to foreground image or video
+        bg: Path to background image or video
+        frames: Maximum number of frames to process
+        verbose: Enable verbose logging
+        precision: Precision level 0-4 (0=ballpark ~1ms, 1=coarse ~10ms, 2=balanced ~25ms, 3=fine ~50ms, 4=precise ~200ms)
+        unity_scale: Bias toward 100% scale detection
     """
     thumbfind = ThumbnailFinder()
-    thumbfind.find_thumbnail(fg, bg, frames, verbose, precise, method)
+    thumbfind.find_thumbnail(fg, bg, frames, verbose, precision, unity_scale)

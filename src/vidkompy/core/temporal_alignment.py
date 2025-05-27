@@ -17,7 +17,6 @@ from .spatial_alignment import SpatialAligner
 from .tunnel_aligner import TunnelFullAligner, TunnelMaskAligner, TunnelConfig
 
 
-
 class TemporalAligner:
     """Handles temporal alignment between videos.
 
@@ -55,11 +54,9 @@ class TemporalAligner:
         self.max_keyframes = max_keyframes
         self.drift_interval = drift_interval
         self.engine_mode = engine_mode
-        self.use_tunnel_engine = engine_mode == "full" or engine_mode == "mask"
+        self.use_tunnel_engine = engine_mode in {"full", "mask"}
         self.cli_window_size = window
         self.tunnel_aligner = None
-
-
 
     def align_frames(
         self, bg_info: VideoInfo, fg_info: VideoInfo, trim: bool = False
@@ -85,7 +82,6 @@ class TemporalAligner:
             logger.info(f"Using {self.engine_mode} temporal alignment engine")
             return self._align_frames_tunnel(bg_info, fg_info, trim)
 
-
         # Fallback: should not reach here if tunnel engines are working
         logger.error("No alignment engine active - fallback to direct mapping")
         return self._create_direct_mapping(bg_info, fg_info)
@@ -109,9 +105,9 @@ class TemporalAligner:
                 window_size=self.cli_window_size if self.cli_window_size > 0 else 30,
                 downsample_factor=0.5,  # Downsample to 50% for faster processing
                 early_stop_threshold=0.05,
-                merge_strategy="confidence_weighted"
+                merge_strategy="confidence_weighted",
             )
-            
+
             if self.engine_mode == "full":
                 self.tunnel_aligner = TunnelFullAligner(config)
             else:  # mask
@@ -139,21 +135,21 @@ class TemporalAligner:
         # Get spatial alignment
         spatial_result = spatial_aligner.align(bg_sample, fg_sample)
         x_offset, y_offset = spatial_result.x_offset, spatial_result.y_offset
-        
+
         logger.info(f"Spatial offset: ({x_offset}, {y_offset})")
 
         # Extract all frames for tunnel alignment
         logger.info("Extracting all frames for tunnel alignment...")
-        
+
         # For tunnel engines, we need full frames without pre-cropping
         fg_all_frames = self.processor.extract_all_frames(
             fg_info.path,
-            resize_factor=0.25  # Use 25% size for processing
+            resize_factor=0.25,  # Use 25% size for processing
         )
-        
+
         bg_all_frames = self.processor.extract_all_frames(
             bg_info.path,
-            resize_factor=0.25  # Use 25% size for processing
+            resize_factor=0.25,  # Use 25% size for processing
         )
 
         if fg_all_frames is None or bg_all_frames is None:
@@ -167,17 +163,15 @@ class TemporalAligner:
         # Perform tunnel alignment
         logger.info(f"Performing {self.engine_mode} alignment...")
         frame_alignments, confidence = self.tunnel_aligner.align(
-            fg_all_frames,
-            bg_all_frames,
-            scaled_x_offset,
-            scaled_y_offset,
-            verbose=True
+            fg_all_frames, bg_all_frames, scaled_x_offset, scaled_y_offset, verbose=True
         )
 
         # Calculate temporal offset from first alignment
         if frame_alignments:
             first_align = frame_alignments[0]
-            offset_seconds = (first_align.bg_frame_idx / bg_info.fps) - (first_align.fg_frame_idx / fg_info.fps)
+            offset_seconds = (first_align.bg_frame_idx / bg_info.fps) - (
+                first_align.fg_frame_idx / fg_info.fps
+            )
         else:
             offset_seconds = 0.0
 
@@ -187,20 +181,6 @@ class TemporalAligner:
             method_used=self.engine_mode,
             confidence=confidence,
         )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     def _create_direct_mapping(
         self, bg_info: VideoInfo, fg_info: VideoInfo
@@ -225,7 +205,6 @@ class TemporalAligner:
             method_used="direct",
             confidence=0.3,
         )
-
 
     def create_border_mask(
         self,
@@ -380,4 +359,3 @@ class TemporalAligner:
 
         logger.debug(f"Created blend mask with {border_thickness}px gradient")
         return mask
-

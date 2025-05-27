@@ -7,7 +7,6 @@ Precise temporal alignment implementation with advanced techniques.
 Combines multi-resolution alignment, keyframe anchoring, and bidirectional DTW.
 """
 
-from typing import Tuple, Optional, List, Dict
 import numpy as np
 from loguru import logger
 from scipy.signal import find_peaks
@@ -75,8 +74,8 @@ class PreciseTemporalAlignment:
         )
 
         # Always include first and last frames
-        keyframes = [0] + list(peaks) + [len(fingerprints) - 1]
-        keyframes = sorted(list(set(keyframes)))
+        keyframes = [0, *list(peaks), len(fingerprints) - 1]
+        keyframes = sorted(set(keyframes))
 
         logger.info(f"Detected {len(keyframes)} keyframes")
         return np.array(keyframes)

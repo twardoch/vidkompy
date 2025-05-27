@@ -9,7 +9,7 @@ from vidkompy.thumbfind import find_thumbnail
 
 
 def cli():
-    fire.Fire({"merge": composite_videos, "find": find_thumbnail})
+    fire.Fire({"comp": composite_videos, "find": find_thumbnail})
 
 
 if __name__ == "__main__":
