@@ -1,4 +1,3 @@
-
 ## Coding style
 
 <guidelines>
@@ -19,14 +18,14 @@
 - Reduce cognitive load, beautify code
 - Modularize repeated logic into concise, single-purpose functions
 - Favor flat over nested structures
-- Consistently keep, document, update and consult the holistic overview mental image of the codebase. 
+- Consistently keep, document, update and consult the holistic overview mental image of the codebase.
 
-Work in rounds: 
+Work in rounds:
 
-- Create `PLAN.md` as a detailed flat plan with `[ ]` items. 
-- Identify the most important TODO items, and create `TODO.md` with `[ ]` items. 
-- Implement the changes. 
-- Update `PLAN.md` and `TODO.md` as you go. 
+- Create `PLAN.md` as a detailed flat plan with `[ ]` items.
+- Identify the most important TODO items, and create `TODO.md` with `[ ]` items.
+- Implement the changes.
+- Update `PLAN.md` and `TODO.md` as you go.
 - After each round of changes, update `CHANGELOG.md` with the changes.
 - Update `README.md` to reflect the changes.
 
@@ -65,9 +64,7 @@ When you’re finished, print "Wait, but" to go back, think & reflect, revise & 
 fd -e py -x autoflake {}; fd -e py -x pyupgrade --py312-plus {}; fd -e py -x ruff check --output-format=github --fix --unsafe-fixes {}; fd -e py -x ruff format --respect-gitignore --target-version py312 {}; python -m pytest;
 ```
 
-Be creative, diligent, critical, relentless & funny!
-</guidelines>
-
+Be creative, diligent, critical, relentless & funny! </guidelines>
 
 # `vidkompy`
 
@@ -81,15 +78,24 @@ The core philosophy of `vidkompy` is to treat the **foreground video as the defi
 
 ## Features
 
+### Video Composition
+
 - **Automatic Spatial Alignment**: Intelligently detects the optimal x/y offset to position the foreground video within the background, even if they are cropped differently.
 - **Advanced Temporal Synchronization**: Aligns videos with different start times, durations, and frame rates, eliminating temporal drift and ensuring content matches perfectly over time.
 - **Foreground-First Principle**: Guarantees that every frame of the foreground video is included in the output, preserving its original timing and quality. The background video is adapted to match the foreground.
-- **Drift-Free Alignment**: Utilizes Dynamic Time Warping (DTW) to create a globally optimal, monotonic alignment, preventing the common "drift-and-catchup" artifacts seen with simpler methods.
-- **High-Performance Processing**: Leverages multi-core processing, perceptual hashing, and optimized video I/O to deliver results quickly.
-- Frame fingerprinting is 100-1000x faster than traditional pixel-wise comparison.
+- **Drift-Free Alignment**: Uses optimized sliding window algorithms to create globally optimal, monotonic alignment, preventing the common "drift-and-catchup" artifacts.
+- **High-Performance Processing**: Leverages multi-core processing, direct pixel comparison, and optimized video I/O to deliver results quickly.
 - Sequential video composition is 10-100x faster than random-access methods.
 - **Smart Audio Handling**: Automatically uses the foreground audio track if available, falling back to the background audio. The audio is correctly synchronized with the final video.
-- **Flexible Operation Modes**: Supports specialized modes like `border` matching for aligning content based on visible background edges, and `smooth` blending for seamless visual integration.
+- **Flexible Operation Modes**: Supports specialized modes like `mask` for letterboxed content and `smooth` blending for seamless visual integration.
+
+### Thumbnail Detection
+
+- **Multi-Scale Template Matching**: Advanced thumbnail detection system for finding scaled and translated foreground images within background images/videos
+- **Fast Histogram Correlation**: Initial scale estimation using histogram correlation for rapid processing
+- **Dual Result Analysis**: Provides both unity scale and scaled options with confidence metrics
+- **Precision Control**: Configurable precision parameter for varying levels of analysis detail
+- **Rich Output**: Detailed match results with confidence scores and processing statistics
 
 ## How It Works
 
@@ -111,7 +117,7 @@ The `vidkompy` pipeline is a multi-stage process designed for precision and accu
 
 ### Frame Fingerprinting (Perceptual Hashing)
 
-**TLDR:** Instead of comparing the millions of pixels in a frame, `vidkompy` creates a tiny, unique "fingerprint" (a hash) for each frame. Comparing these small fingerprints is thousands of times faster and smart enough to ignore minor changes from video compression.
+Instead of comparing the millions of pixels in a frame, `vidkompy` creates a tiny, unique "fingerprint" (a hash) for each frame. Comparing these small fingerprints is thousands of times faster and smart enough to ignore minor changes from video compression.
 
 ---
 
@@ -121,16 +127,18 @@ The process works as follows:
 
 1.  **Standardization**: The input frame is resized to a small, standard size (e.g., 64x64 pixels) and converted to grayscale. This ensures consistency and focuses on structural information over color.
 2.  **Multi-Algorithm Hashing**: To improve robustness, `vidkompy` computes several types of perceptual hashes for each frame, as different algorithms are sensitive to different visual features:
+
 - `pHash` (Perceptual Hash): Analyzes the frequency domain (using DCT), making it robust to changes in brightness, contrast, and gamma correction.
 - `AverageHash`: Computes a hash based on the average color of the frame.
 - `ColorMomentHash`: Captures the color distribution statistics of the frame.
 - `MarrHildrethHash`: Detects edges and shapes, making it sensitive to structural features.
+
 3.  **Combined Fingerprint**: The results from these hashers, along with a color histogram, are combined into a single "fingerprint" dictionary for the frame.
 4.  **Comparison**: To compare two frames, their fingerprints are compared. The similarity is calculated using a weighted average of the normalized Hamming distance between their hashes and the correlation between their histograms. The weights are tuned based on the reliability of each hash type for video content. This entire process is parallelized across multiple CPU cores for maximum speed.
 
 ### Spatial Alignment (Template Matching)
 
-**TLDR:** To find the correct position for the foreground video, the tool takes a screenshot from the middle of it and searches for that exact image within a screenshot from the background video.
+To find the correct position for the foreground video, the tool takes a screenshot from the middle of it and searches for that exact image within a screenshot from the background video.
 
 ---
 
@@ -144,78 +152,81 @@ Spatial alignment determines the `(x, y)` coordinates at which to overlay the fo
 
 ### Temporal Alignment Engines
 
-**TLDR:** `vidkompy` offers two temporal alignment engines: **Fast** for quick processing with good results, and **Precise** for maximum accuracy with advanced drift correction. Both find the optimal "path" through time that perfectly syncs the foreground to the background.
+`vidkompy` offers two high-performance temporal alignment engines optimized for different scenarios:
+
+- **Full** (default): Direct pixel comparison with sliding windows for maximum accuracy
+- **Mask**: Content-focused comparison with intelligent masking for letterboxed content
 
 ---
 
-Temporal alignment is the most critical and complex part of `vidkompy`. The goal is to create a mapping `FrameAlignment(fg_frame_idx, bg_frame_idx)` for every single foreground frame. `vidkompy` provides two distinct engines for this task:
+Temporal alignment is the most critical and complex part of `vidkompy`. The goal is to create a mapping `FrameAlignment(fg_frame_idx, bg_frame_idx)` for every single foreground frame. `vidkompy` provides two optimized engines for this task:
 
-#### Fast Engine (Default)
+#### Full Engine (Default)
 
-The **Fast Engine** uses **Dynamic Time Warping (DTW)** with perceptual hashing for efficient alignment:
+The **Full Engine** uses direct pixel-by-pixel frame comparison with a sliding window approach for maximum accuracy:
 
-1.  **Frame Sampling & Fingerprinting**: The tool samples frames sparsely based on the `max_keyframes` parameter and computes their perceptual fingerprints using multiple hash algorithms (pHash, AverageHash, ColorMomentHash, MarrHildrethHash).
-2.  **Cost Matrix Construction**: A cost matrix is built where `cost(i, j)` is the "distance" (i.e., `1.0 - similarity`) between the fingerprint of foreground frame `i` and background frame `j`.
-3.  **DTW with Constraints**: The DTW algorithm finds the lowest-cost path through this matrix with:
-   - **Monotonicity**: The path can only move forward in time, preventing temporal jumps
-   - **Sakoe-Chiba Band**: Constrains the search to a window around the diagonal (reduces complexity from O(N²) to O(N×w))
-4.  **Direct Mapping Mode**: With `max_keyframes=1` (default in fast mode), the engine forces direct frame mapping to eliminate drift entirely.
-5.  **Interpolation**: For sparse sampling, the engine linearly interpolates between matched keyframes to create a complete alignment map.
+1. **Bidirectional Matching**:
 
-**Characteristics:**
-- Processing time: ~15 seconds for an 8-second video
-- Minimal drift with direct mapping mode
-- Suitable for most use cases
+   - **Forward Pass**: Starts from the first FG frame, searches for best match in BG within a sliding window
+   - **Backward Pass**: Starts from the last FG frame, searches backward
+   - Merges both passes for robust alignment
 
-#### Precise Engine (Advanced)
+2. **Sliding Window Constraint**:
 
-The **Precise Engine** implements a sophisticated multi-resolution approach for maximum accuracy:
+   - Enforces monotonicity by design - can only search forward from the last matched frame
+   - Window size controls the maximum temporal displacement
+   - Prevents temporal jumps and ensures smooth progression
 
-1.  **Multi-Resolution Hierarchical Alignment**:
-   - Creates temporal pyramids at multiple resolutions (1/16, 1/8, 1/4, 1/2, full)
-   - Performs coarse-to-fine alignment, starting at the lowest resolution
-   - Each level refines the previous level's mapping
-   - Applies drift correction every 100 frames
-
-2.  **Keyframe Detection and Anchoring**:
-   - Automatically detects keyframes based on temporal changes using Gaussian filtering
-   - Aligns keyframes between videos as anchor points
-   - Forces alignment at keyframes to prevent long-range drift
-   - Detects scene changes and content transitions
-
-3.  **Bidirectional DTW**:
-   - Runs DTW in both forward and backward directions
-   - Averages the two alignment paths to reduce systematic bias
-   - Provides more robust alignment for videos with varying content
-
-4.  **Sliding Window Refinement**:
-   - Refines alignment in 30-frame windows
-   - Searches locally for optimal alignment adjustments
-   - Applies Gaussian smoothing for smooth transitions
-   - Ensures strict monotonicity throughout
-
-5.  **Confidence-Based Weighting**:
-   - Computes confidence scores for each alignment
-   - Weights multiple alignment methods based on their confidence
-   - Combines results for optimal accuracy
+3. **Direct Pixel Comparison**:
+   - Compares actual pixel values between FG and BG frames
+   - No information loss from hashing or fingerprinting
+   - More sensitive to compression artifacts but potentially more accurate
 
 **Characteristics:**
-- Processing time: ~5 minutes for an 8-second video (includes full frame extraction)
-- Virtually eliminates all temporal drift
-- Handles complex scenarios with varying frame rates and content changes
-- Best for critical applications requiring perfect synchronization
+
+- Processing time: ~40 seconds for an 8-second video (d10-w10 configuration)
+- Zero drift by design due to monotonic constraints
+- Perfect confidence scores (1.000)
+- Best overall performance for standard videos
+
+#### Mask Engine (Content-Focused)
+
+The **Mask Engine** extends the Full engine approach with intelligent masking for letterboxed or pillarboxed content:
+
+1. **Content Mask Generation**:
+
+   - Automatically detects content regions (non-black areas) in FG frames
+   - Creates binary mask to focus comparison on actual content
+   - Helps with letterboxed or pillarboxed videos
+
+2. **Masked Comparison**:
+
+   - Only compares pixels within the mask region
+   - Ignores black borders and letterboxing
+   - More robust for videos with varying aspect ratios
+
+3. **Same Bidirectional Approach**:
+   - Uses forward and backward passes like Full engine
+   - Applies mask during all comparisons
+   - Maintains monotonicity constraints
+
+**Characteristics:**
+
+- Processing time: ~45 seconds for an 8-second video (d10-w10 configuration)
+- Perfect confidence scores (1.000)
+- Better handling of videos with black borders
+- Ideal for videos where content doesn't fill the entire frame
 
 #### Engine Comparison
 
-| Aspect | Fast Engine | Precise Engine |
-|--------|-------------|----------------|
-| **Algorithm** | Single-pass DTW with perceptual hashing | Multi-resolution hierarchical alignment |
-| **Processing Time** | ~2x real-time | ~40x real-time |
-| **Drift Handling** | Direct mapping (no drift) or interpolation | Active correction + keyframe anchoring |
-| **Frame Extraction** | On-demand during composition | Full extraction before alignment |
-| **Memory Usage** | Low (streaming) | High (all frames in memory) |
-| **Accuracy** | Good, minimal drift at endpoints | Excellent, no drift throughout |
-| **Best For** | Quick processing, standard videos | Critical applications, complex content |
+| Aspect         | Full                    | Mask                            |
+| -------------- | ----------------------- | ------------------------------- |
+| **Algorithm**  | Direct pixel comparison | Masked pixel comparison         |
+| **Speed**      | ~5x real-time           | ~5x real-time                   |
+| **Drift**      | Zero (monotonic)        | Zero (monotonic)                |
+| **Memory**     | Medium                  | Medium                          |
+| **Confidence** | Perfect (1.000)         | Perfect (1.000)                 |
+| **Best For**   | Standard videos         | Letterboxed/pillarboxed content |
 
 ## Usage
 
@@ -238,72 +249,74 @@ uv pip install .
 
 ### Command-Line Interface (CLI)
 
-The tool is run from the command line, providing paths to the background and foreground videos.
+`vidkompy` now offers two main commands: video composition and thumbnail detection.
 
-**Basic Examples:**
+**Video Composition Examples:**
 
 ```bash
-# Fast engine with direct mapping (default, no drift)
-python -m vidkompy --bg background.mp4 --fg foreground.mp4
+# Full engine (default) - direct pixel comparison with zero drift
+python -m vidkompy comp --bg background.mp4 --fg foreground.mp4
 
-# Precise engine for maximum accuracy (slower but perfect sync)
-python -m vidkompy --bg background.mp4 --fg foreground.mp4 --engine precise
+# Mask engine for letterboxed/pillarboxed content
+python -m vidkompy comp --bg background.mp4 --fg foreground.mp4 --engine mask
 
 # Custom output path
-python -m vidkompy --bg bg.mp4 --fg fg.mp4 --output result.mp4
+python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --output result.mp4
+
+# Fine-tune performance with drift interval and window size
+python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --drift_interval 10 --window 10
+```
+
+**Thumbnail Detection Examples:**
+
+```bash
+# Find thumbnail in image
+python -m vidkompy find background.jpg foreground.jpg
+
+# Find thumbnail in video frame
+python -m vidkompy find background.mp4 foreground.jpg
+
+# High precision analysis
+python -m vidkompy find background.jpg foreground.jpg --precision 10
+
+# Detailed output with processing time
+python -m vidkompy find background.jpg foreground.jpg --verbose
 ```
 
 **CLI Help:**
 
+```bash
+# Main command help
+python -m vidkompy --help
+
+# Video composition help
+python -m vidkompy comp --help
+
+# Thumbnail detection help
+python -m vidkompy find --help
 ```
-INFO: Showing help with the command '__main__.py -- --help'.
 
-NAME
-    __main__.py - Overlay foreground video onto background video with intelligent alignment.
+The CLI now supports two main commands:
 
-SYNOPSIS
-    __main__.py BG FG <flags>
+- `comp`: Video composition with intelligent alignment
+- `find`: Thumbnail detection in images/videos
 
-DESCRIPTION
-    Overlay foreground video onto background video with intelligent alignment.
+**Video Composition Parameters:**
 
-POSITIONAL ARGUMENTS
-    BG
-        Type: str | pathlib.Path
-        Background video path
-    FG
-        Type: str | pathlib.Path
-        Foreground video path
+- `--bg`: Background video path
+- `--fg`: Foreground video path
+- `--output`: Output video path (auto-generated if not provided)
+- `--engine`: Temporal alignment engine - 'full' (default) or 'mask'
+- `--margin`: Border thickness for border matching mode (default: 8)
+- `--smooth`: Enable smooth blending at frame edges
+- `--verbose`: Enable verbose logging
 
-FLAGS
-    -o, --output=OUTPUT
-        Type: Optional[str | pathlib...
-        Default: None
-        Output video path (auto-generated if not provided)
-    -e, --engine=ENGINE
-        Type: str
-        Default: 'fast'
-        Temporal alignment engine - 'fast' (current) or 'precise' (coming soon) (default: 'fast')
-    -m, --margin=MARGIN
-        Type: int
-        Default: 8
-        Border thickness for border matching mode (default: 8)
-    -s, --smooth=SMOOTH
-        Type: bool
-        Default: False
-        Enable smooth blending at frame edges
-    -g, --gpu=GPU
-        Type: bool
-        Default: False
-        Enable GPU acceleration (future feature)
-    -v, --verbose=VERBOSE
-        Type: bool
-        Default: False
-        Enable verbose logging
+**Thumbnail Detection Parameters:**
 
-NOTES
-    You can also use flags syntax for POSITIONAL ARGUMENTS
-```
+- `background`: Background image/video path
+- `foreground`: Foreground image path
+- `--precision`: Analysis precision level (1-10, default: 3)
+- `--verbose`: Enable detailed output
 
 ## Performance
 
@@ -313,38 +326,40 @@ Recent updates have significantly improved `vidkompy`'s performance and accuracy
 
 Based on actual benchmarks with an 8-second test video (1920x1080 background, 1920x870 foreground, ~480 frames):
 
-| Engine | Processing Time | Speed Ratio | Drift at 1s | Drift at End | Notes |
-|--------|----------------|-------------|-------------|--------------|-------|
-| **Fast (default)** | 15.8 seconds | ~2x real-time | Minimal | Minimal | Direct mapping prevents drift |
-| **Precise** | 5m 18s | ~40x real-time | Less drift | Minimal | Full frame extraction + multi-resolution |
+| Engine | Processing Time | Speed Ratio | Confidence | Notes |
+| --- | --- | --- | --- | --- |
+| **Full (default)** | 40.9 seconds | ~5x real-time | 1.000 (perfect) | Fastest overall with zero drift |
+| **Mask** | 45.8 seconds | ~6x real-time | 1.000 (perfect) | Best for letterboxed content |
 
 **Key Performance Insights:**
 
-- **Fast Engine**: Processes at approximately 2x real-time speed. With `max_keyframes=1` (default), it uses direct frame mapping which completely eliminates drift while maintaining fast performance.
+- **Full Engine**: Delivers perfect confidence scores (1.000) with ~5x real-time processing. Uses direct frame mapping which completely eliminates drift while maintaining excellent performance.
 
-- **Precise Engine**: While significantly slower (~40x real-time), it provides superior alignment accuracy, especially for complex videos. Interestingly, it shows less drift at the 1-second mark compared to the fast engine, though both engines perform well at video endpoints.
+- **Mask Engine**: Slightly slower than Full engine but achieves perfect confidence. Ideal for content with black borders or letterboxing where content-focused comparison is beneficial.
 
 ### Technical Optimizations
 
-- **Drift Elimination**: The fast engine now defaults to `max_keyframes=1`, forcing direct frame-to-frame mapping that eliminates temporal drift entirely.
+- **Zero Drift Design**: Both engines use sliding window constraints that enforce monotonicity by design, completely eliminating temporal drift.
 - **Optimized Compositing**: Sequential frame reading instead of random access yields a **10-100x speedup** in the final composition stage.
-- **Parallel Processing**: Frame fingerprinting and cost matrix computation leverage all available CPU cores.
-- **Perceptual Hashing**: Frame comparison is **100-1000x faster** than pixel-wise methods while maintaining accuracy.
-- **Memory Efficiency**: The fast engine uses streaming processing, while the precise engine trades memory for accuracy by loading all frames.
+- **Direct Pixel Comparison**: Frame comparison uses actual pixel values without information loss from hashing or compression.
+- **Bidirectional Matching**: Forward and backward passes are merged for robust alignment results.
+- **Efficient Memory Usage**: Both engines use streaming processing with reasonable memory footprints.
 
 ### Choosing the Right Engine
 
-**Use the Fast Engine (default) when:**
-- You need quick results (2x real-time processing)
-- The videos are already reasonably synchronized
-- Minor imperfections are acceptable
-- Processing many videos in batch
+**Use the Full Engine (default) when:**
 
-**Use the Precise Engine when:**
-- Perfect synchronization is critical
-- Videos have complex timing variations
-- Content quality justifies longer processing time
-- Working with professionally edited content
+- Working with standard videos without letterboxing
+- You need the fastest processing with perfect accuracy
+- Videos have consistent content filling the frame
+- General-purpose video synchronization
+
+**Use the Mask Engine when:**
+
+- Working with letterboxed or pillarboxed content
+- Videos have significant black borders
+- Content doesn't fill the entire frame
+- Aspect ratio mismatches between foreground and background
 
 ## Development
 
@@ -390,19 +405,11 @@ hatch run lint
 hatch run fix
 ```
 
-## License
+## START SPECIFICATION:
 
-This project is licensed under the MIT License. See the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
+description: This rule applies when documenting the high-level business logic and domain-specific implementation of vidkompy, an intelligent video overlay and synchronization system. It focuses on core algorithmic components and unique technical approaches. globs: _.py,_.md alwaysApply: false
 
-
-
-START SPECIFICATION:
 ---
-description: Create overview documentation for projects focused on video processing, synchronization, and alignment, particularly when dealing with foreground/background video composition and intelligent temporal matching
-globs: *.py,*.md
-alwaysApply: false
----
-
 
 # main-overview
 
@@ -414,50 +421,72 @@ alwaysApply: false
 - Always provide a complete PLAN with REASONING based on evidence from code and logs before making changes.
 - Explain your OBSERVATIONS clearly, then provide REASONING to identify the exact issue. Add console logs when needed to gather more information.
 
+# Intelligent Video Overlay System
 
-The vidkompy system implements intelligent video overlay and synchronization with three core business domains:
+## Core Business Components
 
-## Frame Analysis System (Importance: 95)
-- Perceptual hashing engine combines multiple algorithms:
-  - Frequency domain analysis (pHash)
-  - Brightness patterns (AverageHash) 
+### Frame Fingerprinting System
+
+- Multi-algorithm perceptual hash fusion combining:
+  - Frequency domain analysis (DCT-based pHash)
+  - Average intensity patterns (AverageHash)
   - Color distribution statistics (ColorMomentHash)
-  - Edge detection (MarrHildrethHash)
-- Weighted fingerprint generation for optimal frame matching
-- Border region masking for edge-based alignment
+  - Edge structure detection (MarrHildrethHash)
+- Weighted fingerprint generation with hybrid similarity scoring
+- Optimized for video frame sequence comparison
 
-## Temporal Alignment Engine (Importance: 98)
-- Dynamic Time Warping (DTW) implementation with:
-  - Sakoe-Chiba band constraints
-  - Monotonic frame mapping
-  - Keyframe interpolation
-- Adaptive keyframe density calculation
-- Foreground-first preservation principle
-- Frame sequence validation
+### Temporal Alignment Engine
 
-## Spatial Positioning System (Importance: 92)
-- Template matching with normalized correlation
-- Auto-scaling for resolution mismatches
-- Border mode alignment options
-- Position confidence scoring
-- Center alignment fallback
+Two specialized engines with distinct approaches:
 
-## Video Composition Rules (Importance: 85)
-- Foreground frame preservation guarantee
-- Background frame warping/adaptation
-- Audio stream selection logic
-- Quality-based decision system
-- Temporal drift prevention
+1. Full Engine (Default)
 
-Core Integration Points:
-```
-src/vidkompy/
-  ├── core/
-  │   ├── alignment_engine.py    # Orchestration logic
-  │   ├── dtw_aligner.py        # Temporal matching
-  │   ├── frame_fingerprint.py  # Frame analysis
-  │   └── spatial_alignment.py  # Position detection
-```
+- Direct pixel-level frame comparison
+- Bidirectional matching with forward/backward passes
+- Sliding window constraints for monotonic progression
+- Zero temporal drift by design
 
-$END$
-END SPECIFICATION
+2. Mask Engine
+
+- Content-aware masking for letterboxed content
+- Automatic non-black region detection
+- Masked frame comparison while maintaining temporal constraints
+- Specialized for videos with varying aspect ratios
+
+### Spatial Overlay System
+
+- Template matching with normalized cross-correlation
+- Intelligent scale detection and adjustment
+- Optimal positioning determination
+- Border region analysis for edge alignment
+
+### Thumbnail Detection
+
+- Multi-scale progressive refinement system
+- Feature-based alignment with ORB detection
+- Scale/translation parameter extraction
+- Transformation validation with confidence scoring
+
+## Key Business Rules
+
+1. Foreground Video Integrity
+
+- All foreground frames preserved without modification
+- Background frames dynamically adapted to match
+- Foreground timing treated as source of truth
+
+2. Temporal Synchronization
+
+- One-to-one frame mapping requirement
+- Strict monotonic progression enforcement
+- No temporal drift allowed
+- Keyframe-based synchronization anchoring
+
+3. Quality Preservation
+
+- Foreground quality never compromised
+- Background adaptations maintain visual coherence
+- Intelligent audio track selection and sync
+- Content-aware masking for aspect ratio differences
+
+$END$ END SPECIFICATION

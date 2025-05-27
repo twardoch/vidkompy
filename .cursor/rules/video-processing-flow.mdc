@@ -1,49 +1,65 @@
 ---
-description: Documents the core business logic for video frame processing, synchronization and overlay composition
-globs: src/vidkompy/core/*.py,src/vidkompy/video/*.py,src/vidkompy/models.py
+description: Describes end-to-end video processing pipeline including frame analysis, alignment and composition
+globs: src/vidkompy/core/*.py,src/vidkompy/models.py,src/vidkompy/vidkompy.py
 alwaysApply: false
 ---
 
 
 # video-processing-flow
 
-## Frame Processing Pipeline (90)
-- Frame fingerprinting using perceptual hash combination
-  - pHash for frequency domain analysis 
-  - AverageHash for brightness patterns
-  - ColorMomentHash for color distribution
-  - MarrHildrethHash for edge detection
-- Weighted fingerprint fusion based on content type
-- Masked region handling for letterboxed content
+## Frame Processing Pipeline
 
-## Temporal Alignment Engine (95) 
-- Dynamic Time Warping with video-specific constraints
-- Foreground frame preservation with background warping
-- Progressive multi-resolution refinement
-- Drift correction through polynomial regression
-- Bidirectional refinement with confidence scoring
+1. Video Analysis Stage
+- Probes input videos for metadata (resolution, FPS, duration)
+- Generates frame fingerprints using perceptual hash ensemble
+- Creates composite frame signatures from multiple hash types
+- Maps foreground timing to background frames
 
-## Spatial Positioning System (85)
-- Template matching with normalized correlation
-- Content-aware refinement for letterboxed videos
-- Automatic scale factor determination
-- Position confidence validation
-- Border region handling
+2. Spatial Alignment Flow
+- Extracts representative frames from temporal midpoint
+- Calculates optimal (x,y) overlay position 
+- Determines scale adjustments if needed
+- Validates position confidence scores
 
-## Composition Orchestration (80)
+3. Temporal Synchronization
+- Dynamic Time Warping with sliding windows
+- Bidirectional matching (forward/backward)
+- Frame fingerprint comparison using perceptual hashes
+- Creates monotonic frame mapping
+
+4. Composition Stage  
+- Sequential frame assembly using alignment map
+- Foreground frame overlay at calculated position
+- Audio track integration with sync offset
+- Final video rendering with preserved timing
+
+## Core Domain Models
+
+1. Frame Fingerprint
+- Multi-algorithm perceptual hash composite
+- Color histogram data
+- Hash-based distance metrics
+- Confidence scoring rules
+
+2. Frame Alignment
+- Foreground to background frame mapping
+- Temporal offset calculations  
+- Position transformation data
+- Sync confidence metrics
+
+3. Video Composition
 - Frame sequence validation
-- Audio stream selection policy
-- Quality threshold enforcement
-- Drift prevention mechanisms
-- Content integrity verification
+- Position/scale transformations
+- Audio track selection
+- Output parameters
 
 File Paths:
 ```
 src/vidkompy/core/
-  ├── frame_fingerprint.py
-  ├── temporal_alignment.py 
-  ├── spatial_alignment.py
-  └── video_processor.py
+  ├── frame_fingerprint.py     # Frame signature generation
+  ├── temporal_alignment.py    # Frame synchronization
+  ├── spatial_alignment.py     # Position calculation
+  └── video_processor.py       # Composition pipeline
 ```
 
 $END$

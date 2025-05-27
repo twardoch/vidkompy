@@ -10,15 +10,22 @@ The core philosophy of `vidkompy` is to treat the **foreground video as the defi
 
 ## Features
 
+### Video Composition
 - **Automatic Spatial Alignment**: Intelligently detects the optimal x/y offset to position the foreground video within the background, even if they are cropped differently.
 - **Advanced Temporal Synchronization**: Aligns videos with different start times, durations, and frame rates, eliminating temporal drift and ensuring content matches perfectly over time.
 - **Foreground-First Principle**: Guarantees that every frame of the foreground video is included in the output, preserving its original timing and quality. The background video is adapted to match the foreground.
-- **Drift-Free Alignment**: Utilizes Dynamic Time Warping (DTW) to create a globally optimal, monotonic alignment, preventing the common "drift-and-catchup" artifacts seen with simpler methods.
-- **High-Performance Processing**: Leverages multi-core processing, perceptual hashing, and optimized video I/O to deliver results quickly.
-- Frame fingerprinting is 100-1000x faster than traditional pixel-wise comparison.
+- **Drift-Free Alignment**: Uses optimized sliding window algorithms to create globally optimal, monotonic alignment, preventing the common "drift-and-catchup" artifacts.
+- **High-Performance Processing**: Leverages multi-core processing, direct pixel comparison, and optimized video I/O to deliver results quickly.
 - Sequential video composition is 10-100x faster than random-access methods.
 - **Smart Audio Handling**: Automatically uses the foreground audio track if available, falling back to the background audio. The audio is correctly synchronized with the final video.
-- **Flexible Operation Modes**: Supports specialized modes like `border` matching for aligning content based on visible background edges, and `smooth` blending for seamless visual integration.
+- **Flexible Operation Modes**: Supports specialized modes like `mask` for letterboxed content and `smooth` blending for seamless visual integration.
+
+### Thumbnail Detection
+- **Multi-Scale Template Matching**: Advanced thumbnail detection system for finding scaled and translated foreground images within background images/videos
+- **Fast Histogram Correlation**: Initial scale estimation using histogram correlation for rapid processing
+- **Dual Result Analysis**: Provides both unity scale and scaled options with confidence metrics
+- **Precision Control**: Configurable precision parameter for varying levels of analysis detail
+- **Rich Output**: Detailed match results with confidence scores and processing statistics
 
 ## How It Works
 
@@ -172,75 +179,71 @@ uv pip install .
 
 ### Command-Line Interface (CLI)
 
-The tool is run from the command line, providing paths to the background and foreground videos.
+`vidkompy` now offers two main commands: video composition and thumbnail detection.
 
-**Basic Examples:**
+**Video Composition Examples:**
 
 ```bash
 # Full engine (default) - direct pixel comparison with zero drift
-python -m vidkompy --bg background.mp4 --fg foreground.mp4
+python -m vidkompy comp --bg background.mp4 --fg foreground.mp4
 
 # Mask engine for letterboxed/pillarboxed content
-python -m vidkompy --bg background.mp4 --fg foreground.mp4 --engine mask
+python -m vidkompy comp --bg background.mp4 --fg foreground.mp4 --engine mask
 
 # Custom output path
-python -m vidkompy --bg bg.mp4 --fg fg.mp4 --output result.mp4
+python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --output result.mp4
 
 # Fine-tune performance with drift interval and window size
-python -m vidkompy --bg bg.mp4 --fg fg.mp4 --drift_interval 10 --window 10
+python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --drift_interval 10 --window 10
+```
+
+**Thumbnail Detection Examples:**
+
+```bash
+# Find thumbnail in image
+python -m vidkompy find background.jpg foreground.jpg
+
+# Find thumbnail in video frame
+python -m vidkompy find background.mp4 foreground.jpg
+
+# High precision analysis
+python -m vidkompy find background.jpg foreground.jpg --precision 10
+
+# Detailed output with processing time
+python -m vidkompy find background.jpg foreground.jpg --verbose
 ```
 
 **CLI Help:**
 
+```bash
+# Main command help
+python -m vidkompy --help
+
+# Video composition help
+python -m vidkompy comp --help
+
+# Thumbnail detection help  
+python -m vidkompy find --help
 ```
-INFO: Showing help with the command '__main__.py -- --help'.
 
-NAME
-    __main__.py - Overlay foreground video onto background video with intelligent alignment.
+The CLI now supports two main commands:
+- `comp`: Video composition with intelligent alignment
+- `find`: Thumbnail detection in images/videos
 
-SYNOPSIS
-    __main__.py BG FG <flags>
+**Video Composition Parameters:**
+- `--bg`: Background video path
+- `--fg`: Foreground video path
+- `--output`: Output video path (auto-generated if not provided)
+- `--engine`: Temporal alignment engine - 'full' (default) or 'mask'
+- `--margin`: Border thickness for border matching mode (default: 8)
+- `--smooth`: Enable smooth blending at frame edges
+- `--verbose`: Enable verbose logging
 
-DESCRIPTION
-    Overlay foreground video onto background video with intelligent alignment.
-
-POSITIONAL ARGUMENTS
-    BG
-        Type: str | pathlib.Path
-        Background video path
-    FG
-        Type: str | pathlib.Path
-        Foreground video path
-
-FLAGS
-    -o, --output=OUTPUT
-        Type: Optional[str | pathlib...
-        Default: None
-        Output video path (auto-generated if not provided)
-    -e, --engine=ENGINE
-        Type: str
-        Default: 'fast'
-        Temporal alignment engine - 'fast', 'precise', 'mask', 'tunnel_full', or 'tunnel_mask' (default: 'fast')
-    -m, --margin=MARGIN
-        Type: int
-        Default: 8
-        Border thickness for border matching mode (default: 8)
-    -s, --smooth=SMOOTH
-        Type: bool
-        Default: False
-        Enable smooth blending at frame edges
-    -g, --gpu=GPU
-        Type: bool
-        Default: False
-        Enable GPU acceleration (future feature)
-    -v, --verbose=VERBOSE
-        Type: bool
-        Default: False
-        Enable verbose logging
-
-NOTES
-    You can also use flags syntax for POSITIONAL ARGUMENTS
-```
+**Thumbnail Detection Parameters:**
+- `background`: Background image/video path
+- `foreground`: Foreground image path
+- `--precision`: Analysis precision level (1-10, default: 3)
+- `--verbose`: Enable detailed output
 
 ## Performance
 

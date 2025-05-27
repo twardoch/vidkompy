@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added - Thumbnail Finding Feature
+
+- **New thumbfind.py Module**: Comprehensive thumbnail detection system for finding scaled and translated foreground images within background images/videos
+  - Multi-scale template matching with OpenCV
+  - Fast histogram correlation for initial scale estimation
+  - Dual result analysis providing both unity scale and scaled options
+  - Confidence metrics for match quality assessment
+  - Precision parameter for varying analysis detail levels
+  - Support for both image and video inputs
+  - Rich console output with detailed match results
+
+- **Enhanced CLI**: Updated main CLI to expose both 'comp' (composite_videos) and 'find' (find_thumbnail) commands
+  - `python -m vidkompy comp` for video composition
+  - `python -m vidkompy find` for thumbnail detection
+  - Improved command structure for better user experience
+
+- **New Dependencies**: Added support for advanced image processing
+  - `opencv-python` for computer vision operations
+  - `scikit-image` for advanced image processing algorithms
+  - `ffmpeg-python` for video frame extraction
+
+### Changed
+
+- **Version Tracking**: Enhanced version numbering system with more detailed metadata tracking
+- **Code Organization**: Streamlined codebase by removing outdated Numba optimization references
+- **Performance Improvements**: Optimized thumbnail detection algorithms for faster processing
+
 ### Removed - Major Engine Simplification
 
 - **Fast Engine**: Completely removed the 'fast' engine and all DTW-based alignment functionality

@@ -1,52 +1,63 @@
 ---
-description: Rules and constraints governing video composition, overlay alignment, and synchronization
-globs: src/vidkompy/core/alignment*.py,src/vidkompy/core/composition*.py,src/vidkompy/core/sync*.py
+description: Technical specification for video composition business rules including foreground preservation, frame alignment, and quality thresholds
+globs: src/vidkompy/core/*.py,src/vidkompy/models.py
 alwaysApply: false
 ---
 
 
 # video-composition-rules
 
-## Core Video Composition Logic
+## Core Frame Composition Rules
 
-### Foreground Preservation Rules
-- All foreground frames must be preserved without modification
-- No resampling, retiming or quality reduction allowed
-- Foreground audio takes precedence when available
-- Original frame timing must be maintained exactly
+### Foreground Priority
+- All foreground frames must be preserved exactly without modification
+- Background frames are adapted/retimed to match foreground
+- Foreground determines final frame rate and timing
+- Quality thresholds enforce foreground integrity
 
-Importance Score: 95
+### Frame Alignment Pipeline
+1. Spatial Positioning
+- Template matching determines optimal x/y offset
+- Border region analysis for letterboxed content
+- Quality-driven fallback to center positioning
 
-### Background Adaptation Rules
-- Background video dynamically warped to match foreground timing
-- Frame selection based on optimal temporal alignment
-- Resolution/aspect ratio adjustments as needed
-- Content-aware border handling for letterboxed videos
-
-Importance Score: 85
-
-### Synchronization Constraints
-- Perfect frame-level synchronization required
-- No temporal drift allowed over video duration
-- Monotonic frame progression enforced
-- Keyframe anchoring for stability points
-
-Importance Score: 90
+2. Temporal Synchronization
+- Frame fingerprinting using perceptual hash ensemble
+- Sliding window DTW with monotonicity constraints
+- Bidirectional refinement prevents temporal drift
 
 ### Quality Control Rules
-- Minimum confidence threshold for frame matching
-- Alignment quality validation at key checkpoints
-- Perceptual quality preservation requirements
-- Error bounds for spatial positioning
+- Frame confidence scoring with minimum thresholds
+- Automatic rejection of poor quality matches
+- Fallback strategies for failed alignments
+- Strict validation of temporal sequence integrity
 
-Importance Score: 80
-
-### Audio Integration Rules
-- Foreground audio prioritized when available
+### Audio Composition 
+- Foreground audio takes precedence when available
 - Background audio used as fallback
-- Perfect audio/video sync maintained
-- No audio quality degradation allowed
+- Synchronization locked to foreground timing
+- No audio stretching/retiming allowed
 
-Importance Score: 75
+## Engine-Specific Rules
+
+### Full Engine
+- Direct pixel comparison
+- Strict monotonic frame progression
+- Zero temporal drift by design
+- No frame interpolation allowed
+
+### Mask Engine  
+- Content-aware region masking
+- Black border detection and filtering
+- Maintained temporal monotonicity
+- Enhanced letterboxed content handling
+
+Relevant Files:
+```
+src/vidkompy/core/alignment_engine.py
+src/vidkompy/core/frame_fingerprint.py
+src/vidkompy/core/temporal_alignment.py 
+src/vidkompy/core/spatial_alignment.py
+```
 
 $END$
