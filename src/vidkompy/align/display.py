@@ -6,6 +6,7 @@ Display and output formatting for thumbnail detection results.
 
 This module handles all Rich console output, table formatting,
 progress bars, and result presentation.
+
 """
 
 from pathlib import Path
@@ -29,6 +30,10 @@ class ResultDisplayer:
 
     This class provides methods to display results in various formats
     using Rich console output with tables, progress bars, and styling.
+
+    Used in:
+    - vidkompy/align/__init__.py
+    - vidkompy/align/core.py
     """
 
     def __init__(self, console: Console | None = None):
@@ -37,6 +42,7 @@ class ResultDisplayer:
 
         Args:
             console: Optional Rich console instance
+
         """
         self.console = console or Console()
 
@@ -51,6 +57,9 @@ class ResultDisplayer:
             bg_path: Background file path
             max_frames: Maximum frames to process
             precision_level: Precision level being used
+
+        Used in:
+        - vidkompy/align/core.py
         """
         precision_desc = self._get_precision_description(precision_level)
 
@@ -67,6 +76,9 @@ class ResultDisplayer:
         Args:
             fg_count: Number of foreground frames extracted
             bg_count: Number of background frames extracted
+
+        Used in:
+        - vidkompy/align/core.py
         """
         self.console.print("\nExtracting frames...")
         self.console.print(f"Extracted {fg_count} foreground frames")
@@ -78,6 +90,9 @@ class ResultDisplayer:
 
         Returns:
             Rich Progress instance
+
+        Used in:
+        - vidkompy/align/core.py
         """
         return Progress(
             SpinnerColumn(),
@@ -96,6 +111,9 @@ class ResultDisplayer:
 
         Args:
             precision_results: List of results from each precision level
+
+        Used in:
+        - vidkompy/align/core.py
         """
         if not precision_results:
             return

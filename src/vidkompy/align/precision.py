@@ -6,6 +6,7 @@ Multi-precision analysis system for thumbnail detection.
 
 This module implements the progressive refinement system that provides
 different levels of speed vs accuracy trade-offs.
+
 """
 
 import time
@@ -18,6 +19,8 @@ from .algorithms import (
     FeatureMatchingAlgorithm,
     HistogramCorrelationAlgorithm,
     SubPixelRefinementAlgorithm,
+    PhaseCorrelationAlgorithm,
+    HybridMatchingAlgorithm,
 )
 
 
@@ -28,14 +31,21 @@ class PrecisionAnalyzer:
     This class implements a progressive refinement approach where
     each precision level builds on the previous results to provide
     increasingly accurate matches with corresponding time costs.
+
+    Used in:
+    - vidkompy/align/__init__.py
+    - vidkompy/align/core.py
     """
 
-    def __init__(self):
+    def __init__(self, verbose: bool = False):
         """Initialize the precision analyzer with algorithm instances."""
-        self.template_matcher = TemplateMatchingAlgorithm()
-        self.feature_matcher = FeatureMatchingAlgorithm()
+        self.verbose = verbose
+        self.template_matcher = TemplateMatchingAlgorithm(verbose)
+        self.feature_matcher = FeatureMatchingAlgorithm(verbose=verbose)
         self.histogram_correlator = HistogramCorrelationAlgorithm()
         self.subpixel_refiner = SubPixelRefinementAlgorithm()
+        self.phase_matcher = PhaseCorrelationAlgorithm(verbose)
+        self.hybrid_matcher = HybridMatchingAlgorithm(verbose)
 
     def analyze_at_precision(
         self,
@@ -55,6 +65,7 @@ class PrecisionAnalyzer:
 
         Returns:
             PrecisionAnalysisResult for this level
+
         """
         level = PrecisionLevel(precision_level)
         start_time = time.time()
@@ -98,6 +109,9 @@ class PrecisionAnalyzer:
 
         Returns:
             List of PrecisionAnalysisResult for each level
+
+        Used in:
+        - vidkompy/align/core.py
         """
         results = []
 
@@ -111,13 +125,14 @@ class PrecisionAnalyzer:
         self, fg_frame: np.ndarray, bg_frame: np.ndarray
     ) -> MatchResult:
         """
-        Level 0: Ultra-fast ballpark estimate using histogram correlation.
+        Level 0: Ultra-fast ballpark estimate using advanced histogram correlation.
 
         This provides a rough scale estimate in ~1ms by comparing
-        color histograms without spatial information.
+        color histograms with the enhanced algorithm from template matcher.
+
         """
-        scale, confidence = self.histogram_correlator.estimate_scale(
-            fg_frame, bg_frame, scale_range=(0.3, 1.5), scale_steps=10
+        scale, confidence = self.template_matcher.ballpark_scale_estimation(
+            fg_frame, bg_frame, scale_range=(0.3, 1.5)
         )
 
         return MatchResult(
@@ -125,7 +140,7 @@ class PrecisionAnalyzer:
             x=0,  # No position estimate at this level
             y=0,
             scale=scale,
-            method="histogram",
+            method="ballpark_enhanced",
         )
 
     def _analyze_coarse(
@@ -135,10 +150,11 @@ class PrecisionAnalyzer:
         previous_results: list[PrecisionAnalysisResult],
     ) -> MatchResult:
         """
-        Level 1: Coarse template matching with wide scale steps.
+        Level 1: Coarse template matching with parallel processing.
 
         Uses the ballpark scale estimate to focus template matching
-        in a narrower range with ~20% steps.
+        in a narrower range with parallel processing.
+
         """
         # Get ballpark scale estimate
         ballpark_scale = 1.0
@@ -148,14 +164,13 @@ class PrecisionAnalyzer:
         # Define search range around ballpark estimate
         scale_range = (max(0.3, ballpark_scale * 0.8), min(1.5, ballpark_scale * 1.2))
 
-        # Perform template matching with coarse steps
-        results = self.template_matcher.match_at_multiple_scales(
-            fg_frame, bg_frame, scale_range, scale_steps=5, method="coarse"
+        # Use parallel template matching for better performance
+        result = self.template_matcher.parallel_multiscale_template_matching(
+            fg_frame, bg_frame, scale_range, scale_steps=10
         )
 
-        # Return best result
-        if results:
-            return max(results, key=lambda r: r.confidence)
+        if result:
+            return result
         else:
             return MatchResult(0.0, 0, 0, ballpark_scale, method="coarse")
 
@@ -170,23 +185,31 @@ class PrecisionAnalyzer:
 
         Combines feature matching with refined template matching
         for good accuracy in reasonable time.
+
         """
-        # Try feature matching first
-        feature_result = self.feature_matcher.match_features(
-            fg_frame, bg_frame, method="feature"
+        # Try enhanced feature matching first
+        feature_result = self.feature_matcher.enhanced_feature_matching(
+            fg_frame, bg_frame, detector_type="auto"
         )
 
-        # Get coarse template result for comparison
-        template_result = None
-        if len(previous_results) >= 2:
-            coarse = previous_results[1]
-            # Refine around coarse result
-            scale_range = (max(0.3, coarse.scale * 0.9), min(1.5, coarse.scale * 1.1))
-            template_results = self.template_matcher.match_at_multiple_scales(
-                fg_frame, bg_frame, scale_range, scale_steps=10, method="balanced"
-            )
-            if template_results:
-                template_result = max(template_results, key=lambda r: r.confidence)
+        # Get coarse template result for comparison and use ballpark estimate if available
+        ballpark_scale = 1.0
+        if previous_results:
+            if len(previous_results) >= 1:
+                ballpark_scale = previous_results[0].scale
+            if len(previous_results) >= 2:
+                previous_results[1].scale
+
+        # Use ballpark estimation for template matching
+        template_result = self.template_matcher.parallel_multiscale_template_matching(
+            fg_frame,
+            bg_frame,
+            scale_range=(
+                max(0.3, ballpark_scale * 0.8),
+                min(1.5, ballpark_scale * 1.2),
+            ),
+            scale_steps=15,
+        )
 
         # Choose best result
         candidates = [r for r in [feature_result, template_result] if r is not None]
@@ -209,51 +232,34 @@ class PrecisionAnalyzer:
         previous_results: list[PrecisionAnalysisResult],
     ) -> MatchResult:
         """
-        Level 3: Fine feature + focused template matching.
+        Level 3: Fine hybrid matching with multiple algorithms.
 
-        Uses enhanced feature matching and very focused template
-        search for high quality results.
+        Uses the hybrid matching algorithm that combines feature matching,
+        template matching, and phase correlation for high quality results.
+
         """
-        # Get balanced result as starting point
-        balanced_result = None
-        if len(previous_results) >= 3:
-            balanced = previous_results[2]
-            balanced_result = MatchResult(
-                balanced.confidence,
-                balanced.x,
-                balanced.y,
-                balanced.scale,
-                balanced.method,
-            )
-
-        # Enhanced feature matching with more features
-        enhanced_feature_matcher = FeatureMatchingAlgorithm(max_features=1000)
-        feature_result = enhanced_feature_matcher.match_features(
-            fg_frame, bg_frame, method="fine_feature"
+        # Use hybrid matching for best results
+        hybrid_result = self.hybrid_matcher.hybrid_matching(
+            fg_frame, bg_frame, method="accurate"
         )
 
-        # Very focused template matching
-        template_result = None
-        if balanced_result:
-            scale_range = (
-                max(0.3, balanced_result.scale * 0.95),
-                min(1.5, balanced_result.scale * 1.05),
-            )
-            template_results = self.template_matcher.match_at_multiple_scales(
-                fg_frame, bg_frame, scale_range, scale_steps=20, method="fine"
-            )
-            if template_results:
-                template_result = max(template_results, key=lambda r: r.confidence)
+        if hybrid_result:
+            return hybrid_result
 
-        # Choose best result
-        candidates = [
-            r
-            for r in [feature_result, template_result, balanced_result]
-            if r is not None
-        ]
+        # Fallback to enhanced feature matching
+        feature_result = self.feature_matcher.enhanced_feature_matching(
+            fg_frame, bg_frame, detector_type="auto"
+        )
 
-        if candidates:
-            return max(candidates, key=lambda r: r.confidence)
+        if feature_result:
+            return feature_result
+
+        # Final fallback
+        if previous_results:
+            prev = previous_results[-1]
+            return MatchResult(
+                prev.confidence, prev.x, prev.y, prev.scale, method="fine"
+            )
         else:
             return MatchResult(0.0, 0, 0, 1.0, method="fine")
 
@@ -268,6 +274,7 @@ class PrecisionAnalyzer:
 
         Takes the best previous result and refines it with
         sub-pixel accuracy for maximum precision.
+
         """
         # Get fine result as starting point
         fine_result = None
@@ -309,6 +316,7 @@ class PrecisionAnalyzer:
 
         Returns:
             Tuple of (min_scale, max_scale)
+
         """
         if level == PrecisionLevel.BALLPARK:
             return (0.3, 1.5)
@@ -332,6 +340,7 @@ class PrecisionAnalyzer:
 
         Returns:
             Number of scale steps to use
+
         """
         steps_map = {
             PrecisionLevel.BALLPARK: 10,

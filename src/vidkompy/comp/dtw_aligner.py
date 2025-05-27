@@ -14,7 +14,7 @@ from loguru import logger
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 from rich.console import Console
 
-from vidkompy.models import FrameAlignment
+from vidkompy.comp.models import FrameAlignment
 from vidkompy.core.numba_optimizations import (
     compute_dtw_cost_matrix_numba,
     find_dtw_path_numba,
@@ -37,6 +37,10 @@ class DTWAligner:
     - Reduces complexity from O(N²) to O(N×window)
     - Prevents extreme time warping
     - Makes algorithm practical for long videos
+
+    Used in:
+    - vidkompy/comp/multi_resolution_aligner.py
+    - vidkompy/comp/precise_temporal_alignment.py
     """
 
     def __init__(self, window: int = 100):

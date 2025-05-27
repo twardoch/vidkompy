@@ -9,6 +9,7 @@ handling parameter validation and entry point logic.
 """
 
 from pathlib import Path
+import sys
 
 import fire
 from loguru import logger
@@ -38,12 +39,16 @@ def find_thumbnail(
                     foreground at 100% scale (translation only). If False,
                     performs both a 100% scale search and a multi-scale search,
                     presenting both results.
+
+    Used in:
+    - vidkompy/__main__.py
+    - vidkompy/align/__init__.py
     """
     # Configure logging level
     if verbose:
-        logger.configure(handlers=[{"sink": "stderr", "level": "DEBUG"}])
+        logger.add(sys.stderr, format=log_format_verbose, level="DEBUG")
     else:
-        logger.configure(handlers=[{"sink": "stderr", "level": "INFO"}])
+        logger.add(sys.stderr, format=log_format_default, level="INFO")
 
     # Validate parameters
     if not 0 <= precision <= 4:
@@ -58,7 +63,7 @@ def find_thumbnail(
     align = ThumbnailFinder()
 
     try:
-        result = align.find_thumbnail(
+        align.find_thumbnail(
             fg=fg,
             bg=bg,
             num_frames=num_frames,
@@ -66,7 +71,9 @@ def find_thumbnail(
             precision=precision,
             unity_scale=unity_scale,
         )
-        return result
+        # Fire CLI: Don't return the result object to avoid help display
+        # The result is already displayed by the find_thumbnail method
+        return None
 
     except Exception as e:
         logger.error(f"Thumbnail detection failed: {e}")

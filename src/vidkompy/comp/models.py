@@ -67,6 +67,7 @@ class FrameAlignment:
     similarity_score: float  # Similarity between frames (0-1)
 
     def __repr__(self) -> str:
+        """ """
         return f"FrameAlignment(fg={self.fg_frame_idx}, bg={self.bg_frame_idx}, sim={self.similarity_score:.3f})"
 
 

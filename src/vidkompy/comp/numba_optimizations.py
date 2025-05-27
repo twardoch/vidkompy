@@ -35,6 +35,7 @@ def compute_dtw_cost_matrix_numba(
 
     Returns:
         DTW cost matrix (N+1, M+1)
+
     """
     n_fg, n_bg = fg_features.shape[0], bg_features.shape[0]
 
@@ -89,6 +90,7 @@ def find_dtw_path_numba(dtw_matrix: np.ndarray) -> np.ndarray:
 
     Returns:
         Optimal path as array of (i, j) pairs
+
     """
     n_fg, n_bg = dtw_matrix.shape
     n_fg -= 1
@@ -168,6 +170,7 @@ def compute_hamming_distances_batch(
 
     Returns:
         Distance matrix (N, M)
+
     """
     n1, n2 = hashes1.shape[0], hashes2.shape[0]
     distances = np.zeros((n1, n2), dtype=np.float64)
@@ -198,6 +201,7 @@ def compute_histogram_correlation(hist1: np.ndarray, hist2: np.ndarray) -> float
 
     Returns:
         Correlation coefficient
+
     """
     # Normalize histograms
     sum1 = np.sum(hist1)
@@ -245,6 +249,7 @@ def compute_weighted_similarity(
 
     Returns:
         Combined similarity score (0-1)
+
     """
     # Convert distances to similarities
     hash_similarities = 1.0 - hash_distances
@@ -284,6 +289,7 @@ def prepare_fingerprints_for_numba(
 
     Returns:
         Tuple of (frame_indices, feature_matrix)
+
     """
     # Extract frame indices
     indices = np.array(sorted(fingerprints.keys()), dtype=np.int32)

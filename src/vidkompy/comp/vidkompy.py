@@ -36,6 +36,8 @@ def composite_videos(
     smooth: bool = False,
     gpu: bool = False,  # Future GPU acceleration support
     window: int = 10,
+    spatial_precision: int = 2,
+    unity_scale: bool = True,
     verbose: bool = False,
 ):
     """Overlay foreground video onto background video with intelligent alignment.
@@ -49,7 +51,13 @@ def composite_videos(
         margin: Border thickness for border matching mode (default: 8)
         smooth: Enable smooth blending at frame edges
         gpu: Enable GPU acceleration (future feature)
+        window: DTW window size for temporal alignment (default: 10)
+        spatial_precision: Spatial alignment precision level 0-4 (default: 2)
+        unity_scale: Prefer unity scale for spatial alignment (default: True)
         verbose: Enable verbose logging
+
+    Used in:
+    - vidkompy/__main__.py
     """
     # Setup logging
     logger.remove()
@@ -78,6 +86,8 @@ def composite_videos(
         logger.info(f"  Margin: {margin}")
         logger.info(f"  Smooth blending: {smooth}")
         logger.info(f"  GPU acceleration: {gpu}")
+        logger.info(f"  Spatial precision: {spatial_precision}")
+        logger.info(f"  Unity scale: {unity_scale}")
         logger.info(f"  Verbose logging: {verbose}")
 
     # Validate inputs
@@ -134,6 +144,8 @@ def composite_videos(
         engine_mode=engine,
         drift_interval=drift_interval,
         window=window,
+        spatial_precision=spatial_precision,
+        unity_scale=unity_scale,
     )
 
     # Process the videos

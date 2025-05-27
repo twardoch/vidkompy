@@ -5,6 +5,7 @@
 Precise temporal alignment implementation with advanced techniques.
 
 Combines multi-resolution alignment, keyframe anchoring, and bidirectional DTW.
+
 """
 
 import numpy as np
@@ -34,6 +35,7 @@ class PreciseTemporalAlignment:
             verbose: Enable detailed logging
             interval: Drift correction interval for MultiResolutionAligner
             cli_window_size: DTW window size from CLI (0 means use defaults)
+
         """
         self.fingerprinter = fingerprinter
         self.verbose = verbose
@@ -59,6 +61,7 @@ class PreciseTemporalAlignment:
 
         Returns:
             Indices of detected keyframes
+
         """
         # Calculate temporal differences
         diffs = np.zeros(len(fingerprints) - 1)
@@ -97,6 +100,7 @@ class PreciseTemporalAlignment:
 
         Returns:
             Mapping of foreground to background keyframe indices
+
         """
         # Extract keyframe fingerprints
         fg_kf_prints = fg_fingerprints[fg_keyframes]
@@ -131,6 +135,7 @@ class PreciseTemporalAlignment:
 
         Returns:
             Averaged bidirectional alignment
+
         """
         dtw = DTWAligner(window=window)
 
@@ -188,6 +193,7 @@ class PreciseTemporalAlignment:
 
         Returns:
             Refined frame mapping
+
         """
         refined_mapping = initial_mapping.copy()
         num_windows = len(fg_fingerprints) // window_size + 1
@@ -260,6 +266,7 @@ class PreciseTemporalAlignment:
 
         Returns:
             Confidence score (0-1)
+
         """
         similarities = []
 
@@ -290,6 +297,7 @@ class PreciseTemporalAlignment:
 
         Returns:
             Frame mapping and alignment confidence
+
         """
         logger.info("Starting precise temporal alignment")
         logger.info(f"FG: {len(fg_frames)} frames, BG: {len(bg_frames)} frames")

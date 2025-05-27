@@ -6,6 +6,7 @@ Main alignment engine that coordinates spatial and temporal alignment.
 
 This is the high-level orchestrator that manages the complete video
 overlay process.
+
 """
 
 import tempfile
@@ -22,7 +23,7 @@ from rich.progress import (
 )
 from rich.console import Console
 
-from vidkompy.models import (
+from vidkompy.comp.models import (
     VideoInfo,
     MatchTimeMode,
     TemporalMethod,
@@ -31,7 +32,8 @@ from vidkompy.models import (
     FrameAlignment,
 )
 from .video_processor import VideoProcessor
-from .spatial_alignment import SpatialAligner
+from vidkompy.align import ThumbnailFinder
+from vidkompy.align.result_types import ThumbnailResult
 from .temporal_alignment import TemporalAligner
 
 
@@ -50,6 +52,7 @@ class AlignmentEngine:
     - Flexibility: Easy to swap alignment algorithms or add new methods
     - Testability: Each component can be tested independently
     - Progress tracking: Centralized progress reporting for better UX
+
     """
 
     def __init__(
@@ -60,6 +63,8 @@ class AlignmentEngine:
         engine_mode: str = "fast",
         drift_interval: int = 100,
         window: int = 100,
+        spatial_precision: int = 2,
+        unity_scale: bool = True,
     ):
         """Initialize alignment engine.
 
@@ -70,9 +75,14 @@ class AlignmentEngine:
             engine_mode: The chosen engine ('fast', 'precise', 'mask')
             drift_interval: Frame interval for drift correction in precise engine
             window: DTW window size
+            spatial_precision: Spatial alignment precision level (0-4, default: 2)
+            unity_scale: Prefer unity scale for spatial alignment (default: True)
+
         """
         self.processor = processor
-        self.spatial_aligner = SpatialAligner()
+        self.thumbnail_finder = ThumbnailFinder()
+        self.spatial_precision = spatial_precision
+        self.unity_scale = unity_scale
         self.temporal_aligner = TemporalAligner(
             processor=processor,
             max_keyframes=max_keyframes,
@@ -82,6 +92,23 @@ class AlignmentEngine:
         )
         self.verbose = verbose
         self.engine_mode = engine_mode
+
+    def _convert_thumbnail_result(self, result: ThumbnailResult) -> SpatialAlignment:
+        """Convert ThumbnailResult from align module to comp module's SpatialAlignment format.
+
+        Args:
+            result: ThumbnailResult from the align module
+
+        Returns:
+            SpatialAlignment compatible with existing comp module code
+        """
+        return SpatialAlignment(
+            x_offset=result.x_thumb_in_bg,
+            y_offset=result.y_thumb_in_bg,
+            scale_factor=result.scale_fg_to_thumb
+            / 100.0,  # Convert percentage to factor
+            confidence=result.confidence,
+        )
 
     def process(
         self,
@@ -111,6 +138,7 @@ class AlignmentEngine:
             border_thickness: Border thickness for border matching mode
             blend: Enable smooth blending at frame edges
             window: Sliding window size for frame matching
+
         """
         # Analyze videos - quick task, use simple logging
         logger.info("Analyzing videos...")
@@ -215,23 +243,26 @@ class AlignmentEngine:
             y_offset = (bg_info.height - fg_info.height) // 2
             return SpatialAlignment(x_offset, y_offset, 1.0, 1.0)
 
-        # Extract sample frames for alignment
-        bg_frames = self.processor.extract_frames(
-            bg_info.path, [bg_info.frame_count // 2]
-        )
-        fg_frames = self.processor.extract_frames(
-            fg_info.path, [fg_info.frame_count // 2]
-        )
+        # Use the align module for spatial alignment with unity scale preference
+        try:
+            thumbnail_result = self.thumbnail_finder.find_thumbnail(
+                fg=fg_info.path,
+                bg=bg_info.path,
+                precision=self.spatial_precision,  # Configured precision level
+                unity_scale=self.unity_scale,  # Prefer unity scale for video composition
+                num_frames=1,  # Single frame analysis for speed
+                verbose=self.verbose,
+            )
 
-        if not bg_frames or not fg_frames:
-            logger.error("Failed to extract frames for spatial alignment")
+            # Convert to expected format
+            return self._convert_thumbnail_result(thumbnail_result)
+
+        except Exception as e:
+            logger.error(f"Spatial alignment with align module failed: {e}")
+            logger.info("Falling back to simple centering")
             x_offset = (bg_info.width - fg_info.width) // 2
             y_offset = (bg_info.height - fg_info.height) // 2
             return SpatialAlignment(x_offset, y_offset, 1.0, 0.0)
-
-        return self.spatial_aligner.align(
-            bg_frames[0], fg_frames[0], method, skip_alignment=skip
-        )
 
     def _compute_temporal_alignment(
         self,

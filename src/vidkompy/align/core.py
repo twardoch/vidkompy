@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/align/comp.py
+# this_file: src/vidkompy/align/core.py
 
 """
 Core thumbnail finder orchestrator.
 
 This module contains the main ThumbnailFinder class that coordinates
 between all the other components to provide the high-level interface.
+
 """
 
 from pathlib import Path
@@ -30,6 +31,10 @@ class ThumbnailFinder:
     This class coordinates between frame extraction, precision analysis,
     algorithms, and display to provide a high-level interface for
     thumbnail detection.
+
+    Used in:
+    - vidkompy/align/__init__.py
+    - vidkompy/align/cli.py
     """
 
     def __init__(self):
@@ -62,6 +67,9 @@ class ThumbnailFinder:
 
         Returns:
             ThumbnailResult with detection results
+
+        Used in:
+        - vidkompy/align/cli.py
         """
         fg_path = Path(fg)
         bg_path = Path(bg)
@@ -150,6 +158,7 @@ class ThumbnailFinder:
 
         Returns:
             Tuple of detection results
+
         """
         if not fg_frames or not bg_frames:
             return (0.0, 0.0, 0, 0, 100.0, 0, 0, AnalysisData())
@@ -201,12 +210,24 @@ class ThumbnailFinder:
         )
 
         if unity_scale:
-            # Unity scale mode: only 100% scale search
+            # Unity scale mode: prefer 100% scale but fallback to best precision result
             unity_result = self.template_matcher.match_template(
                 first_fg_gray, first_bg_gray, scale=1.0, method="unity"
             )
             analysis_data.unity_scale_result = unity_result
-            main_result = unity_result
+
+            # Use unity result only if it's better than precision analysis
+            if unity_result.confidence > best_precision_result.confidence:
+                main_result = unity_result
+            else:
+                # Keep the best precision result if unity scale fails
+                main_result = MatchResult(
+                    confidence=best_precision_result.confidence,
+                    x=best_precision_result.x,
+                    y=best_precision_result.y,
+                    scale=best_precision_result.scale,
+                    method=f"precision_fallback_{best_precision_result.method}",
+                )
         else:
             # Multi-scale mode: both unity and scaled searches
             unity_result = self.template_matcher.match_template(
@@ -275,6 +296,7 @@ class ThumbnailFinder:
         Raises:
             FileNotFoundError: If files don't exist
             ValueError: If files are invalid
+
         """
         if not fg_path.exists():
             msg = f"Foreground file not found: {fg_path}"

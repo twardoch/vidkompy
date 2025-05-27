@@ -6,6 +6,7 @@ Fast frame fingerprinting system using perceptual hashing.
 
 This module provides ultra-fast frame comparison capabilities that are
 100-1000x faster than SSIM while maintaining good accuracy for similar frames.
+
 """
 
 import cv2
@@ -41,6 +42,10 @@ class FrameFingerprinter:
     - Different hashes capture different aspects of the image
     - Combining them improves robustness
     - Reduces false positives/negatives
+
+    Used in:
+    - vidkompy/comp/multi_resolution_aligner.py
+    - vidkompy/comp/precise_temporal_alignment.py
     """
 
     def __init__(self, log_init: bool = True):
@@ -48,6 +53,7 @@ class FrameFingerprinter:
 
         Args:
             log_init: Whether to log initialization messages
+
         """
         self.hashers = {}
         self._init_hashers(log_init)
@@ -66,6 +72,7 @@ class FrameFingerprinter:
         - AverageHash: Average color, good for brightness
         - ColorMomentHash: Color distribution, good for color changes
         - MarrHildrethHash: Edge detection, good for shapes
+
         """
         try:
             self.hashers["phash"] = cv2.img_hash.PHash_create()

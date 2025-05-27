@@ -14,7 +14,13 @@ import numpy as np
 
 
 class PrecisionLevel(Enum):
-    """Precision levels for thumbnail detection analysis."""
+    """Precision levels for thumbnail detection analysis.
+
+    Used in:
+    - vidkompy/align/__init__.py
+    - vidkompy/align/display.py
+    - vidkompy/align/precision.py
+    """
 
     BALLPARK = 0  # Ultra-fast ballpark (~1ms) - histogram correlation
     COARSE = 1  # Coarse template matching (~10ms) - wide scale steps
@@ -24,7 +30,11 @@ class PrecisionLevel(Enum):
 
     @property
     def description(self) -> str:
-        """Get human-readable description of the precision level."""
+        """Get human-readable description of the precision level.
+
+        Used in:
+        - vidkompy/align/display.py
+        """
         descriptions = {
             self.BALLPARK: "Ballpark",
             self.COARSE: "Coarse",
@@ -36,7 +46,11 @@ class PrecisionLevel(Enum):
 
     @property
     def timing_estimate(self) -> str:
-        """Get timing estimate for this precision level."""
+        """Get timing estimate for this precision level.
+
+        Used in:
+        - vidkompy/align/display.py
+        """
         timings = {
             self.BALLPARK: "~1ms",
             self.COARSE: "~10ms",
@@ -60,6 +74,13 @@ class MatchResult:
         frame_idx: Index of the frame that produced this result
         bg_frame_idx: Index of the background frame used
         method: Algorithm method used for matching
+        processing_time: Time taken for the matching operation
+
+    Used in:
+    - vidkompy/align/__init__.py
+    - vidkompy/align/algorithms.py
+    - vidkompy/align/core.py
+    - vidkompy/align/precision.py
     """
 
     confidence: float
@@ -69,6 +90,7 @@ class MatchResult:
     frame_idx: int = 0
     bg_frame_idx: int = 0
     method: str = "template"
+    processing_time: float = 0.0
 
     def __post_init__(self):
         """Validate the match result data."""
@@ -93,6 +115,11 @@ class PrecisionAnalysisResult:
         confidence: Match confidence
         processing_time: Time taken for this analysis
         method: Algorithm method used
+
+    Used in:
+    - vidkompy/align/__init__.py
+    - vidkompy/align/display.py
+    - vidkompy/align/precision.py
     """
 
     level: PrecisionLevel
@@ -117,6 +144,11 @@ class AnalysisData:
         precision_level: Precision level used
         unity_scale_preference_active: Whether unity scale preference applied
         precision_analysis: List of results from each precision level
+
+    Used in:
+    - vidkompy/align/__init__.py
+    - vidkompy/align/core.py
+    - vidkompy/align/display.py
     """
 
     unity_scale_result: MatchResult | None = None
@@ -154,6 +186,11 @@ class ThumbnailResult:
         bg_size: Original background size (width, height)
         thumbnail_size: Calculated thumbnail size (width, height)
         upscaled_bg_size: Calculated upscaled background size (width, height)
+
+    Used in:
+    - vidkompy/align/__init__.py
+    - vidkompy/align/core.py
+    - vidkompy/align/display.py
     """
 
     confidence: float
@@ -171,32 +208,56 @@ class ThumbnailResult:
 
     @property
     def fg_width(self) -> int:
-        """Get foreground width."""
+        """Get foreground width.
+
+        Used in:
+        - vidkompy/align/display.py
+        """
         return self.fg_size[0]
 
     @property
     def fg_height(self) -> int:
-        """Get foreground height."""
+        """Get foreground height.
+
+        Used in:
+        - vidkompy/align/display.py
+        """
         return self.fg_size[1]
 
     @property
     def bg_width(self) -> int:
-        """Get background width."""
+        """Get background width.
+
+        Used in:
+        - vidkompy/align/display.py
+        """
         return self.bg_size[0]
 
     @property
     def bg_height(self) -> int:
-        """Get background height."""
+        """Get background height.
+
+        Used in:
+        - vidkompy/align/display.py
+        """
         return self.bg_size[1]
 
     @property
     def thumbnail_width(self) -> int:
-        """Get thumbnail width."""
+        """Get thumbnail width.
+
+        Used in:
+        - vidkompy/align/display.py
+        """
         return self.thumbnail_size[0]
 
     @property
     def thumbnail_height(self) -> int:
-        """Get thumbnail height."""
+        """Get thumbnail height.
+
+        Used in:
+        - vidkompy/align/display.py
+        """
         return self.thumbnail_size[1]
 
 
@@ -211,6 +272,10 @@ class FrameExtractionResult:
         frame_count: Number of frames extracted
         is_video: Whether the source was a video file
         extraction_time: Time taken for extraction
+
+    Used in:
+    - vidkompy/align/__init__.py
+    - vidkompy/align/frame_extractor.py
     """
 
     frames: list[np.ndarray]

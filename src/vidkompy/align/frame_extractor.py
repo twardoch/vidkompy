@@ -6,6 +6,7 @@ Frame extraction utilities for video and image processing.
 
 This module handles extracting frames from video files and loading images,
 with proper error handling and logging.
+
 """
 
 import time
@@ -24,6 +25,10 @@ class FrameExtractor:
 
     This class provides methods to extract frames from video files
     and load images, returning standardized results with metadata.
+
+    Used in:
+    - vidkompy/align/__init__.py
+    - vidkompy/align/core.py
     """
 
     def __init__(self):
@@ -46,6 +51,9 @@ class FrameExtractor:
         Raises:
             FileNotFoundError: If media file doesn't exist
             ValueError: If media file cannot be processed
+
+        Used in:
+        - vidkompy/align/core.py
         """
         start_time = time.time()
         media_path = Path(media_path)
@@ -94,6 +102,7 @@ class FrameExtractor:
 
         Returns:
             FrameExtractionResult with video frames
+
         """
         if verbose:
             logger.info(f"Extracting frames from video: {video_path}")
@@ -159,6 +168,7 @@ class FrameExtractor:
 
         Returns:
             FrameExtractionResult with single image frame
+
         """
         if verbose:
             logger.info(f"Loading image: {image_path}")
@@ -194,6 +204,9 @@ class FrameExtractor:
 
         Returns:
             Preprocessed frame
+
+        Used in:
+        - vidkompy/align/core.py
         """
         processed = frame.copy()
 

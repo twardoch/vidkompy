@@ -6,12 +6,13 @@ Temporal alignment module for synchronizing videos.
 
 Implements frame-based temporal alignment with emphasis on
 preserving all foreground frames without retiming.
+
 """
 
 import numpy as np
 from loguru import logger
 
-from vidkompy.models import VideoInfo, FrameAlignment, TemporalAlignment
+from vidkompy.comp.models import VideoInfo, FrameAlignment, TemporalAlignment
 from .video_processor import VideoProcessor
 from .spatial_alignment import SpatialAligner
 from .tunnel_aligner import TunnelFullAligner, TunnelMaskAligner, TunnelConfig
@@ -31,6 +32,9 @@ class TemporalAligner:
 
     Current implementation uses keyframe matching with interpolation.
     Future versions will use Dynamic Time Warping (see SPEC4.md).
+
+    Used in:
+    - vidkompy/comp/alignment_engine.py
     """
 
     def __init__(
@@ -49,6 +53,7 @@ class TemporalAligner:
             drift_interval: Frame interval for drift correction
             window: DTW window size
             engine_mode: Alignment engine ('full', 'mask')
+
         """
         self.processor = processor
         self.max_keyframes = max_keyframes
@@ -74,6 +79,9 @@ class TemporalAligner:
 
         Returns:
             TemporalAlignment with frame mappings
+
+        Used in:
+        - vidkompy/comp/alignment_engine.py
         """
         logger.info("Starting frame-based temporal alignment")
 
@@ -98,6 +106,7 @@ class TemporalAligner:
 
         Returns:
             TemporalAlignment with frame mappings
+
         """
         # Initialize tunnel aligner if not already done
         if self.tunnel_aligner is None:
@@ -226,6 +235,9 @@ class TemporalAligner:
 
         Returns:
             Binary mask where 1 indicates border region, 0 indicates non-border
+
+        Used in:
+        - vidkompy/comp/alignment_engine.py
         """
         # Get foreground position on background canvas
         x_offset = spatial_alignment.x_offset
@@ -284,6 +296,7 @@ class TemporalAligner:
 
         Returns:
             Masked frame with same dimensions as input
+
         """
         if len(frame.shape) == 3:
             # Color frame - apply mask to all channels
@@ -316,6 +329,9 @@ class TemporalAligner:
 
         Returns:
             Float mask with values 0.0-1.0 for alpha blending
+
+        Used in:
+        - vidkompy/comp/alignment_engine.py
         """
         # Get foreground position on background canvas
         x_offset = spatial_alignment.x_offset

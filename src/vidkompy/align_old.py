@@ -9,6 +9,7 @@ Thumbnail finder - detects scaled and translated thumbnails of foreground images
 
 This tool finds the scale and position transformation needed to match a foreground image/video
 within a background image/video using multi-scale template matching and feature-based approaches.
+
 """
 
 import logging
@@ -44,9 +45,11 @@ class MatchResult:
 
     @property
     def scale_percentage(self) -> float:
+        """ """
         return self.scale * 100
 
     def __str__(self) -> str:
+        """ """
         return f"Scale: {self.scale_percentage:.2f}%, Position: ({self.x}, {self.y}), Confidence: {self.confidence:.3f}"
 
 
@@ -61,9 +64,11 @@ class ThumbnailFinder:
 
     Combines template matching, feature-based detection, and phase correlation
     for robust and accurate thumbnail detection across various scenarios.
+
     """
 
     def __init__(self, verbose: bool = False):
+        """ """
         self.verbose = verbose
         if verbose:
             logging.getLogger().setLevel(logging.DEBUG)
@@ -117,6 +122,7 @@ class ThumbnailFinder:
 
         Returns:
             List of frames as numpy arrays
+
         """
         path = Path(path)
         if not path.exists():
@@ -213,6 +219,7 @@ class ThumbnailFinder:
 
         Returns:
             Tuple of (estimated_scale, confidence)
+
         """
         # Convert to grayscale and downsample for speed
         if len(template.shape) == 3:
@@ -299,6 +306,7 @@ class ThumbnailFinder:
 
         Returns:
             Tuple of (best_scale, best_x, best_y, best_correlation)
+
         """
         best_correlation = -1
         best_scale = 1.0
@@ -362,6 +370,7 @@ class ThumbnailFinder:
 
         Returns:
             Tuple of (scale, x, y, confidence) or (None, None, None, None) if failed
+
         """
         # Initialize ORB detector
         orb = cv2.ORB_create(nfeatures=1000)
@@ -459,6 +468,7 @@ class ThumbnailFinder:
 
         Returns:
             MatchResult or None if phase correlation not available or failed
+
         """
         if not PHASE_CORRELATION_AVAILABLE:
             logger.warning("Phase correlation not available - install scikit-image")
@@ -540,6 +550,7 @@ class ThumbnailFinder:
 
         Returns:
             MatchResult or None if matching failed
+
         """
         start_time = time.time()
 
@@ -695,6 +706,7 @@ class ThumbnailFinder:
 
         Returns:
             MatchResult or None if no good match found
+
         """
         start_time = time.time()
 
@@ -795,6 +807,7 @@ class ThumbnailFinder:
 
         Returns:
             Tuple of (refined_scale, refined_x, refined_y, best_correlation)
+
         """
         logger.debug(
             f"Starting precise refinement around scale={initial_scale:.3f}, pos=({initial_x},{initial_y})"

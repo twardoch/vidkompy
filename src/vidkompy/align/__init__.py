@@ -32,6 +32,8 @@ from .algorithms import (
     FeatureMatchingAlgorithm,
     HistogramCorrelationAlgorithm,
     SubPixelRefinementAlgorithm,
+    PhaseCorrelationAlgorithm,
+    HybridMatchingAlgorithm,
 )
 
 # Data types
@@ -58,7 +60,9 @@ __all__ = [
     "FrameExtractionResult",
     "FrameExtractor",
     "HistogramCorrelationAlgorithm",
+    "HybridMatchingAlgorithm",
     "MatchResult",
+    "PhaseCorrelationAlgorithm",
     "PrecisionAnalysisResult",
     "PrecisionAnalyzer",
     "PrecisionLevel",

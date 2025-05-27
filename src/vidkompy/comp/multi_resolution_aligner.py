@@ -5,6 +5,7 @@
 Multi-resolution temporal alignment for precise video synchronization.
 
 Implements hierarchical DTW with progressive refinement to eliminate drift.
+
 """
 
 from dataclasses import dataclass
@@ -30,7 +31,11 @@ except ImportError:
 
 @dataclass
 class PreciseEngineConfig:
-    """Configuration for precise temporal alignment engine."""
+    """Configuration for precise temporal alignment engine.
+
+    Used in:
+    - vidkompy/comp/precise_temporal_alignment.py
+    """
 
     # Sampling parameters
     max_resolutions: int = 4  # Number of resolution levels
@@ -67,7 +72,11 @@ class PreciseEngineConfig:
 
 
 class MultiResolutionAligner:
-    """Multi-resolution temporal alignment with drift correction."""
+    """Multi-resolution temporal alignment with drift correction.
+
+    Used in:
+    - vidkompy/comp/precise_temporal_alignment.py
+    """
 
     def __init__(
         self,
@@ -81,6 +90,7 @@ class MultiResolutionAligner:
             fingerprinter: Frame fingerprint generator
             config: Engine configuration
             verbose: Enable detailed logging
+
         """
         self.fingerprinter = fingerprinter
         self.config = config or PreciseEngineConfig()
@@ -107,6 +117,7 @@ class MultiResolutionAligner:
 
         Returns:
             Dictionary mapping resolution to sampled fingerprints
+
         """
         pyramid = {}
 
@@ -135,6 +146,7 @@ class MultiResolutionAligner:
 
         Returns:
             Initial frame mapping at coarsest resolution
+
         """
         # Start with coarsest resolution
         coarsest_res = max(self.resolutions)
@@ -183,6 +195,7 @@ class MultiResolutionAligner:
 
         Returns:
             Refined frame mapping at target resolution
+
         """
         # Refining alignment: 1/{from_res} -> 1/{to_res}
         logger.info(f"Refine: 1/{from_res} -> 1/{to_res}")
@@ -251,6 +264,7 @@ class MultiResolutionAligner:
 
         Returns:
             Frame mapping at finest resolution
+
         """
         # Start with coarse alignment
         mapping = self.coarse_alignment(fg_pyramid, bg_pyramid)
@@ -385,7 +399,11 @@ class MultiResolutionAligner:
         fg_fingerprints: np.ndarray | None = None,
         bg_fingerprints: np.ndarray | None = None,
     ) -> tuple[np.ndarray, float]:
-        """Perform multi-resolution temporal alignment."""
+        """Perform multi-resolution temporal alignment.
+
+        Used in:
+        - vidkompy/comp/precise_temporal_alignment.py
+        """
         logger.info(f"Multi-res align: {len(fg_frames)} -> {len(bg_frames)} frames")
 
         fg_pyramid = self.create_temporal_pyramid(fg_frames, fg_fingerprints)

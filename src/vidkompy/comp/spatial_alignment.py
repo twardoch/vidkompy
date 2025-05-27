@@ -2,16 +2,27 @@
 # this_file: src/vidkompy/comp/spatial_alignment.py
 
 """
-Spatial alignment module for finding optimal overlay positions.
+DEPRECATED: Spatial alignment module for finding optimal overlay positions.
 
-Implements template matching for precise spatial alignment.
+This module has been replaced by the vidkompy.align module which provides
+better accuracy, robustness, and multi-scale detection capabilities.
+
+Use vidkompy.align.ThumbnailFinder instead.
 """
 
+import warnings
 import cv2
 import numpy as np
 from loguru import logger
 
-from vidkompy.models import SpatialAlignment
+from vidkompy.comp.models import SpatialAlignment
+
+warnings.warn(
+    "spatial_alignment.py is deprecated. Use vidkompy.align.ThumbnailFinder instead. "
+    "This module will be removed in a future version.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 class SpatialAligner:
@@ -25,6 +36,10 @@ class SpatialAligner:
     - One video might be a subset/window of the other
     - Automatic alignment avoids manual positioning
     - Ensures content overlap for best visual result
+
+    Used in:
+    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/temporal_alignment.py
     """
 
     def align(
@@ -44,6 +59,10 @@ class SpatialAligner:
 
         Returns:
             SpatialAlignment with offset and scale
+
+        Used in:
+        - vidkompy/comp/alignment_engine.py
+        - vidkompy/comp/temporal_alignment.py
         """
         bg_h, bg_w = bg_frame.shape[:2]
         fg_h, fg_w = fg_frame.shape[:2]
@@ -100,6 +119,7 @@ class SpatialAligner:
         - Fails if videos have different compression/artifacts
         - Sensitive to brightness/contrast changes
         - Requires FG to be subset of BG
+
         """
         logger.debug("Using template matching for spatial alignment")
 

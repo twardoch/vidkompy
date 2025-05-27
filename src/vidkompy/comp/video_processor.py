@@ -20,7 +20,7 @@ from rich.progress import (
 )
 from rich.console import Console
 
-from vidkompy.models import VideoInfo
+from vidkompy.comp.models import VideoInfo
 
 console = Console()
 
@@ -40,6 +40,10 @@ class VideoProcessor:
     Why both OpenCV and FFmpeg:
     - OpenCV: Frame-accurate reading, computer vision operations
     - FFmpeg: Audio handling, codec support, fast encoding
+
+    Used in:
+    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/temporal_alignment.py
     """
 
     def get_video_info(self, video_path: str) -> VideoInfo:
@@ -65,6 +69,9 @@ class VideoProcessor:
 
         Raises:
             ValueError: If video cannot be probed
+
+        Used in:
+        - vidkompy/comp/alignment_engine.py
         """
         logger.debug(f"Probing video: {video_path}")
 
@@ -163,6 +170,10 @@ class VideoProcessor:
 
         Returns:
             List of frames as numpy arrays
+
+        Used in:
+        - vidkompy/comp/alignment_engine.py
+        - vidkompy/comp/temporal_alignment.py
         """
         frames = []
         cap = cv2.VideoCapture(video_path)
@@ -243,6 +254,7 @@ class VideoProcessor:
 
         Returns:
             List of (frame_index, frame) tuples
+
         """
         frames = []
         cap = cv2.VideoCapture(video_path)
@@ -296,6 +308,9 @@ class VideoProcessor:
 
         Returns:
             VideoWriter object
+
+        Used in:
+        - vidkompy/comp/alignment_engine.py
         """
         fourcc = cv2.VideoWriter_fourcc(*codec)
         writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
@@ -324,6 +339,9 @@ class VideoProcessor:
 
         Returns:
             Array of frames or None if extraction fails
+
+        Used in:
+        - vidkompy/comp/temporal_alignment.py
         """
         cap = cv2.VideoCapture(video_path)
 

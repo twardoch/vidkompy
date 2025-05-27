@@ -13,14 +13,18 @@ from loguru import logger
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from vidkompy.models import FrameAlignment
+from vidkompy.comp.models import FrameAlignment
 
 console = Console()
 
 
 @dataclass
 class TunnelConfig:
-    """Configuration for tunnel-based alignment."""
+    """Configuration for tunnel-based alignment.
+
+    Used in:
+    - vidkompy/comp/temporal_alignment.py
+    """
 
     window_size: int = 30
     downsample_factor: float = 1.0
@@ -59,6 +63,9 @@ class TunnelAligner(ABC):
 
         Returns:
             Tuple of (frame alignments, confidence score)
+
+        Used in:
+        - vidkompy/comp/temporal_alignment.py
         """
         if verbose:
             logger.info(
@@ -305,11 +312,16 @@ class TunnelAligner(ABC):
         """Compute difference between FG and BG frames.
 
         To be implemented by subclasses.
+
         """
 
 
 class TunnelFullAligner(TunnelAligner):
-    """Tunnel aligner using full frame comparison."""
+    """Tunnel aligner using full frame comparison.
+
+    Used in:
+    - vidkompy/comp/temporal_alignment.py
+    """
 
     def compute_frame_difference(
         self, fg_frame: np.ndarray, bg_frame: np.ndarray, x_offset: int, y_offset: int
@@ -332,7 +344,11 @@ class TunnelFullAligner(TunnelAligner):
 
 
 class TunnelMaskAligner(TunnelAligner):
-    """Tunnel aligner using masked frame comparison."""
+    """Tunnel aligner using masked frame comparison.
+
+    Used in:
+    - vidkompy/comp/temporal_alignment.py
+    """
 
     def __init__(self, config: TunnelConfig | None = None):
         """Initialize with mask generation."""
@@ -347,7 +363,11 @@ class TunnelMaskAligner(TunnelAligner):
         y_offset: int,
         verbose: bool = False,
     ) -> tuple[list[FrameAlignment], float]:
-        """Perform alignment with mask generation."""
+        """Perform alignment with mask generation.
+
+        Used in:
+        - vidkompy/comp/temporal_alignment.py
+        """
         # Generate mask from first few FG frames
         self._generate_mask(fg_frames[:10])
 
