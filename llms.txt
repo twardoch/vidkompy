@@ -107,475 +107,6 @@ TODO.md
 <files>
 This section contains the contents of the repository's files.
 
-<file path="src/vidkompy/comp/domain_models.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/comp/domain_models.py
-
-"""
-Domain models for vidkompy composition module.
-
-Contains all dataclasses and data structures used across the composition system.
-"""
-
-from dataclasses import dataclass
-from .enums import MatchTimeMode
-
-
-@dataclass
-class VideoInfo:
-    """Video metadata container.
-
-    Used in:
-    - vidkompy/comp/alignment_engine.py
-    - vidkompy/comp/temporal_alignment.py
-    - vidkompy/comp/video_processor.py
-    """
-
-    width: int
-    height: int
-    fps: float
-    duration: float
-    frame_count: int
-    has_audio: bool
-    audio_sample_rate: int | None = None
-    audio_channels: int | None = None
-    path: str = ""
-
-    @property
-    def resolution(self) -> tuple[int, int]:
-        """Get video resolution as (width, height)."""
-        return (self.width, self.height)
-
-    @property
-    def aspect_ratio(self) -> float:
-        """Calculate aspect ratio."""
-        return self.width / self.height if self.height > 0 else 0
-
-
-@dataclass
-class FrameAlignment:
-    """Represents alignment between a foreground and background frame.
-
-    Used in:
-    - vidkompy/comp/alignment_engine.py
-    - vidkompy/comp/dtw_aligner.py
-    - vidkompy/comp/temporal_alignment.py
-    - vidkompy/comp/tunnel_aligner.py
-    """
-
-    fg_frame_idx: int  # Foreground frame index (never changes)
-    bg_frame_idx: int  # Corresponding background frame index
-    similarity_score: float  # Similarity between frames (0-1)
-
-    def __repr__(self) -> str:
-        """"""
-        return f"FrameAlignment(fg={self.fg_frame_idx}, bg={self.bg_frame_idx}, sim={self.similarity_score:.3f})"
-
-
-@dataclass
-class SpatialAlignment:
-    """Spatial offset for overlaying foreground on background.
-
-    Used in:
-    - vidkompy/comp/alignment_engine.py
-    - vidkompy/comp/spatial_alignment.py
-    """
-
-    x_offset: int
-    y_offset: int
-    scale_factor: float = 1.0
-    confidence: float = 1.0
-
-    @property
-    def offset(self) -> tuple[int, int]:
-        """Get offset as tuple."""
-        return (self.x_offset, self.y_offset)
-
-
-@dataclass
-class TemporalAlignment:
-    """Temporal alignment results.
-
-    Used in:
-    - vidkompy/comp/alignment_engine.py
-    - vidkompy/comp/temporal_alignment.py
-    """
-
-    offset_seconds: float  # Time offset in seconds
-    frame_alignments: list[FrameAlignment]  # Frame-by-frame mapping
-    method_used: str  # Method that produced this alignment
-    confidence: float = 1.0
-
-    @property
-    def start_frame(self) -> int | None:
-        """Get first aligned foreground frame."""
-        return self.frame_alignments[0].fg_frame_idx if self.frame_alignments else None
-
-    @property
-    def end_frame(self) -> int | None:
-        """Get last aligned foreground frame."""
-        return self.frame_alignments[-1].fg_frame_idx if self.frame_alignments else None
-
-
-@dataclass
-class ProcessingOptions:
-    """Options for video processing."""
-
-    time_mode: MatchTimeMode
-    space_method: str
-    skip_spatial: bool
-    trim: bool
-    max_keyframes: int = 2000
-    verbose: bool = False
-    border_thickness: int = 8
-    blend: bool = False
-    window: int = 0
-
-
-__all__ = [
-    "FrameAlignment",
-    "ProcessingOptions",
-    "SpatialAlignment",
-    "TemporalAlignment",
-    "VideoInfo",
-]
-</file>
-
-<file path="src/vidkompy/comp/enums.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/comp/enums.py
-
-"""
-Enumerations for vidkompy composition module.
-
-Contains all enum types used across the composition system.
-"""
-
-from enum import Enum
-
-__all__ = ["MatchTimeMode", "SpatialMethod", "TemporalMethod"]
-
-
-class MatchTimeMode(Enum):
-    """Temporal alignment modes.
-
-    Used in:
-    - vidkompy/comp/alignment_engine.py
-    - vidkompy/comp/domain_models.py
-    """
-
-    BORDER = "border"  # Border-based matching (default)
-    PRECISE = "precise"  # Use frame-based matching
-
-
-class SpatialMethod(Enum):
-    """Spatial alignment methods."""
-
-    TEMPLATE = "template"  # Template matching (only method)
-    CENTER = "center"  # Simple center alignment (fallback)
-
-
-class TemporalMethod(Enum):
-    """Temporal alignment algorithm methods.
-
-    Used in:
-    - vidkompy/comp/alignment_engine.py
-    """
-
-    DTW = "dtw"  # Dynamic Time Warping (new default)
-    CLASSIC = "classic"  # Original keyframe matching
-    FRAMES = "frames"  # Legacy alias for classic
-</file>
-
-<file path="src/vidkompy/utils/__init__.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/utils/__init__.py
-
-"""
-Utility modules for vidkompy.
-
-Re-exports commonly used functions from correlation and image modules
-to simplify import paths throughout the codebase.
-"""
-
-from .correlation import compute_normalized_correlation, histogram_correlation
-from .image import ensure_gray, resize_frame
-from .logging import LOG_FORMAT_VERBOSE, LOG_FORMAT_DEFAULT
-
-__all__ = [
-    "LOG_FORMAT_DEFAULT",
-    "LOG_FORMAT_VERBOSE",
-    "compute_normalized_correlation",
-    "ensure_gray",
-    "histogram_correlation",
-    "resize_frame",
-]
-</file>
-
-<file path="src/vidkompy/utils/correlation.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/utils/correlation.py
-
-"""
-Correlation computation utilities with Numba optimization.
-
-This module provides fast correlation functions used across the
-alignment and matching algorithms. All functions are JIT-compiled
-with Numba for optimal performance.
-
-Used in:
-- vidkompy/align/algorithms.py
-- vidkompy/align/precision.py
-- vidkompy/comp/numba_optimizations.py
-"""
-
-import numpy as np
-from numba import jit
-
-__all__ = ["compute_normalized_correlation", "histogram_correlation"]
-
-
-@jit(nopython=True)
-def compute_normalized_correlation(template: np.ndarray, image: np.ndarray) -> float:
-    """
-    Fast normalized cross-correlation computation using Numba.
-
-    Computes the normalized cross-correlation between two arrays,
-    handling edge cases like zero variance gracefully.
-
-    Args:
-        template: Template array to match
-        image: Image array to search in
-
-    Returns:
-        Normalized correlation coefficient between -1 and 1
-        Returns 0.0 for edge cases (zero variance, NaN inputs)
-
-    Used in:
-    - vidkompy/align/algorithms.py
-    - vidkompy/utils/__init__.py
-    """
-    # Handle NaN inputs
-    if np.any(np.isnan(template)) or np.any(np.isnan(image)):
-        return 0.0
-
-    template_mean = np.mean(template)
-    image_mean = np.mean(image)
-
-    numerator = np.sum((template - template_mean) * (image - image_mean))
-    template_var = np.sum((template - template_mean) ** 2)
-    image_var = np.sum((image - image_mean) ** 2)
-
-    # Handle zero variance edge cases
-    if template_var == 0 or image_var == 0:
-        return 0.0
-
-    denominator = np.sqrt(template_var * image_var)
-    if denominator == 0:
-        return 0.0
-
-    return numerator / denominator
-
-
-@jit(nopython=True)
-def histogram_correlation(hist1: np.ndarray, hist2: np.ndarray) -> float:
-    """
-    Fast histogram correlation for ballpark scale estimation.
-
-    Computes normalized correlation between two histograms,
-    useful for quick scale estimation based on intensity distributions.
-
-    Args:
-        hist1: First histogram array
-        hist2: Second histogram array
-
-    Returns:
-        Correlation coefficient between -1 and 1
-        Returns 0.0 for edge cases (empty histograms, zero variance)
-
-    Used in:
-    - vidkompy/align/algorithms.py
-    - vidkompy/align/precision.py
-    - vidkompy/utils/__init__.py
-    """
-    # Handle empty or NaN histograms
-    if len(hist1) == 0 or len(hist2) == 0:
-        return 0.0
-    if np.any(np.isnan(hist1)) or np.any(np.isnan(hist2)):
-        return 0.0
-
-    # Normalize histograms with small epsilon to avoid division by zero
-    sum1 = np.sum(hist1)
-    sum2 = np.sum(hist2)
-
-    if sum1 == 0 or sum2 == 0:
-        return 0.0
-
-    h1 = hist1 / (sum1 + 1e-7)
-    h2 = hist2 / (sum2 + 1e-7)
-
-    # Compute correlation coefficient
-    mean1 = np.mean(h1)
-    mean2 = np.mean(h2)
-
-    numerator = np.sum((h1 - mean1) * (h2 - mean2))
-    var1 = np.sum((h1 - mean1) ** 2)
-    var2 = np.sum((h2 - mean2) ** 2)
-
-    denominator = np.sqrt(var1 * var2)
-
-    if denominator == 0:
-        return 0.0
-
-    return numerator / denominator
-</file>
-
-<file path="src/vidkompy/utils/image.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/utils/image.py
-
-"""
-Image processing utilities for vidkompy.
-
-This module provides common image processing functions used across
-algorithms and extractors, focusing on grayscale conversion and
-frame resizing operations.
-
-Used in:
-- vidkompy/align/algorithms.py
-- vidkompy/align/frame_extractor.py
-- vidkompy/comp/* (various modules)
-"""
-
-import cv2
-import numpy as np
-
-__all__ = ["ensure_gray", "resize_frame"]
-
-
-def ensure_gray(frame: np.ndarray) -> np.ndarray:
-    """
-    Convert frame to grayscale if needed.
-
-    Args:
-        frame: Input frame (grayscale or color)
-
-    Returns:
-        Grayscale frame as 2D numpy array
-
-    Note:
-        If frame is already grayscale (2D), returns as-is.
-        If frame is color (3D), converts using BGR2GRAY.
-
-    Used in:
-    - vidkompy/align/algorithms.py
-    - vidkompy/align/core.py
-    - vidkompy/align/frame_extractor.py
-    - vidkompy/utils/__init__.py
-    """
-    if len(frame.shape) == 3:
-        return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    return frame
-
-
-def resize_frame(
-    frame: np.ndarray, scale: float | None = None, size: tuple[int, int] | None = None
-) -> np.ndarray:
-    """
-    Resize frame by scale factor or to specific size.
-
-    Args:
-        frame: Input frame to resize
-        scale: Scale factor (e.g., 0.5 for half size, 2.0 for double)
-        size: Target size as (width, height) tuple
-
-    Returns:
-        Resized frame
-
-    Raises:
-        ValueError: If neither scale nor size is provided, or both are provided
-
-    Note:
-        If both scale and size are provided, size takes precedence.
-        Uses INTER_AREA for downscaling, INTER_CUBIC for upscaling.
-
-    Used in:
-    - vidkompy/align/algorithms.py
-    - vidkompy/align/frame_extractor.py
-    - vidkompy/utils/__init__.py
-    """
-    if scale is None and size is None:
-        msg = "Either scale or size must be provided"
-        raise ValueError(msg)
-
-    if size is not None:
-        # Direct resize to specific size
-        return cv2.resize(frame, size)
-
-    if scale is not None:
-        # Resize by scale factor
-        if scale <= 0:
-            msg = "Scale factor must be positive"
-            raise ValueError(msg)
-
-        height, width = frame.shape[:2]
-        new_width = int(width * scale)
-        new_height = int(height * scale)
-
-        # Choose interpolation method based on scale
-        if scale < 1.0:
-            # Downscaling - use INTER_AREA for better quality
-            interpolation = cv2.INTER_AREA
-        else:
-            # Upscaling - use INTER_CUBIC for smoother results
-            interpolation = cv2.INTER_CUBIC
-
-        return cv2.resize(frame, (new_width, new_height), interpolation=interpolation)
-
-    # This shouldn't be reached, but just in case
-    return frame
-</file>
-
-<file path="src/vidkompy/utils/logging.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/utils/logging.py
-
-"""
-Logging utilities and constants for vidkompy.
-
-This module provides standard logging formats and configuration
-used across the application.
-"""
-
-# Standard logging formats
-LOG_FORMAT_VERBOSE = (
-    "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-    "<level>{level: <8}</level> | "
-    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-    "<level>{message}</level>"
-)
-
-LOG_FORMAT_DEFAULT = (
-    "<green>{time:HH:mm:ss}</green> | "
-    "<level>{level: <8}</level> | "
-    "<level>{message}</level>"
-)
-
-__all__ = ["LOG_FORMAT_DEFAULT", "LOG_FORMAT_VERBOSE"]
-</file>
-
-<file path="cleanup.sh">
-#!/usr/bin/env bash
-
-python -m uzpy run -e src
-fd -e py -x autoflake {}
-fd -e py -x pyupgrade --py312-plus {}
-fd -e py -x ruff check --output-format=github --fix --unsafe-fixes {}
-fd -e py -x ruff format --respect-gitignore --target-version py312 {}
-repomix -i varia,.specstory,AGENT.md,CLAUDE.md,PLAN.md,llms.txt,.cursorrules -o llms.txt .
-python -m pytest
-</file>
-
 <file path=".giga/specifications.json">
 [
   {
@@ -778,6 +309,506 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 </file>
 
+<file path="src/vidkompy/comp/domain_models.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/comp/domain_models.py
+
+"""
+Domain models for vidkompy composition module.
+
+Contains all dataclasses and data structures used across the composition system.
+"""
+
+from dataclasses import dataclass
+from .enums import MatchTimeMode
+
+
+@dataclass
+class VideoInfo:
+    """Video metadata container.
+
+    Used in:
+    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/temporal_alignment.py
+    - vidkompy/comp/video_processor.py
+    """
+
+    width: int
+    height: int
+    fps: float
+    duration: float
+    frame_count: int
+    has_audio: bool
+    audio_sample_rate: int | None = None
+    audio_channels: int | None = None
+    path: str = ""
+
+    @property
+    def resolution(self) -> tuple[int, int]:
+        """Get video resolution as (width, height)."""
+        return (self.width, self.height)
+
+    @property
+    def aspect_ratio(self) -> float:
+        """Calculate aspect ratio."""
+        return self.width / self.height if self.height > 0 else 0
+
+
+@dataclass
+class FrameAlignment:
+    """Represents alignment between a foreground and background frame.
+
+    Used in:
+    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/dtw_aligner.py
+    - vidkompy/comp/temporal_alignment.py
+    - vidkompy/comp/tunnel_aligner.py
+    """
+
+    fg_frame_idx: int  # Foreground frame index (never changes)
+    bg_frame_idx: int  # Corresponding background frame index
+    similarity_score: float  # Similarity between frames (0-1)
+
+    def __repr__(self) -> str:
+        """"""
+        return f"FrameAlignment(fg={self.fg_frame_idx}, bg={self.bg_frame_idx}, sim={self.similarity_score:.3f})"
+
+
+@dataclass
+class SpatialAlignment:
+    """Spatial offset for overlaying foreground on background.
+
+    Used in:
+    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/spatial_alignment.py
+    """
+
+    x_offset: int
+    y_offset: int
+    scale_factor: float = 1.0
+    confidence: float = 1.0
+
+    @property
+    def offset(self) -> tuple[int, int]:
+        """Get offset as tuple."""
+        return (self.x_offset, self.y_offset)
+
+
+@dataclass
+class TemporalAlignment:
+    """Temporal alignment results.
+
+    Used in:
+    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/temporal_alignment.py
+    """
+
+    offset_seconds: float  # Time offset in seconds
+    frame_alignments: list[FrameAlignment]  # Frame-by-frame mapping
+    method_used: str  # Method that produced this alignment
+    confidence: float = 1.0
+
+    @property
+    def start_frame(self) -> int | None:
+        """Get first aligned foreground frame."""
+        return self.frame_alignments[0].fg_frame_idx if self.frame_alignments else None
+
+    @property
+    def end_frame(self) -> int | None:
+        """Get last aligned foreground frame."""
+        return self.frame_alignments[-1].fg_frame_idx if self.frame_alignments else None
+
+
+@dataclass
+class ProcessingOptions:
+    """Options for video processing."""
+
+    time_mode: MatchTimeMode
+    space_method: str
+    skip_spatial: bool
+    trim: bool
+    max_keyframes: int = 2000
+    verbose: bool = False
+    border_thickness: int = 8
+    blend: bool = False
+    window: int = 0
+
+
+__all__ = [
+    "FrameAlignment",
+    "ProcessingOptions",
+    "SpatialAlignment",
+    "TemporalAlignment",
+    "VideoInfo",
+]
+</file>
+
+<file path="src/vidkompy/comp/enums.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/comp/enums.py
+
+"""
+Enumerations for vidkompy composition module.
+
+Contains all enum types used across the composition system.
+"""
+
+from enum import Enum
+
+__all__ = ["MatchTimeMode", "SpatialMethod", "TemporalMethod"]
+
+
+class MatchTimeMode(Enum):
+    """Temporal alignment modes.
+
+    Used in:
+    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/domain_models.py
+    """
+
+    BORDER = "border"  # Border-based matching (default)
+    PRECISE = "precise"  # Use frame-based matching
+
+
+class SpatialMethod(Enum):
+    """Spatial alignment methods."""
+
+    TEMPLATE = "template"  # Template matching (only method)
+    CENTER = "center"  # Simple center alignment (fallback)
+
+
+class TemporalMethod(Enum):
+    """Temporal alignment algorithm methods.
+
+    Used in:
+    - vidkompy/comp/alignment_engine.py
+    """
+
+    DTW = "dtw"  # Dynamic Time Warping (new default)
+    CLASSIC = "classic"  # Original keyframe matching
+    FRAMES = "frames"  # Legacy alias for classic
+</file>
+
+<file path="src/vidkompy/utils/__init__.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/utils/__init__.py
+
+"""
+Utility modules for vidkompy.
+
+Re-exports commonly used functions from correlation and image modules
+to simplify import paths throughout the codebase.
+
+Note: Logging utilities are now accessed directly from vidkompy.utils.logging
+to keep utilities I/O-free.
+"""
+
+from .correlation import compute_normalized_correlation, histogram_correlation, CORR_EPS
+from .image import ensure_gray, resize_frame
+
+
+def __getattr__(name: str):
+    """Dynamic attribute access for cleaner imports."""
+    if name == "__all__":
+        return [
+            "CORR_EPS",
+            "compute_normalized_correlation",
+            "ensure_gray",
+            "histogram_correlation",
+            "resize_frame",
+        ]
+    msg = f"module '{__name__}' has no attribute '{name}'"
+    raise AttributeError(msg)
+</file>
+
+<file path="src/vidkompy/utils/correlation.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/utils/correlation.py
+
+"""
+Correlation computation utilities with Numba optimization.
+
+This module provides fast correlation functions used across the
+alignment and matching algorithms. All functions are JIT-compiled
+with Numba for optimal performance.
+
+Used in:
+- vidkompy/align/algorithms.py
+- vidkompy/align/precision.py
+- vidkompy/comp/numba_optimizations.py
+"""
+
+import numpy as np
+from numba import jit
+
+# Correlation epsilon to avoid numerical issues
+CORR_EPS = 1e-7
+
+__all__ = ["CORR_EPS", "compute_normalized_correlation", "histogram_correlation"]
+
+
+@jit(nopython=True)
+def _safe_corr(arr1: np.ndarray, arr2: np.ndarray) -> float:
+    """
+    Safe correlation computation with NaN and variance guards.
+
+    Private helper that centralizes the common correlation logic
+    used by both public correlation functions.
+
+    Args:
+        arr1: First array
+        arr2: Second array
+
+    Returns:
+        Normalized correlation coefficient between -1 and 1
+        Returns 0.0 for edge cases (NaN inputs, zero variance)
+
+    """
+    # Handle NaN inputs
+    if np.any(np.isnan(arr1)) or np.any(np.isnan(arr2)):
+        return 0.0
+
+    mean1 = np.mean(arr1)
+    mean2 = np.mean(arr2)
+
+    numerator = np.sum((arr1 - mean1) * (arr2 - mean2))
+    var1 = np.sum((arr1 - mean1) ** 2)
+    var2 = np.sum((arr2 - mean2) ** 2)
+
+    # Handle zero variance edge cases
+    if var1 == 0 or var2 == 0:
+        return 0.0
+
+    denominator = np.sqrt(var1 * var2)
+    if denominator == 0:
+        return 0.0
+
+    return numerator / denominator
+
+
+@jit(nopython=True)
+def compute_normalized_correlation(template: np.ndarray, image: np.ndarray) -> float:
+    """
+    Fast normalized cross-correlation computation using Numba.
+
+    Computes the normalized cross-correlation between two arrays,
+    handling edge cases like zero variance gracefully.
+
+    Args:
+        template: Template array to match
+        image: Image array to search in
+
+    Returns:
+        Normalized correlation coefficient between -1 and 1
+        Returns 0.0 for edge cases (zero variance, NaN inputs)
+
+    Used in:
+    - vidkompy/align/algorithms.py
+    - vidkompy/utils/__init__.py
+    """
+    return _safe_corr(template, image)
+
+
+@jit(nopython=True)
+def histogram_correlation(hist1: np.ndarray, hist2: np.ndarray) -> float:
+    """
+    Fast histogram correlation for ballpark scale estimation.
+
+    Computes normalized correlation between two histograms,
+    useful for quick scale estimation based on intensity distributions.
+
+    Args:
+        hist1: First histogram array
+        hist2: Second histogram array
+
+    Returns:
+        Correlation coefficient between -1 and 1
+        Returns 0.0 for edge cases (empty histograms, zero variance)
+
+    Used in:
+    - vidkompy/align/algorithms.py
+    - vidkompy/align/precision.py
+    - vidkompy/utils/__init__.py
+    """
+    # Handle empty histograms
+    if len(hist1) == 0 or len(hist2) == 0:
+        return 0.0
+
+    # Normalize histograms with epsilon to avoid division by zero
+    sum1 = np.sum(hist1)
+    sum2 = np.sum(hist2)
+
+    if sum1 == 0 or sum2 == 0:
+        return 0.0
+
+    h1 = hist1 / (sum1 + CORR_EPS)
+    h2 = hist2 / (sum2 + CORR_EPS)
+
+    return _safe_corr(h1, h2)
+</file>
+
+<file path="src/vidkompy/utils/image.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/utils/image.py
+
+"""
+Image processing utilities for vidkompy.
+
+This module provides common image processing functions used across
+algorithms and extractors, focusing on grayscale conversion and
+frame resizing operations.
+
+Used in:
+- vidkompy/align/algorithms.py
+- vidkompy/align/frame_extractor.py
+- vidkompy/comp/* (various modules)
+"""
+
+import cv2
+import numpy as np
+
+__all__ = ["ensure_gray", "resize_frame"]
+
+
+def ensure_gray(frame: np.ndarray) -> np.ndarray:
+    """
+    Convert frame to grayscale if needed.
+
+    Args:
+        frame: Input frame (grayscale or color)
+
+    Returns:
+        Grayscale frame as 2D numpy array
+
+    Note:
+        If frame is already grayscale (2D), returns as-is.
+        If frame is color (3D), converts using BGR2GRAY.
+
+    Used in:
+    - vidkompy/align/algorithms.py
+    - vidkompy/align/core.py
+    - vidkompy/align/frame_extractor.py
+    - vidkompy/utils/__init__.py
+    """
+    if len(frame.shape) == 3:
+        return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    return frame
+
+
+def resize_frame(
+    frame: np.ndarray, scale: float | None = None, size: tuple[int, int] | None = None
+) -> np.ndarray:
+    """
+    Resize frame by scale factor or to specific size.
+
+    Args:
+        frame: Input frame to resize
+        scale: Scale factor (e.g., 0.5 for half size, 2.0 for double)
+        size: Target size as (width, height) tuple
+
+    Returns:
+        Resized frame
+
+    Raises:
+        ValueError: If neither scale nor size is provided, or both are provided
+
+    Note:
+        If both scale and size are provided, size takes precedence.
+        Uses INTER_AREA for downscaling, INTER_CUBIC for upscaling.
+
+    Used in:
+    - vidkompy/align/algorithms.py
+    - vidkompy/align/frame_extractor.py
+    - vidkompy/utils/__init__.py
+    """
+    if scale is None and size is None:
+        msg = "Either scale or size must be provided"
+        raise ValueError(msg)
+
+    if size is not None:
+        # Direct resize to specific size
+        return cv2.resize(frame, size)
+
+    if scale is not None:
+        # Resize by scale factor
+        if scale <= 0:
+            msg = "Scale factor must be positive"
+            raise ValueError(msg)
+
+        height, width = frame.shape[:2]
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+
+        # Choose interpolation method based on scale
+        if scale < 1.0:
+            # Downscaling - use INTER_AREA for better quality
+            interpolation = cv2.INTER_AREA
+        else:
+            # Upscaling - use INTER_CUBIC for smoother results
+            interpolation = cv2.INTER_CUBIC
+
+        return cv2.resize(frame, (new_width, new_height), interpolation=interpolation)
+
+    # This shouldn't be reached, but just in case
+    return frame
+</file>
+
+<file path="src/vidkompy/utils/logging.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/utils/logging.py
+
+"""
+Logging utilities and constants for vidkompy.
+
+This module provides standard logging formats and configuration
+used across the application.
+"""
+
+import sys
+
+# Standard logging formats
+FORMAT_VERBOSE = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+    "<level>{level: <8}</level> | "
+    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+    "<level>{message}</level>"
+)
+
+FORMAT_COMPACT = (
+    "<green>{time:HH:mm:ss}</green> | "
+    "<level>{level: <8}</level> | "
+    "<level>{message}</level>"
+)
+
+
+def make_logger(name: str, verbose: bool = False) -> "Logger":
+    """
+    Create a logger with standardized configuration.
+
+    Centralizes logger wiring to ensure consistent formatting
+    and configuration across the application.
+
+    Args:
+        name: Logger name, typically __name__
+        verbose: Whether to use verbose formatting with file/line info
+
+    Returns:
+        Configured logger instance
+
+    """
+    from loguru import logger
+
+    # Remove default handler and add our custom one
+    logger.remove()
+    format_str = FORMAT_VERBOSE if verbose else FORMAT_COMPACT
+    logger.add(sys.stderr, format=format_str, level="DEBUG" if verbose else "INFO")
+
+    return logger.bind(name=name)
+
+
+__all__ = ["FORMAT_COMPACT", "FORMAT_VERBOSE", "make_logger"]
+</file>
+
 <file path=".pre-commit-config.yaml">
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -798,6 +829,18 @@ repos:
       - id: check-case-conflict
       - id: mixed-line-ending
         args: [--fix=lf]
+</file>
+
+<file path="cleanup.sh">
+#!/usr/bin/env bash
+
+python -m uzpy run -e src
+fd -e py -x autoflake {}
+fd -e py -x pyupgrade --py312-plus {}
+fd -e py -x ruff check --output-format=github --fix --unsafe-fixes {}
+fd -e py -x ruff format --respect-gitignore --target-version py312 {}
+repomix -i varia,.specstory,AGENT.md,CLAUDE.md,PLAN.md,llms.txt,.cursorrules -o llms.txt .
+python -m pytest
 </file>
 
 <file path="LICENSE">
@@ -836,6 +879,406 @@ use_rich = true          # Use Rich for terminal output
 mkdocs = false           # Enable MkDocs documentation
 vcs = true              # Initialize Git repository
 github_actions = true   # Add GitHub Actions workflows
+</file>
+
+<file path="src/vidkompy/align/display.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/align/display.py
+
+"""
+Display and output formatting for thumbnail detection results.
+
+This module handles all Rich console output, table formatting,
+progress bars, and result presentation.
+
+"""
+
+from pathlib import Path
+
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+from rich.table import Table
+from rich.text import Text
+
+from .result_types import (
+    ThumbnailResult,
+    PrecisionAnalysisResult,
+    PrecisionLevel,
+    AnalysisData,
+)
+
+
+class ResultDisplayer:
+    """
+    Handles formatting and display of thumbnail detection results.
+
+    This class provides methods to display results in various formats
+    using Rich console output with tables, progress bars, and styling.
+
+    Used in:
+    - vidkompy/align/__init__.py
+    - vidkompy/align/core.py
+    """
+
+    def __init__(self, console: Console | None = None):
+        """
+        Initialize the result displayer.
+
+        Args:
+            console: Optional Rich console instance
+
+        """
+        self.console = console or Console()
+
+    def display_header(
+        self, fg_path: Path, bg_path: Path, max_frames: int, precision_level: int
+    ):
+        """
+        Display the header information for thumbnail detection.
+
+        Args:
+            fg_path: Foreground file path
+            bg_path: Background file path
+            max_frames: Maximum frames to process
+            precision_level: Precision level being used
+
+        Used in:
+        - vidkompy/align/core.py
+        """
+        precision_desc = self._get_precision_description(precision_level)
+
+        self.console.print("\n[bold cyan]Thumbnail Finder[/bold cyan]")
+        self.console.print(f"Foreground: {fg_path.name}")
+        self.console.print(f"Background: {bg_path.name}")
+        self.console.print(f"Max frames: {max_frames}")
+        self.console.print(f"Precision Level: {precision_level} - {precision_desc}")
+
+    def display_extraction_progress(self, fg_count: int, bg_count: int):
+        """
+        Display frame extraction results.
+
+        Args:
+            fg_count: Number of foreground frames extracted
+            bg_count: Number of background frames extracted
+
+        Used in:
+        - vidkompy/align/core.py
+        """
+        self.console.print("\nExtracting frames...")
+        self.console.print(f"Extracted {fg_count} foreground frames")
+        self.console.print(f"Extracted {bg_count} background frames")
+
+    def create_search_progress(self) -> Progress:
+        """
+        Create a progress bar for thumbnail search.
+
+        Returns:
+            Rich Progress instance
+
+        Used in:
+        - vidkompy/align/core.py
+        """
+        return Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TextColumn("{task.completed}/{task.total}"),
+            console=self.console,
+        )
+
+    def display_precision_analysis(
+        self, precision_results: list[PrecisionAnalysisResult]
+    ):
+        """
+        Display precision analysis results.
+
+        Args:
+            precision_results: List of results from each precision level
+
+        Used in:
+        - vidkompy/align/core.py
+        """
+        if not precision_results:
+            return
+
+        self.console.print("\n[bold blue]Precision Analysis (first frame):[/bold blue]")
+        self.console.print()
+
+        max_level = max(r.level.value for r in precision_results)
+        self.console.print(f"● Precision Level {max_level}")
+
+        for result in precision_results:
+            level_desc = result.level.description
+
+            if result.level == PrecisionLevel.BALLPARK:
+                self.console.print(
+                    f"  Level {result.level.value} ({level_desc}): "
+                    f"scale ≈ {result.scale * 100:.1f}%, "
+                    f"confidence = {result.confidence:.3f}"
+                )
+            else:
+                self.console.print(
+                    f"  Level {result.level.value} ({level_desc}): "
+                    f"scale = {result.scale * 100:.2f}%, "
+                    f"pos = ({result.x}, {result.y}), "
+                    f"confidence = {result.confidence:.3f}"
+                )
+
+    def display_main_results_table(self, result: ThumbnailResult):
+        """
+        Display the main results table.
+
+        Args:
+            result: Complete thumbnail detection result
+        """
+        table = Table(title="Thumbnail Detection Results")
+        table.add_column("Metric", style="cyan", no_wrap=True)
+        table.add_column("Value", style="magenta")
+        table.add_column("Unit", style="green")
+
+        # Add rows to the table
+        table.add_row("Confidence", f"{result.confidence * 100:.2f}", "%")
+        table.add_row(
+            "FG file",
+            Path(result.analysis_data.fg_file).name
+            if hasattr(result.analysis_data, "fg_file")
+            else "N/A",
+            "",
+        )
+        table.add_row("FG original size", f"{result.fg_width}×{result.fg_height}", "px")
+        table.add_row(
+            "BG file",
+            Path(result.analysis_data.bg_file).name
+            if hasattr(result.analysis_data, "bg_file")
+            else "N/A",
+            "",
+        )
+        table.add_row("BG original size", f"{result.bg_width}×{result.bg_height}", "px")
+        table.add_row("Scale (FG → thumbnail)", f"{result.scale_fg_to_thumb:.2f}", "%")
+        table.add_row(
+            "Thumbnail size",
+            f"{result.thumbnail_width}×{result.thumbnail_height}",
+            "px",
+        )
+        table.add_row("X shift (thumbnail in BG)", str(result.x_thumb_in_bg), "px")
+        table.add_row("Y shift (thumbnail in BG)", str(result.y_thumb_in_bg), "px")
+        table.add_row("Scale (BG → FG size)", f"{result.scale_bg_to_fg:.2f}", "%")
+        table.add_row(
+            "Upscaled BG size",
+            f"{result.upscaled_bg_size[0]}×{result.upscaled_bg_size[1]}",
+            "px",
+        )
+        table.add_row(
+            "X shift (FG on upscaled BG)", str(result.x_fg_in_scaled_bg), "px"
+        )
+        table.add_row(
+            "Y shift (FG on upscaled BG)", str(result.y_fg_in_scaled_bg), "px"
+        )
+
+        self.console.print()
+        self.console.print(table)
+
+    def display_summary(self, result: ThumbnailResult, fg_path: Path, bg_path: Path):
+        """
+        Display a concise summary of results.
+
+        Args:
+            result: Complete thumbnail detection result
+            fg_path: Foreground file path
+            bg_path: Background file path
+        """
+        self.console.print("\n[bold green]Summary:[/bold green]")
+        self.console.print(f"FG file: {fg_path.name}")
+        self.console.print(f"BG file: {bg_path.name}")
+        self.console.print(f"Confidence: {result.confidence * 100:.2f}%")
+        self.console.print(f"FG size: {result.fg_width}×{result.fg_height} px")
+        self.console.print(f"BG size: {result.bg_width}×{result.bg_height} px")
+        self.console.print(
+            f"Scale down: {result.scale_fg_to_thumb:.2f}% → "
+            f"{result.thumbnail_width}×{result.thumbnail_height} px"
+        )
+        self.console.print(
+            f"Position: ({result.x_thumb_in_bg}, {result.y_thumb_in_bg}) px"
+        )
+        self.console.print(
+            f"Scale up: {result.scale_bg_to_fg:.2f}% → "
+            f"{result.upscaled_bg_size[0]}×{result.upscaled_bg_size[1]} px"
+        )
+        self.console.print(
+            f"Reverse position: ({result.x_fg_in_scaled_bg}, {result.y_fg_in_scaled_bg}) px"
+        )
+
+    def display_alternative_analysis(self, analysis_data: AnalysisData):
+        """
+        Display alternative analysis results.
+
+        Args:
+            analysis_data: Analysis data with alternative results
+        """
+        self.console.print("\n[bold blue]Alternative Analysis:[/bold blue]")
+
+        if analysis_data.unity_scale_result:
+            unity = analysis_data.unity_scale_result
+            self.console.print(
+                f"  Unity scale (100%) option: confidence={unity.confidence:.3f}, "
+                f"position=({unity.x}, {unity.y})"
+            )
+
+        if analysis_data.scaled_result:
+            scaled = analysis_data.scaled_result
+            self.console.print(
+                f"  Scaled option: confidence={scaled.confidence:.3f}, "
+                f"scale={scaled.scale * 100:.2f}%, position=({scaled.x}, {scaled.y})"
+            )
+
+        # Display preference mode
+        if analysis_data.unity_scale_preference_active:
+            self.console.print("  Preference mode: Unity scale preferred")
+        else:
+            self.console.print("  Preference mode: Multi-scale analysis")
+
+        # Display result counts
+        total = analysis_data.total_results
+        unity_count = analysis_data.unity_scale_count
+        self.console.print(
+            f"  Total results analyzed: {total} ({unity_count} near 100% scale)"
+        )
+
+    def display_verbose_info(self, message: str):
+        """
+        Display verbose information if verbose mode is enabled.
+
+        Args:
+            message: Message to display
+        """
+        self.console.print(f"[dim]INFO: {message}[/dim]")
+
+    def display_error(self, message: str):
+        """
+        Display an error message.
+
+        Args:
+            message: Error message to display
+        """
+        self.console.print(f"[bold red]ERROR: {message}[/bold red]")
+
+    def display_warning(self, message: str):
+        """
+        Display a warning message.
+
+        Args:
+            message: Warning message to display
+        """
+        self.console.print(f"[bold yellow]WARNING: {message}[/bold yellow]")
+
+    def _get_precision_description(self, precision_level: int) -> str:
+        """
+        Get description for precision level.
+
+        Args:
+            precision_level: Precision level (0-4)
+
+        Returns:
+            Human-readable description
+        """
+        try:
+            level = PrecisionLevel(precision_level)
+            return f"{level.description} ({level.timing_estimate})"
+        except ValueError:
+            return "Unknown"
+
+    def create_compact_table(self, data: dict[str, str]) -> Table:
+        """
+        Create a compact table for displaying key-value data.
+
+        Args:
+            data: Dictionary of key-value pairs
+
+        Returns:
+            Rich Table instance
+        """
+        table = Table(show_header=False, box=None)
+        table.add_column("Key", style="cyan")
+        table.add_column("Value", style="white")
+
+        for key, value in data.items():
+            table.add_row(key, value)
+
+        return table
+
+    def format_confidence(self, confidence: float) -> Text:
+        """
+        Format confidence score with color coding.
+
+        Args:
+            confidence: Confidence score (0.0 to 1.0)
+
+        Returns:
+            Rich Text with appropriate styling
+        """
+        percentage = confidence * 100
+
+        if percentage >= 90:
+            color = "green"
+        elif percentage >= 70:
+            color = "yellow"
+        elif percentage >= 50:
+            color = "orange"
+        else:
+            color = "red"
+
+        return Text(f"{percentage:.2f}%", style=color)
+
+    def format_position(self, x: int, y: int) -> str:
+        """
+        Format position coordinates.
+
+        Args:
+            x: X coordinate
+            y: Y coordinate
+
+        Returns:
+            Formatted position string
+        """
+        return f"({x}, {y})"
+
+    def format_size(self, width: int, height: int) -> str:
+        """
+        Format size dimensions.
+
+        Args:
+            width: Width in pixels
+            height: Height in pixels
+
+        Returns:
+            Formatted size string
+        """
+        return f"{width}×{height}"
+
+    def format_scale(self, scale: float) -> str:
+        """
+        Format scale factor as percentage.
+
+        Args:
+            scale: Scale factor
+
+        Returns:
+            Formatted scale string
+        """
+        return f"{scale * 100:.2f}%"
+</file>
+
+<file path="src/vidkompy/comp/__init__.py">
+# this_file: src/vidkompy/comp/__init__.py
+</file>
+
+<file path="src/vidkompy/__init__.py">
+# this_file: src/vidkompy/__init__.py
+
+from .__version__ import __version__
+
+__all__ = ["__version__"]
 </file>
 
 <file path="src/vidkompy/align/__init__.py">
@@ -2374,394 +2817,6 @@ class ThumbnailFinder:
         return True
 </file>
 
-<file path="src/vidkompy/align/display.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/align/display.py
-
-"""
-Display and output formatting for thumbnail detection results.
-
-This module handles all Rich console output, table formatting,
-progress bars, and result presentation.
-
-"""
-
-from pathlib import Path
-
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
-from rich.table import Table
-from rich.text import Text
-
-from .result_types import (
-    ThumbnailResult,
-    PrecisionAnalysisResult,
-    PrecisionLevel,
-    AnalysisData,
-)
-
-
-class ResultDisplayer:
-    """
-    Handles formatting and display of thumbnail detection results.
-
-    This class provides methods to display results in various formats
-    using Rich console output with tables, progress bars, and styling.
-
-    Used in:
-    - vidkompy/align/__init__.py
-    - vidkompy/align/core.py
-    """
-
-    def __init__(self, console: Console | None = None):
-        """
-        Initialize the result displayer.
-
-        Args:
-            console: Optional Rich console instance
-
-        """
-        self.console = console or Console()
-
-    def display_header(
-        self, fg_path: Path, bg_path: Path, max_frames: int, precision_level: int
-    ):
-        """
-        Display the header information for thumbnail detection.
-
-        Args:
-            fg_path: Foreground file path
-            bg_path: Background file path
-            max_frames: Maximum frames to process
-            precision_level: Precision level being used
-
-        Used in:
-        - vidkompy/align/core.py
-        """
-        precision_desc = self._get_precision_description(precision_level)
-
-        self.console.print("\n[bold cyan]Thumbnail Finder[/bold cyan]")
-        self.console.print(f"Foreground: {fg_path.name}")
-        self.console.print(f"Background: {bg_path.name}")
-        self.console.print(f"Max frames: {max_frames}")
-        self.console.print(f"Precision Level: {precision_level} - {precision_desc}")
-
-    def display_extraction_progress(self, fg_count: int, bg_count: int):
-        """
-        Display frame extraction results.
-
-        Args:
-            fg_count: Number of foreground frames extracted
-            bg_count: Number of background frames extracted
-
-        Used in:
-        - vidkompy/align/core.py
-        """
-        self.console.print("\nExtracting frames...")
-        self.console.print(f"Extracted {fg_count} foreground frames")
-        self.console.print(f"Extracted {bg_count} background frames")
-
-    def create_search_progress(self) -> Progress:
-        """
-        Create a progress bar for thumbnail search.
-
-        Returns:
-            Rich Progress instance
-
-        Used in:
-        - vidkompy/align/core.py
-        """
-        return Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TextColumn("{task.completed}/{task.total}"),
-            console=self.console,
-        )
-
-    def display_precision_analysis(
-        self, precision_results: list[PrecisionAnalysisResult]
-    ):
-        """
-        Display precision analysis results.
-
-        Args:
-            precision_results: List of results from each precision level
-
-        Used in:
-        - vidkompy/align/core.py
-        """
-        if not precision_results:
-            return
-
-        self.console.print("\n[bold blue]Precision Analysis (first frame):[/bold blue]")
-        self.console.print()
-
-        max_level = max(r.level.value for r in precision_results)
-        self.console.print(f"● Precision Level {max_level}")
-
-        for result in precision_results:
-            level_desc = result.level.description
-
-            if result.level == PrecisionLevel.BALLPARK:
-                self.console.print(
-                    f"  Level {result.level.value} ({level_desc}): "
-                    f"scale ≈ {result.scale * 100:.1f}%, "
-                    f"confidence = {result.confidence:.3f}"
-                )
-            else:
-                self.console.print(
-                    f"  Level {result.level.value} ({level_desc}): "
-                    f"scale = {result.scale * 100:.2f}%, "
-                    f"pos = ({result.x}, {result.y}), "
-                    f"confidence = {result.confidence:.3f}"
-                )
-
-    def display_main_results_table(self, result: ThumbnailResult):
-        """
-        Display the main results table.
-
-        Args:
-            result: Complete thumbnail detection result
-        """
-        table = Table(title="Thumbnail Detection Results")
-        table.add_column("Metric", style="cyan", no_wrap=True)
-        table.add_column("Value", style="magenta")
-        table.add_column("Unit", style="green")
-
-        # Add rows to the table
-        table.add_row("Confidence", f"{result.confidence * 100:.2f}", "%")
-        table.add_row(
-            "FG file",
-            Path(result.analysis_data.fg_file).name
-            if hasattr(result.analysis_data, "fg_file")
-            else "N/A",
-            "",
-        )
-        table.add_row("FG original size", f"{result.fg_width}×{result.fg_height}", "px")
-        table.add_row(
-            "BG file",
-            Path(result.analysis_data.bg_file).name
-            if hasattr(result.analysis_data, "bg_file")
-            else "N/A",
-            "",
-        )
-        table.add_row("BG original size", f"{result.bg_width}×{result.bg_height}", "px")
-        table.add_row("Scale (FG → thumbnail)", f"{result.scale_fg_to_thumb:.2f}", "%")
-        table.add_row(
-            "Thumbnail size",
-            f"{result.thumbnail_width}×{result.thumbnail_height}",
-            "px",
-        )
-        table.add_row("X shift (thumbnail in BG)", str(result.x_thumb_in_bg), "px")
-        table.add_row("Y shift (thumbnail in BG)", str(result.y_thumb_in_bg), "px")
-        table.add_row("Scale (BG → FG size)", f"{result.scale_bg_to_fg:.2f}", "%")
-        table.add_row(
-            "Upscaled BG size",
-            f"{result.upscaled_bg_size[0]}×{result.upscaled_bg_size[1]}",
-            "px",
-        )
-        table.add_row(
-            "X shift (FG on upscaled BG)", str(result.x_fg_in_scaled_bg), "px"
-        )
-        table.add_row(
-            "Y shift (FG on upscaled BG)", str(result.y_fg_in_scaled_bg), "px"
-        )
-
-        self.console.print()
-        self.console.print(table)
-
-    def display_summary(self, result: ThumbnailResult, fg_path: Path, bg_path: Path):
-        """
-        Display a concise summary of results.
-
-        Args:
-            result: Complete thumbnail detection result
-            fg_path: Foreground file path
-            bg_path: Background file path
-        """
-        self.console.print("\n[bold green]Summary:[/bold green]")
-        self.console.print(f"FG file: {fg_path.name}")
-        self.console.print(f"BG file: {bg_path.name}")
-        self.console.print(f"Confidence: {result.confidence * 100:.2f}%")
-        self.console.print(f"FG size: {result.fg_width}×{result.fg_height} px")
-        self.console.print(f"BG size: {result.bg_width}×{result.bg_height} px")
-        self.console.print(
-            f"Scale down: {result.scale_fg_to_thumb:.2f}% → "
-            f"{result.thumbnail_width}×{result.thumbnail_height} px"
-        )
-        self.console.print(
-            f"Position: ({result.x_thumb_in_bg}, {result.y_thumb_in_bg}) px"
-        )
-        self.console.print(
-            f"Scale up: {result.scale_bg_to_fg:.2f}% → "
-            f"{result.upscaled_bg_size[0]}×{result.upscaled_bg_size[1]} px"
-        )
-        self.console.print(
-            f"Reverse position: ({result.x_fg_in_scaled_bg}, {result.y_fg_in_scaled_bg}) px"
-        )
-
-    def display_alternative_analysis(self, analysis_data: AnalysisData):
-        """
-        Display alternative analysis results.
-
-        Args:
-            analysis_data: Analysis data with alternative results
-        """
-        self.console.print("\n[bold blue]Alternative Analysis:[/bold blue]")
-
-        if analysis_data.unity_scale_result:
-            unity = analysis_data.unity_scale_result
-            self.console.print(
-                f"  Unity scale (100%) option: confidence={unity.confidence:.3f}, "
-                f"position=({unity.x}, {unity.y})"
-            )
-
-        if analysis_data.scaled_result:
-            scaled = analysis_data.scaled_result
-            self.console.print(
-                f"  Scaled option: confidence={scaled.confidence:.3f}, "
-                f"scale={scaled.scale * 100:.2f}%, position=({scaled.x}, {scaled.y})"
-            )
-
-        # Display preference mode
-        if analysis_data.unity_scale_preference_active:
-            self.console.print("  Preference mode: Unity scale preferred")
-        else:
-            self.console.print("  Preference mode: Multi-scale analysis")
-
-        # Display result counts
-        total = analysis_data.total_results
-        unity_count = analysis_data.unity_scale_count
-        self.console.print(
-            f"  Total results analyzed: {total} ({unity_count} near 100% scale)"
-        )
-
-    def display_verbose_info(self, message: str):
-        """
-        Display verbose information if verbose mode is enabled.
-
-        Args:
-            message: Message to display
-        """
-        self.console.print(f"[dim]INFO: {message}[/dim]")
-
-    def display_error(self, message: str):
-        """
-        Display an error message.
-
-        Args:
-            message: Error message to display
-        """
-        self.console.print(f"[bold red]ERROR: {message}[/bold red]")
-
-    def display_warning(self, message: str):
-        """
-        Display a warning message.
-
-        Args:
-            message: Warning message to display
-        """
-        self.console.print(f"[bold yellow]WARNING: {message}[/bold yellow]")
-
-    def _get_precision_description(self, precision_level: int) -> str:
-        """
-        Get description for precision level.
-
-        Args:
-            precision_level: Precision level (0-4)
-
-        Returns:
-            Human-readable description
-        """
-        try:
-            level = PrecisionLevel(precision_level)
-            return f"{level.description} ({level.timing_estimate})"
-        except ValueError:
-            return "Unknown"
-
-    def create_compact_table(self, data: dict[str, str]) -> Table:
-        """
-        Create a compact table for displaying key-value data.
-
-        Args:
-            data: Dictionary of key-value pairs
-
-        Returns:
-            Rich Table instance
-        """
-        table = Table(show_header=False, box=None)
-        table.add_column("Key", style="cyan")
-        table.add_column("Value", style="white")
-
-        for key, value in data.items():
-            table.add_row(key, value)
-
-        return table
-
-    def format_confidence(self, confidence: float) -> Text:
-        """
-        Format confidence score with color coding.
-
-        Args:
-            confidence: Confidence score (0.0 to 1.0)
-
-        Returns:
-            Rich Text with appropriate styling
-        """
-        percentage = confidence * 100
-
-        if percentage >= 90:
-            color = "green"
-        elif percentage >= 70:
-            color = "yellow"
-        elif percentage >= 50:
-            color = "orange"
-        else:
-            color = "red"
-
-        return Text(f"{percentage:.2f}%", style=color)
-
-    def format_position(self, x: int, y: int) -> str:
-        """
-        Format position coordinates.
-
-        Args:
-            x: X coordinate
-            y: Y coordinate
-
-        Returns:
-            Formatted position string
-        """
-        return f"({x}, {y})"
-
-    def format_size(self, width: int, height: int) -> str:
-        """
-        Format size dimensions.
-
-        Args:
-            width: Width in pixels
-            height: Height in pixels
-
-        Returns:
-            Formatted size string
-        """
-        return f"{width}×{height}"
-
-    def format_scale(self, scale: float) -> str:
-        """
-        Format scale factor as percentage.
-
-        Args:
-            scale: Scale factor
-
-        Returns:
-            Formatted scale string
-        """
-        return f"{scale * 100:.2f}%"
-</file>
-
 <file path="src/vidkompy/align/frame_extractor.py">
 #!/usr/bin/env python3
 # this_file: src/vidkompy/align/frame_extractor.py
@@ -3678,1216 +3733,6 @@ FrameArray = np.ndarray
 ScaleRange = tuple[float, float]
 Position = tuple[int, int]
 Size = tuple[int, int]
-</file>
-
-<file path="src/vidkompy/comp/__init__.py">
-# this_file: src/vidkompy/comp/__init__.py
-</file>
-
-<file path="src/vidkompy/__init__.py">
-# this_file: src/vidkompy/__init__.py
-
-from .__version__ import __version__
-
-__all__ = ["__version__"]
-</file>
-
-<file path="src/vidkompy/comp/alignment_engine.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/comp/alignment_engine.py
-
-"""
-Main alignment engine that coordinates spatial and temporal alignment.
-
-This is the high-level orchestrator that manages the complete video
-overlay process.
-
-"""
-
-import tempfile
-import cv2
-import ffmpeg
-import numpy as np
-from pathlib import Path
-from loguru import logger
-from rich.progress import (
-    Progress,
-    BarColumn,
-    TextColumn,
-    TimeRemainingColumn,
-)
-from rich.console import Console
-
-from .domain_models import (
-    VideoInfo,
-    SpatialAlignment,
-    TemporalAlignment,
-    FrameAlignment,
-)
-from .enums import MatchTimeMode, TemporalMethod
-from .video_processor import VideoProcessor
-from vidkompy.align import ThumbnailFinder
-from vidkompy.align.result_types import ThumbnailResult
-from .temporal_alignment import TemporalAligner
-
-
-console = Console()
-
-
-class AlignmentEngine:
-    """Orchestrates the complete video alignment and overlay process.
-
-    This is the main coordinator that manages the entire video overlay workflow.
-    It handles the high-level process flow while delegating specific tasks to
-    specialized components.
-
-    Why this architecture:
-    - Separation of concerns: Each component (spatial, temporal, processing) has a single responsibility
-    - Flexibility: Easy to swap alignment algorithms or add new methods
-    - Testability: Each component can be tested independently
-    - Progress tracking: Centralized progress reporting for better UX
-
-    """
-
-    def __init__(
-        self,
-        processor: VideoProcessor,
-        verbose: bool = False,
-        max_keyframes: int = 2000,
-        engine_mode: str = "fast",
-        drift_interval: int = 100,
-        window: int = 100,
-        spatial_precision: int = 2,
-        unity_scale: bool = True,
-    ):
-        """Initialize alignment engine.
-
-        Args:
-            processor: Video processor instance
-            verbose: Enable verbose logging
-            max_keyframes: Maximum keyframes for frame matching
-            engine_mode: The chosen engine ('fast', 'precise', 'mask')
-            drift_interval: Frame interval for drift correction in precise engine
-            window: DTW window size
-            spatial_precision: Spatial alignment precision level (0-4, default: 2)
-            unity_scale: Prefer unity scale for spatial alignment (default: True)
-
-        """
-        self.processor = processor
-        self.thumbnail_finder = ThumbnailFinder()
-        self.spatial_precision = spatial_precision
-        self.unity_scale = unity_scale
-        self.temporal_aligner = TemporalAligner(
-            processor=processor,
-            max_keyframes=max_keyframes,
-            drift_interval=drift_interval,
-            window=window,
-            engine_mode=engine_mode,
-        )
-        self.verbose = verbose
-        self.engine_mode = engine_mode
-
-    def _convert_thumbnail_result(self, result: ThumbnailResult) -> SpatialAlignment:
-        """Convert ThumbnailResult from align module to comp module's SpatialAlignment format.
-
-        Args:
-            result: ThumbnailResult from the align module
-
-        Returns:
-            SpatialAlignment compatible with existing comp module code
-
-        """
-        return SpatialAlignment(
-            x_offset=result.x_thumb_in_bg,
-            y_offset=result.y_thumb_in_bg,
-            scale_factor=result.scale_fg_to_thumb
-            / 100.0,  # Convert percentage to factor
-            confidence=result.confidence,
-        )
-
-    def process(
-        self,
-        bg_path: str,
-        fg_path: str,
-        output_path: str,
-        time_mode: MatchTimeMode,
-        space_method: str,
-        temporal_method: TemporalMethod,
-        skip_spatial: bool,
-        trim: bool,
-        border_thickness: int = 8,
-        blend: bool = False,
-        window: int = 0,
-    ):
-        """Process video overlay with alignment.
-
-        Args:
-            bg_path: Background video path
-            fg_path: Foreground video path
-            output_path: Output video path
-            time_mode: Temporal alignment mode
-            space_method: Spatial alignment method
-            temporal_method: Temporal algorithm to use (DTW or classic)
-            skip_spatial: Skip spatial alignment
-            trim: Trim to overlapping segment
-            border_thickness: Border thickness for border matching mode
-            blend: Enable smooth blending at frame edges
-            window: Sliding window size for frame matching
-
-        """
-        # Analyze videos - quick task, use simple logging
-        logger.info("Analyzing videos...")
-        bg_info = self.processor.get_video_info(bg_path)
-        fg_info = self.processor.get_video_info(fg_path)
-
-        # Log compatibility
-        self._log_compatibility(bg_info, fg_info)
-
-        # Spatial alignment - quick task, use simple logging
-        logger.info("Computing spatial alignment...")
-        spatial_alignment = self._compute_spatial_alignment(
-            bg_info, fg_info, space_method, skip_spatial
-        )
-
-        # Log spatial alignment results in non-verbose mode too
-        if not skip_spatial:
-            logger.info(
-                f"Spatial alignment result: offset=({spatial_alignment.x_offset}, {spatial_alignment.y_offset}), "
-                f"scale={spatial_alignment.scale_factor:.3f}, confidence={spatial_alignment.confidence:.3f}"
-            )
-
-        # Temporal alignment - potentially time-intensive, use progress tracking
-        logger.info("Computing temporal alignment...")
-        temporal_alignment = self._compute_temporal_alignment(
-            bg_info,
-            fg_info,
-            time_mode,
-            temporal_method,
-            trim,
-            spatial_alignment,
-            border_thickness,
-            window,
-        )
-
-        # Log temporal alignment results
-        logger.info(
-            f"Temporal alignment result: method={temporal_alignment.method_used}, "
-            f"offset={temporal_alignment.offset_seconds:.3f}s, "
-            f"frames={len(temporal_alignment.frame_alignments)}, "
-            f"confidence={temporal_alignment.confidence:.3f}"
-        )
-
-        # Compose final video - time-intensive, use progress tracking
-        logger.info("Composing output video...")
-        self._compose_video(
-            bg_info,
-            fg_info,
-            output_path,
-            spatial_alignment,
-            temporal_alignment,
-            trim,
-            blend,
-            border_thickness,
-        )
-
-        logger.info(f"✅ Processing complete: {output_path}")
-
-    def _log_compatibility(self, bg_info: VideoInfo, fg_info: VideoInfo):
-        """Log video compatibility information.
-
-        Why we log compatibility:
-        - Early warning of potential issues (e.g., fg larger than bg)
-        - Helps users understand processing decisions
-        - Aids in debugging alignment problems
-        - Documents the input characteristics for reproducibility
-        """
-        logger.info("Video compatibility check:")
-        logger.info(
-            f"  Resolution: {bg_info.width}x{bg_info.height} vs {fg_info.width}x{fg_info.height}"
-        )
-        logger.info(f"  FPS: {bg_info.fps:.2f} vs {fg_info.fps:.2f}")
-        logger.info(f"  Duration: {bg_info.duration:.2f}s vs {fg_info.duration:.2f}s")
-        logger.info(
-            f"  Audio: {'yes' if bg_info.has_audio else 'no'} vs {'yes' if fg_info.has_audio else 'no'}"
-        )
-
-        if fg_info.width > bg_info.width or fg_info.height > bg_info.height:
-            logger.warning(
-                "⚠️  Foreground is larger than background - will be scaled down"
-            )
-
-    def _compute_spatial_alignment(
-        self, bg_info: VideoInfo, fg_info: VideoInfo, method: str, skip: bool
-    ) -> SpatialAlignment:
-        """Compute spatial alignment using sample frames.
-
-        Why we use middle frames for alignment:
-        - Middle frames typically have the main content fully visible
-        - Avoids potential black frames or transitions at start/end
-        - Single frame is usually sufficient for static camera shots
-        - Fast computation while maintaining accuracy
-
-        Why we support skipping:
-        - Sometimes users know the alignment (e.g., already centered)
-        - Useful for testing temporal alignment independently
-        - Speeds up processing when spatial alignment isn't needed
-        """
-        if skip:
-            logger.info("Skipping spatial alignment - centering foreground")
-            x_offset = (bg_info.width - fg_info.width) // 2
-            y_offset = (bg_info.height - fg_info.height) // 2
-            return SpatialAlignment(x_offset, y_offset, 1.0, 1.0)
-
-        # Use the align module for spatial alignment with unity scale preference
-        try:
-            thumbnail_result = self.thumbnail_finder.find_thumbnail(
-                fg=fg_info.path,
-                bg=bg_info.path,
-                precision=self.spatial_precision,  # Configured precision level
-                unity_scale=self.unity_scale,  # Prefer unity scale for video composition
-                num_frames=1,  # Single frame analysis for speed
-                verbose=self.verbose,
-            )
-
-            # Convert to expected format
-            return self._convert_thumbnail_result(thumbnail_result)
-
-        except Exception as e:
-            logger.error(f"Spatial alignment with align module failed: {e}")
-            logger.info("Falling back to simple centering")
-            x_offset = (bg_info.width - fg_info.width) // 2
-            y_offset = (bg_info.height - fg_info.height) // 2
-            return SpatialAlignment(x_offset, y_offset, 1.0, 0.0)
-
-    def _compute_temporal_alignment(
-        self,
-        bg_info: VideoInfo,
-        fg_info: VideoInfo,
-        mode: MatchTimeMode,
-        temporal_method: TemporalMethod,
-        trim: bool,
-        spatial_alignment: SpatialAlignment,
-        border_thickness: int,
-        window: int,
-    ) -> TemporalAlignment:
-        """Compute temporal alignment based on mode.
-
-        Why we have multiple modes:
-        - BORDER: Border-based matching focusing on frame edges (default)
-        - PRECISE: Frame-based matching for maximum accuracy
-
-        Why we always use frame-based methods:
-        - Provides precise visual synchronization
-        - Works with all videos regardless of audio
-        - Handles all edge cases reliably
-        """
-        # Configure temporal aligner window size for tunnel engines
-        if window > 0:
-            self.temporal_aligner.cli_window_size = window
-
-        if mode == MatchTimeMode.BORDER:
-            # Use border-based alignment with mask
-            logger.info(
-                f"Using border-based temporal alignment (border thickness: {border_thickness}px)"
-            )
-            border_mask = self.temporal_aligner.create_border_mask(
-                spatial_alignment, fg_info, bg_info, border_thickness
-            )
-            return self.temporal_aligner.align_frames_with_mask(
-                bg_info, fg_info, trim, border_mask
-            )
-
-        elif mode == MatchTimeMode.PRECISE:
-            # Always use frame-based alignment
-            return self.temporal_aligner.align_frames(bg_info, fg_info, trim)
-
-        else:
-            # For any other mode, use frame-based alignment
-            return self.temporal_aligner.align_frames(bg_info, fg_info, trim)
-
-    def _compose_video(
-        self,
-        bg_info: VideoInfo,
-        fg_info: VideoInfo,
-        output_path: str,
-        spatial: SpatialAlignment,
-        temporal: TemporalAlignment,
-        trim: bool,
-        blend: bool = False,
-        border_thickness: int = 8,
-    ):
-        """Compose the final output video.
-
-        Why we use a two-step process (silent video + audio):
-        - OpenCV doesn't handle audio, but provides frame-accurate control
-        - FFmpeg handles audio well but can have frame accuracy issues
-        - Combining both gives us the best of both worlds
-
-        Why we prefer FG audio:
-        - FG video is considered "better quality" per requirements
-        - FG frames drive the output timing
-        - Keeping FG audio maintains sync with FG visuals
-        """
-        logger.info(f"Composing video with {temporal.method_used} temporal alignment")
-
-        # Use OpenCV for frame-accurate composition
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create silent video first
-            temp_video = Path(tmpdir) / "temp_silent.mp4"
-
-            self._compose_with_opencv(
-                bg_info,
-                fg_info,
-                str(temp_video),
-                spatial,
-                temporal.frame_alignments,
-                blend,
-                border_thickness,
-            )
-
-            # Add audio
-            self._add_audio_track(
-                str(temp_video), output_path, bg_info, fg_info, temporal
-            )
-
-    def _frame_generator(self, video_path: str):
-        """Yields frames from a video file sequentially.
-
-        This generator provides sequential frame access which is much faster
-        than random seeking. It's designed to eliminate the costly seek operations
-        that slow down compositing.
-
-        Args:
-            video_path: Path to video file
-
-        Yields:
-            tuple: (frame_index, frame_array) for each frame
-        """
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            msg = f"Cannot open video file: {video_path}"
-            raise OSError(msg)
-
-        frame_idx = 0
-        try:
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                yield frame_idx, frame
-                frame_idx += 1
-        finally:
-            cap.release()
-
-    def _compose_with_opencv(
-        self,
-        bg_info: VideoInfo,
-        fg_info: VideoInfo,
-        output_path: str,
-        spatial: SpatialAlignment,
-        alignments: list[FrameAlignment],
-        blend: bool = False,
-        border_thickness: int = 8,
-    ):
-        """Compose video using sequential reads for maximum performance.
-
-        This optimized version eliminates random seeking by reading both video
-        files sequentially. This provides a 10-100x speedup compared to the
-        previous random-access approach.
-
-        How it works:
-        - Create generators that read each video file sequentially
-        - Advance each generator to the frame we need
-        - Since alignments are typically in ascending order, we mostly move forward
-        - Eliminates costly seek operations that were the main bottleneck
-        """
-        if not alignments:
-            logger.warning("No frame alignments provided. Cannot compose video.")
-            return
-
-        writer = self.processor.create_video_writer(
-            output_path,
-            bg_info.width,
-            bg_info.height,
-            fg_info.fps,  # Use FG fps to preserve all FG frames
-        )
-
-        bg_gen = self._frame_generator(bg_info.path)
-        fg_gen = self._frame_generator(fg_info.path)
-
-        current_bg_frame = None
-        current_fg_frame = None
-        current_bg_idx = -1
-        current_fg_idx = -1
-
-        frames_written = 0
-        total_frames = len(alignments)
-
-        # Create blend mask if needed
-        blend_mask = None
-        if blend:
-            blend_mask = self.temporal_aligner.create_blend_mask(
-                spatial, fg_info, bg_info, border_thickness
-            )
-            logger.info(f"Using blend mode with {border_thickness}px gradient")
-
-        try:
-            # Use proper progress bar for video composition
-            with Progress(
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                TextColumn("({task.completed}/{task.total} frames)"),
-                TimeRemainingColumn(),
-                console=console,
-                transient=False,
-            ) as progress:
-                task = progress.add_task("Composing frames", total=total_frames)
-
-                for _i, alignment in enumerate(alignments):
-                    needed_fg_idx = alignment.fg_frame_idx
-                    needed_bg_idx = alignment.bg_frame_idx
-
-                    # Advance foreground generator to the needed frame
-                    while current_fg_idx < needed_fg_idx:
-                        try:
-                            current_fg_idx, current_fg_frame = next(fg_gen)
-                        except StopIteration:
-                            logger.error("Reached end of foreground video unexpectedly")
-                            break
-
-                    # Advance background generator to the needed frame
-                    while current_bg_idx < needed_bg_idx:
-                        try:
-                            current_bg_idx, current_bg_frame = next(bg_gen)
-                        except StopIteration:
-                            logger.error("Reached end of background video unexpectedly")
-                            break
-
-                    if current_fg_frame is None or current_bg_frame is None:
-                        logger.error("Frame generator did not yield a frame. Aborting.")
-                        break
-
-                    # We now have the correct pair of frames
-                    composite = self._overlay_frames(
-                        current_bg_frame, current_fg_frame, spatial, blend_mask
-                    )
-                    writer.write(composite)
-                    frames_written += 1
-
-                    # Update progress bar
-                    progress.update(task, advance=1)
-
-        except StopIteration:
-            logger.warning("Reached end of a video stream unexpectedly.")
-        finally:
-            writer.release()
-            logger.info(f"Wrote {frames_written} frames to {output_path}")
-
-    def _overlay_frames(
-        self,
-        bg_frame: np.ndarray,
-        fg_frame: np.ndarray,
-        spatial: SpatialAlignment,
-        blend_mask: np.ndarray | None = None,
-    ) -> np.ndarray:
-        """Overlay foreground on background with spatial alignment and optional blending."""
-        composite = bg_frame.copy()
-
-        # Apply scaling if needed
-        if spatial.scale_factor != 1.0:
-            new_w = int(fg_frame.shape[1] * spatial.scale_factor)
-            new_h = int(fg_frame.shape[0] * spatial.scale_factor)
-            fg_frame = cv2.resize(
-                fg_frame, (new_w, new_h), interpolation=cv2.INTER_AREA
-            )
-            # Also scale blend mask if provided
-            if blend_mask is not None:
-                blend_mask = cv2.resize(
-                    blend_mask, (new_w, new_h), interpolation=cv2.INTER_AREA
-                )
-
-        fg_h, fg_w = fg_frame.shape[:2]
-        bg_h, bg_w = bg_frame.shape[:2]
-
-        # Calculate ROI with bounds checking
-        x_start = max(0, spatial.x_offset)
-        y_start = max(0, spatial.y_offset)
-        x_end = min(bg_w, spatial.x_offset + fg_w)
-        y_end = min(bg_h, spatial.y_offset + fg_h)
-
-        # Calculate foreground crop if needed
-        fg_x_start = max(0, -spatial.x_offset)
-        fg_y_start = max(0, -spatial.y_offset)
-        fg_x_end = fg_x_start + (x_end - x_start)
-        fg_y_end = fg_y_start + (y_end - y_start)
-
-        # Overlay
-        if x_end > x_start and y_end > y_start:
-            fg_crop = fg_frame[fg_y_start:fg_y_end, fg_x_start:fg_x_end]
-            bg_slice = composite[y_start:y_end, x_start:x_end]
-
-            if blend_mask is not None:
-                # Apply alpha blending using the blend mask
-                mask_crop = blend_mask[fg_y_start:fg_y_end, fg_x_start:fg_x_end]
-
-                # Ensure mask has same dimensions for broadcasting
-                if len(fg_crop.shape) == 3:  # Color image
-                    mask_crop = np.stack([mask_crop] * 3, axis=2)
-
-                # Alpha blend: result = fg * alpha + bg * (1 - alpha)
-                composite[y_start:y_end, x_start:x_end] = (
-                    fg_crop.astype(np.float32) * mask_crop
-                    + bg_slice.astype(np.float32) * (1.0 - mask_crop)
-                ).astype(np.uint8)
-            else:
-                # Simple overlay (original behavior)
-                composite[y_start:y_end, x_start:x_end] = fg_crop
-
-        return composite
-
-    def _add_audio_track(
-        self,
-        video_path: str,
-        output_path: str,
-        bg_info: VideoInfo,
-        fg_info: VideoInfo,
-        temporal: TemporalAlignment,
-    ):
-        """Add audio track to the composed video."""
-        # Prefer foreground audio as it's "better quality"
-        if fg_info.has_audio:
-            audio_source = fg_info.path
-            audio_offset = 0.0  # FG audio is already aligned
-            logger.info("Using foreground audio track")
-        elif bg_info.has_audio:
-            audio_source = bg_info.path
-            audio_offset = -temporal.offset_seconds  # Compensate for alignment
-            logger.info("Using background audio track")
-        else:
-            # No audio, just copy video
-            logger.info("No audio tracks available")
-            Path(video_path).rename(output_path)
-            return
-
-        # Merge audio with ffmpeg
-        try:
-            input_video = ffmpeg.input(video_path)
-
-            if audio_offset != 0:
-                input_audio = ffmpeg.input(audio_source, itsoffset=audio_offset)
-            else:
-                input_audio = ffmpeg.input(audio_source)
-
-            stream = ffmpeg.output(
-                input_video["v"],
-                input_audio["a"],
-                output_path,
-                c="copy",
-                acodec="aac",
-                shortest=None,
-            )
-
-            ffmpeg.run(stream, overwrite_output=True, capture_stderr=True)
-
-        except ffmpeg.Error as e:
-            logger.error(f"Audio merge failed: {e.stderr.decode()}")
-            # Fallback - save without audio
-            Path(video_path).rename(output_path)
-            logger.warning("Saved video without audio")
-</file>
-
-<file path="src/vidkompy/comp/dtw_aligner.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/comp/dtw_aligner.py
-
-"""
-Dynamic Time Warping (DTW) for video frame alignment.
-
-This module implements DTW algorithm for finding the globally optimal
-monotonic alignment between two video sequences, preventing temporal artifacts.
-"""
-
-import numpy as np
-from collections.abc import Callable
-from loguru import logger
-from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
-from rich.console import Console
-
-from .domain_models import FrameAlignment
-from vidkompy.core.numba_optimizations import (
-    compute_dtw_cost_matrix_numba,
-    find_dtw_path_numba,
-    log_numba_compilation,
-)
-
-console = Console()
-
-
-class DTWAligner:
-    """Dynamic Time Warping for video frame alignment.
-
-    Why DTW over current greedy matching:
-    - Guarantees monotonic alignment (no backward jumps)
-    - Finds globally optimal path, not just local matches
-    - Handles speed variations naturally
-    - Proven algorithm from speech/time series analysis
-
-    Why Sakoe-Chiba band constraint:
-    - Reduces complexity from O(N²) to O(N×window)
-    - Prevents extreme time warping
-    - Makes algorithm practical for long videos
-
-    Used in:
-    - vidkompy/comp/multi_resolution_aligner.py
-    - vidkompy/comp/precise_temporal_alignment.py
-    """
-
-    def __init__(self, window: int = 100):
-        """Initialize DTW aligner with constraints.
-
-        Args:
-            window: Maximum deviation from diagonal path
-                              (Sakoe-Chiba band width). Set to 0 to use default.
-        """
-        self.window = window
-        self.default_window = 100
-        self.use_numba = True  # Flag to enable/disable numba optimizations
-        self._numba_compiled = False
-
-    def set_window(self, window: int):
-        """Set the window constraint for DTW alignment.
-
-        Args:
-            window: Window size for sliding frame matching. 0 means use default.
-        """
-        if window > 0:
-            self.window = window
-        else:
-            self.window = self.default_window
-
-    def align_videos(
-        self,
-        fg_fingerprints: dict[int, dict[str, np.ndarray]],
-        bg_fingerprints: dict[int, dict[str, np.ndarray]],
-        fingerprint_compare_func: Callable,
-        show_progress: bool = True,
-    ) -> list[tuple[int, int, float]]:
-        """Find optimal monotonic alignment using DTW.
-
-        Args:
-            fg_fingerprints: Foreground video fingerprints {frame_idx: fingerprint}
-            bg_fingerprints: Background video fingerprints {frame_idx: fingerprint}
-            fingerprint_compare_func: Function to compare two fingerprints (0-1 similarity)
-            show_progress: Whether to show progress bar
-
-        Returns:
-            List of (bg_idx, fg_idx, confidence) tuples representing optimal alignment
-
-        Why this approach:
-        - Works on pre-computed fingerprints for speed
-        - Returns confidence scores for quality assessment
-        - Maintains fg frame order (as required)
-        """
-        fg_indices = sorted(fg_fingerprints.keys())
-        bg_indices = sorted(bg_fingerprints.keys())
-
-        n_fg = len(fg_indices)
-        n_bg = len(bg_indices)
-
-        logger.info(
-            f"Starting DTW alignment: {n_fg} fg frames × {n_bg} bg frames, "
-            f"window={self.window}"
-        )
-
-        # Build DTW cost matrix
-        dtw_matrix = self._build_dtw_matrix(
-            fg_indices,
-            bg_indices,
-            fg_fingerprints,
-            bg_fingerprints,
-            fingerprint_compare_func,
-            show_progress,
-        )
-
-        # Find optimal path
-        path = self._find_optimal_path(dtw_matrix, n_fg, n_bg)
-
-        # Convert path to frame alignments with confidence scores
-        alignments = self._path_to_alignments(
-            path,
-            fg_indices,
-            bg_indices,
-            fg_fingerprints,
-            bg_fingerprints,
-            fingerprint_compare_func,
-        )
-
-        logger.info(f"DTW completed: {len(alignments)} frame alignments")
-
-        return alignments
-
-    def _build_dtw_matrix(
-        self,
-        fg_indices: list[int],
-        bg_indices: list[int],
-        fg_fingerprints: dict[int, dict[str, np.ndarray]],
-        bg_fingerprints: dict[int, dict[str, np.ndarray]],
-        compare_func: Callable,
-        show_progress: bool,
-    ) -> np.ndarray:
-        """Build DTW cost matrix with Sakoe-Chiba band constraint.
-
-        Why band constraint:
-        - Prevents extreme time warping
-        - Reduces computation from O(N²) to O(N×window)
-        - Enforces reasonable temporal alignment
-        """
-        n_fg = len(fg_indices)
-        n_bg = len(bg_indices)
-
-        # Try to use Numba optimization if available
-        if self.use_numba and n_fg > 10 and n_bg > 10:  # Only use for non-trivial sizes
-            try:
-                if not self._numba_compiled:
-                    log_numba_compilation()
-                    self._numba_compiled = True
-
-                # Convert fingerprints to feature arrays for numba
-                fg_features = self._fingerprints_to_features(
-                    fg_fingerprints, fg_indices
-                )
-                bg_features = self._fingerprints_to_features(
-                    bg_fingerprints, bg_indices
-                )
-
-                if show_progress:
-                    console.print("  Using Numba-optimized DTW computation...")
-
-                # Use numba-optimized version
-                dtw = compute_dtw_cost_matrix_numba(
-                    fg_features, bg_features, self.window
-                )
-                return dtw
-
-            except Exception as e:
-                logger.warning(f"Failed to use Numba optimization: {e}")
-                logger.info("Falling back to standard implementation")
-
-        # Standard implementation
-        # Initialize with infinity
-        dtw = np.full((n_fg + 1, n_bg + 1), np.inf)
-        dtw[0, 0] = 0
-
-        # Progress tracking
-        if show_progress:
-            progress = Progress(
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TimeRemainingColumn(),
-                console=console,
-                transient=True,
-            )
-            task = progress.add_task("  Building DTW matrix...", total=n_fg)
-            progress.start()
-
-        # Fill DTW matrix with band constraint
-        for i in range(1, n_fg + 1):
-            # Sakoe-Chiba band: only compute within window of diagonal
-            j_start = max(1, i - self.window)
-            j_end = min(n_bg + 1, i + self.window)
-
-            for j in range(j_start, j_end):
-                # Get fingerprints
-                fg_fp = fg_fingerprints[fg_indices[i - 1]]
-                bg_fp = bg_fingerprints[bg_indices[j - 1]]
-
-                # Compute cost (1 - similarity)
-                similarity = compare_func(fg_fp, bg_fp)
-                cost = 1.0 - similarity
-
-                # DTW recursion: min of three possible paths
-                dtw[i, j] = cost + min(
-                    dtw[i - 1, j],  # Skip bg frame (insertion)
-                    dtw[i, j - 1],  # Skip fg frame (deletion)
-                    dtw[i - 1, j - 1],  # Match frames
-                )
-
-            if show_progress:
-                progress.update(task, advance=1)
-
-        if show_progress:
-            progress.stop()
-
-        return dtw
-
-    def _find_optimal_path(
-        self, dtw: np.ndarray, n_fg: int, n_bg: int
-    ) -> list[tuple[int, int]]:
-        """Backtrack through DTW matrix to find optimal path.
-
-        Why backtracking:
-        - Recovers the actual alignment from cost matrix
-        - Guarantees monotonic path
-        - Handles insertions/deletions/matches
-        """
-        # Try to use Numba optimization if available
-        if self.use_numba and n_fg > 10 and n_bg > 10:
-            try:
-                # Use numba-optimized version
-                path_array = find_dtw_path_numba(dtw)
-                # Convert to list of tuples
-                path = [(int(i), int(j)) for i, j in path_array]
-                return path
-            except Exception as e:
-                logger.warning(f"Failed to use Numba path finding: {e}")
-                logger.info("Falling back to standard implementation")
-
-        # Standard implementation
-        path = []
-        i, j = n_fg, n_bg
-
-        # Backtrack from end to start
-        while i > 0 or j > 0:
-            path.append((i, j))
-
-            if i == 0:
-                j -= 1
-            elif j == 0:
-                i -= 1
-            else:
-                # Choose direction with minimum cost
-                costs = [
-                    (i - 1, j, dtw[i - 1, j]),  # From above
-                    (i, j - 1, dtw[i, j - 1]),  # From left
-                    (i - 1, j - 1, dtw[i - 1, j - 1]),  # From diagonal
-                ]
-
-                # Filter out invalid positions
-                valid_costs = [
-                    (pi, pj, cost) for pi, pj, cost in costs if cost != np.inf
-                ]
-
-                if valid_costs:
-                    i, j, _ = min(valid_costs, key=lambda x: x[2])
-                else:
-                    # Fallback: move diagonally
-                    i, j = i - 1, j - 1
-
-        # Reverse to get forward path
-        path.reverse()
-
-        # Remove dummy start position
-        if path and path[0] == (0, 0):
-            path = path[1:]
-
-        return path
-
-    def _path_to_alignments(
-        self,
-        path: list[tuple[int, int]],
-        fg_indices: list[int],
-        bg_indices: list[int],
-        fg_fingerprints: dict[int, dict[str, np.ndarray]],
-        bg_fingerprints: dict[int, dict[str, np.ndarray]],
-        compare_func: Callable,
-    ) -> list[tuple[int, int, float]]:
-        """Convert DTW path to frame alignments with confidence scores.
-
-        Why confidence scores:
-        - Helps identify problematic alignments
-        - Enables quality-based filtering
-        - Provides feedback for debugging
-        """
-        alignments = []
-
-        for i, j in path:
-            # Skip boundary positions
-            if i == 0 or j == 0:
-                continue
-
-            # Get actual frame indices
-            fg_idx = fg_indices[i - 1]
-            bg_idx = bg_indices[j - 1]
-
-            # Compute confidence as similarity score
-            fg_fp = fg_fingerprints[fg_idx]
-            bg_fp = bg_fingerprints[bg_idx]
-            confidence = compare_func(fg_fp, bg_fp)
-
-            alignments.append((bg_idx, fg_idx, confidence))
-
-        # Remove duplicate fg frames (keep best match)
-        unique_alignments = {}
-        for bg_idx, fg_idx, conf in alignments:
-            if fg_idx not in unique_alignments or conf > unique_alignments[fg_idx][1]:
-                unique_alignments[fg_idx] = (bg_idx, conf)
-
-        # Convert back to list format
-        final_alignments = [
-            (bg_idx, fg_idx, conf)
-            for fg_idx, (bg_idx, conf) in sorted(unique_alignments.items())
-        ]
-
-        return final_alignments
-
-    def create_frame_alignments(
-        self,
-        dtw_matches: list[tuple[int, int, float]],
-        total_fg_frames: int,
-        total_bg_frames: int,
-    ) -> list[FrameAlignment]:
-        """Create complete frame-to-frame alignment from DTW matches.
-
-        Args:
-            dtw_matches: List of (bg_idx, fg_idx, confidence) from DTW
-            total_fg_frames: Total number of foreground frames
-            total_bg_frames: Total number of background frames
-
-        Returns:
-            List of FrameAlignment objects for every fg frame
-
-        Why interpolation:
-        - DTW may skip some frames
-        - Need alignment for EVERY fg frame
-        - Smooth interpolation prevents jumps
-        """
-        if not dtw_matches:
-            # Fallback to simple linear mapping
-            return self._create_linear_alignment(total_fg_frames, total_bg_frames)
-
-        # Sort by fg index
-        dtw_matches.sort(key=lambda x: x[1])
-
-        # Create alignment for every fg frame
-        alignments = []
-
-        for fg_idx in range(total_fg_frames):
-            # Find surrounding DTW matches
-            prev_match = None
-            next_match = None
-
-            for match in dtw_matches:
-                if match[1] <= fg_idx:
-                    prev_match = match
-                elif match[1] > fg_idx and next_match is None:
-                    next_match = match
-                    break
-
-            # Interpolate or extrapolate
-            if prev_match is None and next_match is None:
-                # No matches at all - use linear
-                bg_idx = int(fg_idx * total_bg_frames / total_fg_frames)
-                confidence = 0.5
-            elif prev_match is None:
-                # Before first match - extrapolate
-                bg_idx = max(0, next_match[0] - (next_match[1] - fg_idx))
-                confidence = next_match[2] * 0.8
-            elif next_match is None:
-                # After last match - extrapolate
-                bg_idx = min(
-                    total_bg_frames - 1, prev_match[0] + (fg_idx - prev_match[1])
-                )
-                confidence = prev_match[2] * 0.8
-            # Between matches - interpolate
-            elif prev_match[1] == next_match[1]:
-                # Same fg frame
-                bg_idx = prev_match[0]
-                confidence = prev_match[2]
-            else:
-                # Linear interpolation
-                ratio = (fg_idx - prev_match[1]) / (next_match[1] - prev_match[1])
-                bg_idx = int(prev_match[0] + ratio * (next_match[0] - prev_match[0]))
-                confidence = prev_match[2] * (1 - ratio) + next_match[2] * ratio
-
-            # Ensure valid bg index
-            bg_idx = max(0, min(bg_idx, total_bg_frames - 1))
-
-            alignments.append(
-                FrameAlignment(
-                    fg_frame_idx=fg_idx,
-                    bg_frame_idx=bg_idx,
-                    similarity_score=confidence,
-                )
-            )
-
-        return alignments
-
-    def _create_linear_alignment(
-        self, total_fg_frames: int, total_bg_frames: int
-    ) -> list[FrameAlignment]:
-        """Create simple linear frame mapping as fallback.
-
-        Why we need fallback:
-        - DTW might fail on very dissimilar videos
-        - Better than no alignment at all
-        - Maintains temporal order
-        """
-        ratio = total_bg_frames / total_fg_frames if total_fg_frames > 0 else 1.0
-
-        alignments = []
-        for fg_idx in range(total_fg_frames):
-            bg_idx = min(int(fg_idx * ratio), total_bg_frames - 1)
-
-            alignments.append(
-                FrameAlignment(
-                    fg_frame_idx=fg_idx,
-                    bg_frame_idx=bg_idx,
-                    similarity_score=0.5,  # Unknown confidence
-                )
-            )
-
-        return alignments
-
-    def _compute_cost_matrix(
-        self, fg_features: np.ndarray, bg_features: np.ndarray
-    ) -> np.ndarray:
-        """Compute cost matrix for DTW from feature arrays.
-
-        Args:
-            fg_features: Foreground feature vectors (N, D)
-            bg_features: Background feature vectors (M, D)
-
-        Returns:
-            Cost matrix (N, M)
-        """
-        n_fg = len(fg_features)
-        n_bg = len(bg_features)
-
-        # Initialize cost matrix
-        cost_matrix = np.zeros((n_fg, n_bg))
-
-        # Compute pairwise distances
-        for i in range(n_fg):
-            for j in range(n_bg):
-                # Euclidean distance between feature vectors
-                cost_matrix[i, j] = np.linalg.norm(fg_features[i] - bg_features[j])
-
-        # Normalize costs to [0, 1]
-        if cost_matrix.max() > 0:
-            cost_matrix = cost_matrix / cost_matrix.max()
-
-        return cost_matrix
-
-    def _compute_path(self, cost_matrix: np.ndarray) -> list[tuple[int, int]]:
-        """Compute optimal DTW path from cost matrix.
-
-        Args:
-            cost_matrix: Cost matrix (N, M)
-
-        Returns:
-            List of (i, j) indices representing the optimal path
-        """
-        n_fg, n_bg = cost_matrix.shape
-
-        # Initialize DTW matrix
-        dtw = np.full((n_fg + 1, n_bg + 1), np.inf)
-        dtw[0, 0] = 0
-
-        # Fill DTW matrix with window constraint
-        for i in range(1, n_fg + 1):
-            # Sakoe-Chiba band
-            j_start = max(1, i - self.window)
-            j_end = min(n_bg + 1, i + self.window)
-
-            for j in range(j_start, j_end):
-                cost = cost_matrix[i - 1, j - 1]
-
-                # DTW recursion
-                dtw[i, j] = cost + min(
-                    dtw[i - 1, j],  # Insertion
-                    dtw[i, j - 1],  # Deletion
-                    dtw[i - 1, j - 1],  # Match
-                )
-
-        # Backtrack to find path
-        path = []
-        i, j = n_fg, n_bg
-
-        while i > 0 and j > 0:
-            path.append((i - 1, j - 1))  # Convert to 0-based indices
-
-            # Choose direction with minimum cost
-            if i == 1:
-                j -= 1
-            elif j == 1:
-                i -= 1
-            else:
-                costs = [
-                    dtw[i - 1, j],  # From above
-                    dtw[i, j - 1],  # From left
-                    dtw[i - 1, j - 1],  # From diagonal
-                ]
-
-                min_idx = np.argmin(costs)
-                if min_idx == 0:
-                    i -= 1
-                elif min_idx == 1:
-                    j -= 1
-                else:
-                    i -= 1
-                    j -= 1
-
-        # Add remaining path to origin
-        while i > 0:
-            i -= 1
-            path.append((i, 0))
-        while j > 0:
-            j -= 1
-            path.append((0, j))
-
-        path.reverse()
-
-        # Remove any invalid entries
-        path = [(i, j) for i, j in path if i >= 0 and j >= 0]
-
-        return path
-
-    def _fingerprints_to_features(
-        self, fingerprints: dict[int, dict[str, np.ndarray]], indices: list[int]
-    ) -> np.ndarray:
-        """Convert fingerprints to feature matrix for Numba processing.
-
-        Args:
-            fingerprints: Dictionary of fingerprints
-            indices: List of frame indices
-
-        Returns:
-            Feature matrix where each row is a flattened fingerprint
-        """
-        # Get sample fingerprint to determine feature size
-        sample_fp = next(iter(fingerprints.values()))
-
-        # Calculate total feature size
-        feature_size = 0
-        for key, value in sample_fp.items():
-            if key == "histogram":
-                feature_size += len(value)
-            else:
-                # Hash values
-                feature_size += value.size
-
-        # Build feature matrix
-        features = np.zeros((len(indices), feature_size), dtype=np.float32)
-
-        for i, idx in enumerate(indices):
-            fp = fingerprints[idx]
-            offset = 0
-
-            # Add hash features
-            for key in sorted(fp.keys()):
-                if key == "histogram":
-                    continue
-                value = fp[key].flatten()
-                features[i, offset : offset + len(value)] = value.astype(np.float32)
-                offset += len(value)
-
-            # Add histogram at the end
-            if "histogram" in fp:
-                hist = fp["histogram"]
-                features[i, offset : offset + len(hist)] = hist
-
-        return features
 </file>
 
 <file path="src/vidkompy/comp/frame_fingerprint.py">
@@ -6660,6 +5505,1302 @@ class PreciseTemporalAlignment:
         return refined_mapping, confidence
 </file>
 
+<file path=".gitignore">
+tests/
+__pycache__/
+__pypackages__/
+._*
+.cache
+.coverage
+.coverage.*
+.cursorignore
+.cursorindexingignore
+.dmypy.json
+.DS_Store
+.eggs/
+.env
+.hypothesis/
+.installed.cfg
+.ipynb_checkpoints
+.mypy_cache/
+.nox/
+.pdm-build/
+.pdm-python
+.pdm.toml
+.pybuilder/
+.pypirc
+.pyre/
+.pytest_cache/
+.Python
+.pytype/
+.ropeproject
+.ruff_cache/
+.sass-cache
+.scrapy
+.specstory/.what-is-this.md
+.Spotlight-V100
+.spyderproject
+.spyproject
+.tox/
+.Trashes
+.venv
+.webassets-cache
+*.cover
+*.egg
+*.egg-info/
+*.log
+*.manifest
+*.mo
+*.out
+*.pot
+*.py,cover
+*.py[cod]
+*.pyc
+*.sage.py
+*.so
+*.spec
+*$py.class
+/site
+build/
+celerybeat-schedule
+celerybeat.pid
+cover/
+coverage.xml
+cython_debug/
+db.sqlite3
+db.sqlite3-journal
+Desktop.ini
+develop-eggs/
+dist/
+dmypy.json
+docs/_build/
+downloads/
+eggs/
+env.bak/
+env/
+ENV/
+htmlcov/
+instance/
+ipython_config.py
+lib/
+lib64/
+local_settings.py
+MANIFEST
+node_modules
+nosetests.xml
+parts/
+pip-delete-this-directory.txt
+pip-log.txt
+profile_default/
+sdist/
+share/python-wheels/
+target/
+Thumbs.db
+var/
+venv
+venv.bak/
+venv/
+wheels/
+</file>
+
+<file path="src/vidkompy/comp/alignment_engine.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/comp/alignment_engine.py
+
+"""
+Main alignment engine that coordinates spatial and temporal alignment.
+
+This is the high-level orchestrator that manages the complete video
+overlay process.
+
+"""
+
+import tempfile
+import cv2
+import ffmpeg
+import numpy as np
+from pathlib import Path
+from loguru import logger
+from rich.progress import (
+    Progress,
+    BarColumn,
+    TextColumn,
+    TimeRemainingColumn,
+)
+from rich.console import Console
+
+from .domain_models import (
+    VideoInfo,
+    SpatialAlignment,
+    TemporalAlignment,
+    FrameAlignment,
+)
+from .enums import MatchTimeMode, TemporalMethod
+from .video_processor import VideoProcessor
+from vidkompy.align import ThumbnailFinder
+from vidkompy.align.result_types import ThumbnailResult
+from .temporal_alignment import TemporalAligner
+
+
+console = Console()
+
+
+class AlignmentEngine:
+    """Orchestrates the complete video alignment and overlay process.
+
+    This is the main coordinator that manages the entire video overlay workflow.
+    It handles the high-level process flow while delegating specific tasks to
+    specialized components.
+
+    Why this architecture:
+    - Separation of concerns: Each component (spatial, temporal, processing) has a single responsibility
+    - Flexibility: Easy to swap alignment algorithms or add new methods
+    - Testability: Each component can be tested independently
+    - Progress tracking: Centralized progress reporting for better UX
+
+    """
+
+    def __init__(
+        self,
+        processor: VideoProcessor,
+        verbose: bool = False,
+        max_keyframes: int = 2000,
+        engine_mode: str = "fast",
+        drift_interval: int = 100,
+        window: int = 100,
+        spatial_precision: int = 2,
+        unity_scale: bool = True,
+    ):
+        """Initialize alignment engine.
+
+        Args:
+            processor: Video processor instance
+            verbose: Enable verbose logging
+            max_keyframes: Maximum keyframes for frame matching
+            engine_mode: The chosen engine ('fast', 'precise', 'mask')
+            drift_interval: Frame interval for drift correction in precise engine
+            window: DTW window size
+            spatial_precision: Spatial alignment precision level (0-4, default: 2)
+            unity_scale: Prefer unity scale for spatial alignment (default: True)
+
+        """
+        self.processor = processor
+        self.thumbnail_finder = ThumbnailFinder()
+        self.spatial_precision = spatial_precision
+        self.unity_scale = unity_scale
+        self.temporal_aligner = TemporalAligner(
+            processor=processor,
+            max_keyframes=max_keyframes,
+            drift_interval=drift_interval,
+            window=window,
+            engine_mode=engine_mode,
+        )
+        self.verbose = verbose
+        self.engine_mode = engine_mode
+
+    def _convert_thumbnail_result(self, result: ThumbnailResult) -> SpatialAlignment:
+        """Convert ThumbnailResult from align module to comp module's SpatialAlignment format.
+
+        Args:
+            result: ThumbnailResult from the align module
+
+        Returns:
+            SpatialAlignment compatible with existing comp module code
+
+        """
+        return SpatialAlignment(
+            x_offset=result.x_thumb_in_bg,
+            y_offset=result.y_thumb_in_bg,
+            scale_factor=result.scale_fg_to_thumb
+            / 100.0,  # Convert percentage to factor
+            confidence=result.confidence,
+        )
+
+    def process(
+        self,
+        bg_path: str,
+        fg_path: str,
+        output_path: str,
+        time_mode: MatchTimeMode,
+        space_method: str,
+        temporal_method: TemporalMethod,
+        skip_spatial: bool,
+        trim: bool,
+        border_thickness: int = 8,
+        blend: bool = False,
+        window: int = 0,
+    ):
+        """Process video overlay with alignment.
+
+        Args:
+            bg_path: Background video path
+            fg_path: Foreground video path
+            output_path: Output video path
+            time_mode: Temporal alignment mode
+            space_method: Spatial alignment method
+            temporal_method: Temporal algorithm to use (DTW or classic)
+            skip_spatial: Skip spatial alignment
+            trim: Trim to overlapping segment
+            border_thickness: Border thickness for border matching mode
+            blend: Enable smooth blending at frame edges
+            window: Sliding window size for frame matching
+
+        """
+        # Analyze videos - quick task, use simple logging
+        logger.info("Analyzing videos...")
+        bg_info = self.processor.get_video_info(bg_path)
+        fg_info = self.processor.get_video_info(fg_path)
+
+        # Log compatibility
+        self._log_compatibility(bg_info, fg_info)
+
+        # Spatial alignment - quick task, use simple logging
+        logger.info("Computing spatial alignment...")
+        spatial_alignment = self._compute_spatial_alignment(
+            bg_info, fg_info, space_method, skip_spatial
+        )
+
+        # Log spatial alignment results in non-verbose mode too
+        if not skip_spatial:
+            logger.info(
+                f"Spatial alignment result: offset=({spatial_alignment.x_offset}, {spatial_alignment.y_offset}), "
+                f"scale={spatial_alignment.scale_factor:.3f}, confidence={spatial_alignment.confidence:.3f}"
+            )
+
+        # Temporal alignment - potentially time-intensive, use progress tracking
+        logger.info("Computing temporal alignment...")
+        temporal_alignment = self._compute_temporal_alignment(
+            bg_info,
+            fg_info,
+            time_mode,
+            temporal_method,
+            trim,
+            spatial_alignment,
+            border_thickness,
+            window,
+        )
+
+        # Log temporal alignment results
+        logger.info(
+            f"Temporal alignment result: method={temporal_alignment.method_used}, "
+            f"offset={temporal_alignment.offset_seconds:.3f}s, "
+            f"frames={len(temporal_alignment.frame_alignments)}, "
+            f"confidence={temporal_alignment.confidence:.3f}"
+        )
+
+        # Compose final video - time-intensive, use progress tracking
+        logger.info("Composing output video...")
+        self._compose_video(
+            bg_info,
+            fg_info,
+            output_path,
+            spatial_alignment,
+            temporal_alignment,
+            trim,
+            blend,
+            border_thickness,
+        )
+
+        logger.info(f"✅ Processing complete: {output_path}")
+
+    def _log_compatibility(self, bg_info: VideoInfo, fg_info: VideoInfo):
+        """Log video compatibility information.
+
+        Why we log compatibility:
+        - Early warning of potential issues (e.g., fg larger than bg)
+        - Helps users understand processing decisions
+        - Aids in debugging alignment problems
+        - Documents the input characteristics for reproducibility
+        """
+        logger.info("Video compatibility check:")
+        logger.info(
+            f"  Resolution: {bg_info.width}x{bg_info.height} vs {fg_info.width}x{fg_info.height}"
+        )
+        logger.info(f"  FPS: {bg_info.fps:.2f} vs {fg_info.fps:.2f}")
+        logger.info(f"  Duration: {bg_info.duration:.2f}s vs {fg_info.duration:.2f}s")
+        logger.info(
+            f"  Audio: {'yes' if bg_info.has_audio else 'no'} vs {'yes' if fg_info.has_audio else 'no'}"
+        )
+
+        if fg_info.width > bg_info.width or fg_info.height > bg_info.height:
+            logger.warning(
+                "⚠️  Foreground is larger than background - will be scaled down"
+            )
+
+    def _compute_spatial_alignment(
+        self, bg_info: VideoInfo, fg_info: VideoInfo, method: str, skip: bool
+    ) -> SpatialAlignment:
+        """Compute spatial alignment using sample frames.
+
+        Why we use middle frames for alignment:
+        - Middle frames typically have the main content fully visible
+        - Avoids potential black frames or transitions at start/end
+        - Single frame is usually sufficient for static camera shots
+        - Fast computation while maintaining accuracy
+
+        Why we support skipping:
+        - Sometimes users know the alignment (e.g., already centered)
+        - Useful for testing temporal alignment independently
+        - Speeds up processing when spatial alignment isn't needed
+        """
+        if skip:
+            logger.info("Skipping spatial alignment - centering foreground")
+            x_offset = (bg_info.width - fg_info.width) // 2
+            y_offset = (bg_info.height - fg_info.height) // 2
+            return SpatialAlignment(x_offset, y_offset, 1.0, 1.0)
+
+        # Use the align module for spatial alignment with unity scale preference
+        try:
+            thumbnail_result = self.thumbnail_finder.find_thumbnail(
+                fg=fg_info.path,
+                bg=bg_info.path,
+                precision=self.spatial_precision,  # Configured precision level
+                unity_scale=self.unity_scale,  # Prefer unity scale for video composition
+                num_frames=1,  # Single frame analysis for speed
+                verbose=self.verbose,
+            )
+
+            # Convert to expected format
+            return self._convert_thumbnail_result(thumbnail_result)
+
+        except Exception as e:
+            logger.error(f"Spatial alignment with align module failed: {e}")
+            logger.info("Falling back to simple centering")
+            x_offset = (bg_info.width - fg_info.width) // 2
+            y_offset = (bg_info.height - fg_info.height) // 2
+            return SpatialAlignment(x_offset, y_offset, 1.0, 0.0)
+
+    def _compute_temporal_alignment(
+        self,
+        bg_info: VideoInfo,
+        fg_info: VideoInfo,
+        mode: MatchTimeMode,
+        temporal_method: TemporalMethod,
+        trim: bool,
+        spatial_alignment: SpatialAlignment,
+        border_thickness: int,
+        window: int,
+    ) -> TemporalAlignment:
+        """Compute temporal alignment based on mode.
+
+        Why we have multiple modes:
+        - BORDER: Border-based matching focusing on frame edges (default)
+        - PRECISE: Frame-based matching for maximum accuracy
+
+        Why we always use frame-based methods:
+        - Provides precise visual synchronization
+        - Works with all videos regardless of audio
+        - Handles all edge cases reliably
+        """
+        # Configure temporal aligner window size for tunnel engines
+        if window > 0:
+            self.temporal_aligner.cli_window_size = window
+
+        if mode == MatchTimeMode.BORDER:
+            # Use border-based alignment with mask
+            logger.info(
+                f"Using border-based temporal alignment (border thickness: {border_thickness}px)"
+            )
+            border_mask = self.temporal_aligner.create_border_mask(
+                spatial_alignment, fg_info, bg_info, border_thickness
+            )
+            return self.temporal_aligner.align_frames_with_mask(
+                bg_info, fg_info, trim, border_mask
+            )
+
+        elif mode == MatchTimeMode.PRECISE:
+            # Always use frame-based alignment
+            return self.temporal_aligner.align_frames(bg_info, fg_info, trim)
+
+        else:
+            # For any other mode, use frame-based alignment
+            return self.temporal_aligner.align_frames(bg_info, fg_info, trim)
+
+    def _compose_video(
+        self,
+        bg_info: VideoInfo,
+        fg_info: VideoInfo,
+        output_path: str,
+        spatial: SpatialAlignment,
+        temporal: TemporalAlignment,
+        trim: bool,
+        blend: bool = False,
+        border_thickness: int = 8,
+    ):
+        """Compose the final output video.
+
+        Why we use a two-step process (silent video + audio):
+        - OpenCV doesn't handle audio, but provides frame-accurate control
+        - FFmpeg handles audio well but can have frame accuracy issues
+        - Combining both gives us the best of both worlds
+
+        Why we prefer FG audio:
+        - FG video is considered "better quality" per requirements
+        - FG frames drive the output timing
+        - Keeping FG audio maintains sync with FG visuals
+        """
+        logger.info(f"Composing video with {temporal.method_used} temporal alignment")
+
+        # Use OpenCV for frame-accurate composition
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create silent video first
+            temp_video = Path(tmpdir) / "temp_silent.mp4"
+
+            self._compose_with_opencv(
+                bg_info,
+                fg_info,
+                str(temp_video),
+                spatial,
+                temporal.frame_alignments,
+                blend,
+                border_thickness,
+            )
+
+            # Add audio
+            self._add_audio_track(
+                str(temp_video), output_path, bg_info, fg_info, temporal
+            )
+
+    def _frame_generator(self, video_path: str):
+        """Yields frames from a video file sequentially.
+
+        This generator provides sequential frame access which is much faster
+        than random seeking. It's designed to eliminate the costly seek operations
+        that slow down compositing.
+
+        Args:
+            video_path: Path to video file
+
+        Yields:
+            tuple: (frame_index, frame_array) for each frame
+        """
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            msg = f"Cannot open video file: {video_path}"
+            raise OSError(msg)
+
+        frame_idx = 0
+        try:
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                yield frame_idx, frame
+                frame_idx += 1
+        finally:
+            cap.release()
+
+    def _compose_with_opencv(
+        self,
+        bg_info: VideoInfo,
+        fg_info: VideoInfo,
+        output_path: str,
+        spatial: SpatialAlignment,
+        alignments: list[FrameAlignment],
+        blend: bool = False,
+        border_thickness: int = 8,
+    ):
+        """Compose video using sequential reads for maximum performance.
+
+        This optimized version eliminates random seeking by reading both video
+        files sequentially. This provides a 10-100x speedup compared to the
+        previous random-access approach.
+
+        How it works:
+        - Create generators that read each video file sequentially
+        - Advance each generator to the frame we need
+        - Since alignments are typically in ascending order, we mostly move forward
+        - Eliminates costly seek operations that were the main bottleneck
+        """
+        if not alignments:
+            logger.warning("No frame alignments provided. Cannot compose video.")
+            return
+
+        writer = self.processor.create_video_writer(
+            output_path,
+            bg_info.width,
+            bg_info.height,
+            fg_info.fps,  # Use FG fps to preserve all FG frames
+        )
+
+        bg_gen = self._frame_generator(bg_info.path)
+        fg_gen = self._frame_generator(fg_info.path)
+
+        current_bg_frame = None
+        current_fg_frame = None
+        current_bg_idx = -1
+        current_fg_idx = -1
+
+        frames_written = 0
+        total_frames = len(alignments)
+
+        # Create blend mask if needed
+        blend_mask = None
+        if blend:
+            blend_mask = self.temporal_aligner.create_blend_mask(
+                spatial, fg_info, bg_info, border_thickness
+            )
+            logger.info(f"Using blend mode with {border_thickness}px gradient")
+
+        try:
+            # Use proper progress bar for video composition
+            with Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                TextColumn("({task.completed}/{task.total} frames)"),
+                TimeRemainingColumn(),
+                console=console,
+                transient=False,
+            ) as progress:
+                task = progress.add_task("Composing frames", total=total_frames)
+
+                for _i, alignment in enumerate(alignments):
+                    needed_fg_idx = alignment.fg_frame_idx
+                    needed_bg_idx = alignment.bg_frame_idx
+
+                    # Advance foreground generator to the needed frame
+                    while current_fg_idx < needed_fg_idx:
+                        try:
+                            current_fg_idx, current_fg_frame = next(fg_gen)
+                        except StopIteration:
+                            logger.error("Reached end of foreground video unexpectedly")
+                            break
+
+                    # Advance background generator to the needed frame
+                    while current_bg_idx < needed_bg_idx:
+                        try:
+                            current_bg_idx, current_bg_frame = next(bg_gen)
+                        except StopIteration:
+                            logger.error("Reached end of background video unexpectedly")
+                            break
+
+                    if current_fg_frame is None or current_bg_frame is None:
+                        logger.error("Frame generator did not yield a frame. Aborting.")
+                        break
+
+                    # We now have the correct pair of frames
+                    composite = self._overlay_frames(
+                        current_bg_frame, current_fg_frame, spatial, blend_mask
+                    )
+                    writer.write(composite)
+                    frames_written += 1
+
+                    # Update progress bar
+                    progress.update(task, advance=1)
+
+        except StopIteration:
+            logger.warning("Reached end of a video stream unexpectedly.")
+        finally:
+            writer.release()
+            logger.info(f"Wrote {frames_written} frames to {output_path}")
+
+    def _overlay_frames(
+        self,
+        bg_frame: np.ndarray,
+        fg_frame: np.ndarray,
+        spatial: SpatialAlignment,
+        blend_mask: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Overlay foreground on background with spatial alignment and optional blending."""
+        composite = bg_frame.copy()
+
+        # Apply scaling if needed
+        if spatial.scale_factor != 1.0:
+            new_w = int(fg_frame.shape[1] * spatial.scale_factor)
+            new_h = int(fg_frame.shape[0] * spatial.scale_factor)
+            fg_frame = cv2.resize(
+                fg_frame, (new_w, new_h), interpolation=cv2.INTER_AREA
+            )
+            # Also scale blend mask if provided
+            if blend_mask is not None:
+                blend_mask = cv2.resize(
+                    blend_mask, (new_w, new_h), interpolation=cv2.INTER_AREA
+                )
+
+        fg_h, fg_w = fg_frame.shape[:2]
+        bg_h, bg_w = bg_frame.shape[:2]
+
+        # Calculate ROI with bounds checking
+        x_start = max(0, spatial.x_offset)
+        y_start = max(0, spatial.y_offset)
+        x_end = min(bg_w, spatial.x_offset + fg_w)
+        y_end = min(bg_h, spatial.y_offset + fg_h)
+
+        # Calculate foreground crop if needed
+        fg_x_start = max(0, -spatial.x_offset)
+        fg_y_start = max(0, -spatial.y_offset)
+        fg_x_end = fg_x_start + (x_end - x_start)
+        fg_y_end = fg_y_start + (y_end - y_start)
+
+        # Overlay
+        if x_end > x_start and y_end > y_start:
+            fg_crop = fg_frame[fg_y_start:fg_y_end, fg_x_start:fg_x_end]
+            bg_slice = composite[y_start:y_end, x_start:x_end]
+
+            if blend_mask is not None:
+                # Apply alpha blending using the blend mask
+                mask_crop = blend_mask[fg_y_start:fg_y_end, fg_x_start:fg_x_end]
+
+                # Ensure mask has same dimensions for broadcasting
+                if len(fg_crop.shape) == 3:  # Color image
+                    mask_crop = np.stack([mask_crop] * 3, axis=2)
+
+                # Alpha blend: result = fg * alpha + bg * (1 - alpha)
+                composite[y_start:y_end, x_start:x_end] = (
+                    fg_crop.astype(np.float32) * mask_crop
+                    + bg_slice.astype(np.float32) * (1.0 - mask_crop)
+                ).astype(np.uint8)
+            else:
+                # Simple overlay (original behavior)
+                composite[y_start:y_end, x_start:x_end] = fg_crop
+
+        return composite
+
+    def _add_audio_track(
+        self,
+        video_path: str,
+        output_path: str,
+        bg_info: VideoInfo,
+        fg_info: VideoInfo,
+        temporal: TemporalAlignment,
+    ):
+        """Add audio track to the composed video."""
+        # Prefer foreground audio as it's "better quality"
+        if fg_info.has_audio:
+            audio_source = fg_info.path
+            audio_offset = 0.0  # FG audio is already aligned
+            logger.info("Using foreground audio track")
+        elif bg_info.has_audio:
+            audio_source = bg_info.path
+            audio_offset = -temporal.offset_seconds  # Compensate for alignment
+            logger.info("Using background audio track")
+        else:
+            # No audio, just copy video
+            logger.info("No audio tracks available")
+            Path(video_path).rename(output_path)
+            return
+
+        # Merge audio with ffmpeg
+        try:
+            input_video = ffmpeg.input(video_path)
+
+            if audio_offset != 0:
+                input_audio = ffmpeg.input(audio_source, itsoffset=audio_offset)
+            else:
+                input_audio = ffmpeg.input(audio_source)
+
+            stream = ffmpeg.output(
+                input_video["v"],
+                input_audio["a"],
+                output_path,
+                c="copy",
+                acodec="aac",
+                shortest=None,
+            )
+
+            ffmpeg.run(stream, overwrite_output=True, capture_stderr=True)
+
+        except ffmpeg.Error as e:
+            logger.error(f"Audio merge failed: {e.stderr.decode()}")
+            # Fallback - save without audio
+            Path(video_path).rename(output_path)
+            logger.warning("Saved video without audio")
+</file>
+
+<file path="src/vidkompy/comp/dtw_aligner.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/comp/dtw_aligner.py
+
+"""
+Dynamic Time Warping (DTW) for video frame alignment.
+
+This module implements DTW algorithm for finding the globally optimal
+monotonic alignment between two video sequences, preventing temporal artifacts.
+"""
+
+import numpy as np
+from collections.abc import Callable
+from loguru import logger
+from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
+from rich.console import Console
+
+from .domain_models import FrameAlignment
+from vidkompy.core.numba_optimizations import (
+    compute_dtw_cost_matrix_numba,
+    find_dtw_path_numba,
+    log_numba_compilation,
+)
+
+console = Console()
+
+
+class DTWAligner:
+    """Dynamic Time Warping for video frame alignment.
+
+    Why DTW over current greedy matching:
+    - Guarantees monotonic alignment (no backward jumps)
+    - Finds globally optimal path, not just local matches
+    - Handles speed variations naturally
+    - Proven algorithm from speech/time series analysis
+
+    Why Sakoe-Chiba band constraint:
+    - Reduces complexity from O(N²) to O(N×window)
+    - Prevents extreme time warping
+    - Makes algorithm practical for long videos
+
+    Used in:
+    - vidkompy/comp/multi_resolution_aligner.py
+    - vidkompy/comp/precise_temporal_alignment.py
+    """
+
+    def __init__(self, window: int = 100):
+        """Initialize DTW aligner with constraints.
+
+        Args:
+            window: Maximum deviation from diagonal path
+                              (Sakoe-Chiba band width). Set to 0 to use default.
+        """
+        self.window = window
+        self.default_window = 100
+        self.use_numba = True  # Flag to enable/disable numba optimizations
+        self._numba_compiled = False
+
+    def set_window(self, window: int):
+        """Set the window constraint for DTW alignment.
+
+        Args:
+            window: Window size for sliding frame matching. 0 means use default.
+        """
+        if window > 0:
+            self.window = window
+        else:
+            self.window = self.default_window
+
+    def align_videos(
+        self,
+        fg_fingerprints: dict[int, dict[str, np.ndarray]],
+        bg_fingerprints: dict[int, dict[str, np.ndarray]],
+        fingerprint_compare_func: Callable,
+        show_progress: bool = True,
+    ) -> list[tuple[int, int, float]]:
+        """Find optimal monotonic alignment using DTW.
+
+        Args:
+            fg_fingerprints: Foreground video fingerprints {frame_idx: fingerprint}
+            bg_fingerprints: Background video fingerprints {frame_idx: fingerprint}
+            fingerprint_compare_func: Function to compare two fingerprints (0-1 similarity)
+            show_progress: Whether to show progress bar
+
+        Returns:
+            List of (bg_idx, fg_idx, confidence) tuples representing optimal alignment
+
+        Why this approach:
+        - Works on pre-computed fingerprints for speed
+        - Returns confidence scores for quality assessment
+        - Maintains fg frame order (as required)
+        """
+        fg_indices = sorted(fg_fingerprints.keys())
+        bg_indices = sorted(bg_fingerprints.keys())
+
+        n_fg = len(fg_indices)
+        n_bg = len(bg_indices)
+
+        logger.info(
+            f"Starting DTW alignment: {n_fg} fg frames × {n_bg} bg frames, "
+            f"window={self.window}"
+        )
+
+        # Build DTW cost matrix
+        dtw_matrix = self._build_dtw_matrix(
+            fg_indices,
+            bg_indices,
+            fg_fingerprints,
+            bg_fingerprints,
+            fingerprint_compare_func,
+            show_progress,
+        )
+
+        # Find optimal path
+        path = self._find_optimal_path(dtw_matrix, n_fg, n_bg)
+
+        # Convert path to frame alignments with confidence scores
+        alignments = self._path_to_alignments(
+            path,
+            fg_indices,
+            bg_indices,
+            fg_fingerprints,
+            bg_fingerprints,
+            fingerprint_compare_func,
+        )
+
+        logger.info(f"DTW completed: {len(alignments)} frame alignments")
+
+        return alignments
+
+    def _build_dtw_matrix(
+        self,
+        fg_indices: list[int],
+        bg_indices: list[int],
+        fg_fingerprints: dict[int, dict[str, np.ndarray]],
+        bg_fingerprints: dict[int, dict[str, np.ndarray]],
+        compare_func: Callable,
+        show_progress: bool,
+    ) -> np.ndarray:
+        """Build DTW cost matrix with Sakoe-Chiba band constraint.
+
+        Why band constraint:
+        - Prevents extreme time warping
+        - Reduces computation from O(N²) to O(N×window)
+        - Enforces reasonable temporal alignment
+        """
+        n_fg = len(fg_indices)
+        n_bg = len(bg_indices)
+
+        # Try to use Numba optimization if available
+        if self.use_numba and n_fg > 10 and n_bg > 10:  # Only use for non-trivial sizes
+            try:
+                if not self._numba_compiled:
+                    log_numba_compilation()
+                    self._numba_compiled = True
+
+                # Convert fingerprints to feature arrays for numba
+                fg_features = self._fingerprints_to_features(
+                    fg_fingerprints, fg_indices
+                )
+                bg_features = self._fingerprints_to_features(
+                    bg_fingerprints, bg_indices
+                )
+
+                if show_progress:
+                    console.print("  Using Numba-optimized DTW computation...")
+
+                # Use numba-optimized version
+                dtw = compute_dtw_cost_matrix_numba(
+                    fg_features, bg_features, self.window
+                )
+                return dtw
+
+            except Exception as e:
+                logger.warning(f"Failed to use Numba optimization: {e}")
+                logger.info("Falling back to standard implementation")
+
+        # Standard implementation
+        # Initialize with infinity
+        dtw = np.full((n_fg + 1, n_bg + 1), np.inf)
+        dtw[0, 0] = 0
+
+        # Progress tracking
+        if show_progress:
+            progress = Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TimeRemainingColumn(),
+                console=console,
+                transient=True,
+            )
+            task = progress.add_task("  Building DTW matrix...", total=n_fg)
+            progress.start()
+
+        # Fill DTW matrix with band constraint
+        for i in range(1, n_fg + 1):
+            # Sakoe-Chiba band: only compute within window of diagonal
+            j_start = max(1, i - self.window)
+            j_end = min(n_bg + 1, i + self.window)
+
+            for j in range(j_start, j_end):
+                # Get fingerprints
+                fg_fp = fg_fingerprints[fg_indices[i - 1]]
+                bg_fp = bg_fingerprints[bg_indices[j - 1]]
+
+                # Compute cost (1 - similarity)
+                similarity = compare_func(fg_fp, bg_fp)
+                cost = 1.0 - similarity
+
+                # DTW recursion: min of three possible paths
+                dtw[i, j] = cost + min(
+                    dtw[i - 1, j],  # Skip bg frame (insertion)
+                    dtw[i, j - 1],  # Skip fg frame (deletion)
+                    dtw[i - 1, j - 1],  # Match frames
+                )
+
+            if show_progress:
+                progress.update(task, advance=1)
+
+        if show_progress:
+            progress.stop()
+
+        return dtw
+
+    def _find_optimal_path(
+        self, dtw: np.ndarray, n_fg: int, n_bg: int
+    ) -> list[tuple[int, int]]:
+        """Backtrack through DTW matrix to find optimal path.
+
+        Why backtracking:
+        - Recovers the actual alignment from cost matrix
+        - Guarantees monotonic path
+        - Handles insertions/deletions/matches
+        """
+        # Try to use Numba optimization if available
+        if self.use_numba and n_fg > 10 and n_bg > 10:
+            try:
+                # Use numba-optimized version
+                path_array = find_dtw_path_numba(dtw)
+                # Convert to list of tuples
+                path = [(int(i), int(j)) for i, j in path_array]
+                return path
+            except Exception as e:
+                logger.warning(f"Failed to use Numba path finding: {e}")
+                logger.info("Falling back to standard implementation")
+
+        # Standard implementation
+        path = []
+        i, j = n_fg, n_bg
+
+        # Backtrack from end to start
+        while i > 0 or j > 0:
+            path.append((i, j))
+
+            if i == 0:
+                j -= 1
+            elif j == 0:
+                i -= 1
+            else:
+                # Choose direction with minimum cost
+                costs = [
+                    (i - 1, j, dtw[i - 1, j]),  # From above
+                    (i, j - 1, dtw[i, j - 1]),  # From left
+                    (i - 1, j - 1, dtw[i - 1, j - 1]),  # From diagonal
+                ]
+
+                # Filter out invalid positions
+                valid_costs = [
+                    (pi, pj, cost) for pi, pj, cost in costs if cost != np.inf
+                ]
+
+                if valid_costs:
+                    i, j, _ = min(valid_costs, key=lambda x: x[2])
+                else:
+                    # Fallback: move diagonally
+                    i, j = i - 1, j - 1
+
+        # Reverse to get forward path
+        path.reverse()
+
+        # Remove dummy start position
+        if path and path[0] == (0, 0):
+            path = path[1:]
+
+        return path
+
+    def _path_to_alignments(
+        self,
+        path: list[tuple[int, int]],
+        fg_indices: list[int],
+        bg_indices: list[int],
+        fg_fingerprints: dict[int, dict[str, np.ndarray]],
+        bg_fingerprints: dict[int, dict[str, np.ndarray]],
+        compare_func: Callable,
+    ) -> list[tuple[int, int, float]]:
+        """Convert DTW path to frame alignments with confidence scores.
+
+        Why confidence scores:
+        - Helps identify problematic alignments
+        - Enables quality-based filtering
+        - Provides feedback for debugging
+        """
+        alignments = []
+
+        for i, j in path:
+            # Skip boundary positions
+            if i == 0 or j == 0:
+                continue
+
+            # Get actual frame indices
+            fg_idx = fg_indices[i - 1]
+            bg_idx = bg_indices[j - 1]
+
+            # Compute confidence as similarity score
+            fg_fp = fg_fingerprints[fg_idx]
+            bg_fp = bg_fingerprints[bg_idx]
+            confidence = compare_func(fg_fp, bg_fp)
+
+            alignments.append((bg_idx, fg_idx, confidence))
+
+        # Remove duplicate fg frames (keep best match)
+        unique_alignments = {}
+        for bg_idx, fg_idx, conf in alignments:
+            if fg_idx not in unique_alignments or conf > unique_alignments[fg_idx][1]:
+                unique_alignments[fg_idx] = (bg_idx, conf)
+
+        # Convert back to list format
+        final_alignments = [
+            (bg_idx, fg_idx, conf)
+            for fg_idx, (bg_idx, conf) in sorted(unique_alignments.items())
+        ]
+
+        return final_alignments
+
+    def create_frame_alignments(
+        self,
+        dtw_matches: list[tuple[int, int, float]],
+        total_fg_frames: int,
+        total_bg_frames: int,
+    ) -> list[FrameAlignment]:
+        """Create complete frame-to-frame alignment from DTW matches.
+
+        Args:
+            dtw_matches: List of (bg_idx, fg_idx, confidence) from DTW
+            total_fg_frames: Total number of foreground frames
+            total_bg_frames: Total number of background frames
+
+        Returns:
+            List of FrameAlignment objects for every fg frame
+
+        Why interpolation:
+        - DTW may skip some frames
+        - Need alignment for EVERY fg frame
+        - Smooth interpolation prevents jumps
+        """
+        if not dtw_matches:
+            # Fallback to simple linear mapping
+            return self._create_linear_alignment(total_fg_frames, total_bg_frames)
+
+        # Sort by fg index
+        dtw_matches.sort(key=lambda x: x[1])
+
+        # Create alignment for every fg frame
+        alignments = []
+
+        for fg_idx in range(total_fg_frames):
+            # Find surrounding DTW matches
+            prev_match = None
+            next_match = None
+
+            for match in dtw_matches:
+                if match[1] <= fg_idx:
+                    prev_match = match
+                elif match[1] > fg_idx and next_match is None:
+                    next_match = match
+                    break
+
+            # Interpolate or extrapolate
+            if prev_match is None and next_match is None:
+                # No matches at all - use linear
+                bg_idx = int(fg_idx * total_bg_frames / total_fg_frames)
+                confidence = 0.5
+            elif prev_match is None:
+                # Before first match - extrapolate
+                bg_idx = max(0, next_match[0] - (next_match[1] - fg_idx))
+                confidence = next_match[2] * 0.8
+            elif next_match is None:
+                # After last match - extrapolate
+                bg_idx = min(
+                    total_bg_frames - 1, prev_match[0] + (fg_idx - prev_match[1])
+                )
+                confidence = prev_match[2] * 0.8
+            # Between matches - interpolate
+            elif prev_match[1] == next_match[1]:
+                # Same fg frame
+                bg_idx = prev_match[0]
+                confidence = prev_match[2]
+            else:
+                # Linear interpolation
+                ratio = (fg_idx - prev_match[1]) / (next_match[1] - prev_match[1])
+                bg_idx = int(prev_match[0] + ratio * (next_match[0] - prev_match[0]))
+                confidence = prev_match[2] * (1 - ratio) + next_match[2] * ratio
+
+            # Ensure valid bg index
+            bg_idx = max(0, min(bg_idx, total_bg_frames - 1))
+
+            alignments.append(
+                FrameAlignment(
+                    fg_frame_idx=fg_idx,
+                    bg_frame_idx=bg_idx,
+                    similarity_score=confidence,
+                )
+            )
+
+        return alignments
+
+    def _create_linear_alignment(
+        self, total_fg_frames: int, total_bg_frames: int
+    ) -> list[FrameAlignment]:
+        """Create simple linear frame mapping as fallback.
+
+        Why we need fallback:
+        - DTW might fail on very dissimilar videos
+        - Better than no alignment at all
+        - Maintains temporal order
+        """
+        ratio = total_bg_frames / total_fg_frames if total_fg_frames > 0 else 1.0
+
+        alignments = []
+        for fg_idx in range(total_fg_frames):
+            bg_idx = min(int(fg_idx * ratio), total_bg_frames - 1)
+
+            alignments.append(
+                FrameAlignment(
+                    fg_frame_idx=fg_idx,
+                    bg_frame_idx=bg_idx,
+                    similarity_score=0.5,  # Unknown confidence
+                )
+            )
+
+        return alignments
+
+    def _compute_cost_matrix(
+        self, fg_features: np.ndarray, bg_features: np.ndarray
+    ) -> np.ndarray:
+        """Compute cost matrix for DTW from feature arrays.
+
+        Args:
+            fg_features: Foreground feature vectors (N, D)
+            bg_features: Background feature vectors (M, D)
+
+        Returns:
+            Cost matrix (N, M)
+        """
+        n_fg = len(fg_features)
+        n_bg = len(bg_features)
+
+        # Initialize cost matrix
+        cost_matrix = np.zeros((n_fg, n_bg))
+
+        # Compute pairwise distances
+        for i in range(n_fg):
+            for j in range(n_bg):
+                # Euclidean distance between feature vectors
+                cost_matrix[i, j] = np.linalg.norm(fg_features[i] - bg_features[j])
+
+        # Normalize costs to [0, 1]
+        if cost_matrix.max() > 0:
+            cost_matrix = cost_matrix / cost_matrix.max()
+
+        return cost_matrix
+
+    def _compute_path(self, cost_matrix: np.ndarray) -> list[tuple[int, int]]:
+        """Compute optimal DTW path from cost matrix.
+
+        Args:
+            cost_matrix: Cost matrix (N, M)
+
+        Returns:
+            List of (i, j) indices representing the optimal path
+        """
+        n_fg, n_bg = cost_matrix.shape
+
+        # Initialize DTW matrix
+        dtw = np.full((n_fg + 1, n_bg + 1), np.inf)
+        dtw[0, 0] = 0
+
+        # Fill DTW matrix with window constraint
+        for i in range(1, n_fg + 1):
+            # Sakoe-Chiba band
+            j_start = max(1, i - self.window)
+            j_end = min(n_bg + 1, i + self.window)
+
+            for j in range(j_start, j_end):
+                cost = cost_matrix[i - 1, j - 1]
+
+                # DTW recursion
+                dtw[i, j] = cost + min(
+                    dtw[i - 1, j],  # Insertion
+                    dtw[i, j - 1],  # Deletion
+                    dtw[i - 1, j - 1],  # Match
+                )
+
+        # Backtrack to find path
+        path = []
+        i, j = n_fg, n_bg
+
+        while i > 0 and j > 0:
+            path.append((i - 1, j - 1))  # Convert to 0-based indices
+
+            # Choose direction with minimum cost
+            if i == 1:
+                j -= 1
+            elif j == 1:
+                i -= 1
+            else:
+                costs = [
+                    dtw[i - 1, j],  # From above
+                    dtw[i, j - 1],  # From left
+                    dtw[i - 1, j - 1],  # From diagonal
+                ]
+
+                min_idx = np.argmin(costs)
+                if min_idx == 0:
+                    i -= 1
+                elif min_idx == 1:
+                    j -= 1
+                else:
+                    i -= 1
+                    j -= 1
+
+        # Add remaining path to origin
+        while i > 0:
+            i -= 1
+            path.append((i, 0))
+        while j > 0:
+            j -= 1
+            path.append((0, j))
+
+        path.reverse()
+
+        # Remove any invalid entries
+        path = [(i, j) for i, j in path if i >= 0 and j >= 0]
+
+        return path
+
+    def _fingerprints_to_features(
+        self, fingerprints: dict[int, dict[str, np.ndarray]], indices: list[int]
+    ) -> np.ndarray:
+        """Convert fingerprints to feature matrix for Numba processing.
+
+        Args:
+            fingerprints: Dictionary of fingerprints
+            indices: List of frame indices
+
+        Returns:
+            Feature matrix where each row is a flattened fingerprint
+        """
+        # Get sample fingerprint to determine feature size
+        sample_fp = next(iter(fingerprints.values()))
+
+        # Calculate total feature size
+        feature_size = 0
+        for key, value in sample_fp.items():
+            if key == "histogram":
+                feature_size += len(value)
+            else:
+                # Hash values
+                feature_size += value.size
+
+        # Build feature matrix
+        features = np.zeros((len(indices), feature_size), dtype=np.float32)
+
+        for i, idx in enumerate(indices):
+            fp = fingerprints[idx]
+            offset = 0
+
+            # Add hash features
+            for key in sorted(fp.keys()):
+                if key == "histogram":
+                    continue
+                value = fp[key].flatten()
+                features[i, offset : offset + len(value)] = value.astype(np.float32)
+                offset += len(value)
+
+            # Add histogram at the end
+            if "histogram" in fp:
+                hist = fp["histogram"]
+                features[i, offset : offset + len(hist)] = hist
+
+        return features
+</file>
+
 <file path="src/vidkompy/comp/temporal_alignment.py">
 #!/usr/bin/env python3
 # this_file: src/vidkompy/comp/temporal_alignment.py
@@ -8116,104 +8257,6 @@ def composite_videos(
     except Exception as e:
         logger.error(f"Processing failed: {e}")
         raise
-</file>
-
-<file path=".gitignore">
-tests/
-__pycache__/
-__pypackages__/
-._*
-.cache
-.coverage
-.coverage.*
-.cursorignore
-.cursorindexingignore
-.dmypy.json
-.DS_Store
-.eggs/
-.env
-.hypothesis/
-.installed.cfg
-.ipynb_checkpoints
-.mypy_cache/
-.nox/
-.pdm-build/
-.pdm-python
-.pdm.toml
-.pybuilder/
-.pypirc
-.pyre/
-.pytest_cache/
-.Python
-.pytype/
-.ropeproject
-.ruff_cache/
-.sass-cache
-.scrapy
-.specstory/.what-is-this.md
-.Spotlight-V100
-.spyderproject
-.spyproject
-.tox/
-.Trashes
-.venv
-.webassets-cache
-*.cover
-*.egg
-*.egg-info/
-*.log
-*.manifest
-*.mo
-*.out
-*.pot
-*.py,cover
-*.py[cod]
-*.pyc
-*.sage.py
-*.so
-*.spec
-*$py.class
-/site
-build/
-celerybeat-schedule
-celerybeat.pid
-cover/
-coverage.xml
-cython_debug/
-db.sqlite3
-db.sqlite3-journal
-Desktop.ini
-develop-eggs/
-dist/
-dmypy.json
-docs/_build/
-downloads/
-eggs/
-env.bak/
-env/
-ENV/
-htmlcov/
-instance/
-ipython_config.py
-lib/
-lib64/
-local_settings.py
-MANIFEST
-node_modules
-nosetests.xml
-parts/
-pip-delete-this-directory.txt
-pip-log.txt
-profile_default/
-sdist/
-share/python-wheels/
-target/
-Thumbs.db
-var/
-venv
-venv.bak/
-venv/
-wheels/
 </file>
 
 <file path=".claude/settings.local.json">
@@ -9680,33 +9723,21 @@ The project includes a sophisticated video composition system with:
 </file>
 
 <file path="TODO.md">
-# Situation
+# Tasks
 
-`src/vidkompy/align/` is a new, modern code which can read a "bg" (background) video or frame, and a "fg" (foreground) video or frame, and find the best spatial alignment (shift and optionally scale) of `fg` within the canvas of `bg`. The --unity_scale option is a boolean flag that, if True, will bias the search towards 100% scale (shift only) detection.
+Mark each task as done when you've completed it: 
 
-`src/vidkompy/comp/` is the the code that's responsive for actually overlaying a `fg` video onto `bg` video. The code 
+1. [ ] Read `CLAUDE.md` and `llms.txt`. 
 
-- spatially aligns the `fg` within the `bg` canvas
-- then also temporally aligns all frames of `bg` to the frames of `fg`
-- then actually overlays the `fg` onto the `bg`
+2. [ ] Implement the code from `PLAN.md`.
 
-## [ ] Task 1
+3. [ ] Analyze the recent git changes. 
 
-The spatial alignment code in `src/vidkompy/comp/` is different from the spatial alignment code in `src/vidkompy/align/`. We prefer the alignment code in `src/vidkompy/align/`. 
+4. [ ] Update the `README.md` to reflect the new structure of the code.
 
-In `PLAN.md`, write a very detailed plan for how to replace the spatial alignment in `src/vidkompy/comp/` with calls to the "unity-scale"  code from `src/vidkompy/align/`.
+5. [ ] Update the `CHANGELOG.md` to reflect the new features and changes.
 
-## [ ] Task 2
-
-Implement the code from `PLAN.md`.
-
-## [ ] Task 3
-
-Update the README.md to reflect the new structure of the code.
-
-## [ ] Task 4
-
-Update the CHANGELOG.md to reflect the new features and changes.
+6. [ ] Edit `PLAN.md`: remove things that are done, keep things that are still TBD.
 </file>
 
 </files>

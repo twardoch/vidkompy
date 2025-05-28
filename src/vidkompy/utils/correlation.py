@@ -17,7 +17,49 @@ Used in:
 import numpy as np
 from numba import jit
 
-__all__ = ["compute_normalized_correlation", "histogram_correlation"]
+# Correlation epsilon to avoid numerical issues
+CORR_EPS = 1e-7
+
+__all__ = ["CORR_EPS", "compute_normalized_correlation", "histogram_correlation"]
+
+
+@jit(nopython=True)
+def _safe_corr(arr1: np.ndarray, arr2: np.ndarray) -> float:
+    """
+    Safe correlation computation with NaN and variance guards.
+
+    Private helper that centralizes the common correlation logic
+    used by both public correlation functions.
+
+    Args:
+        arr1: First array
+        arr2: Second array
+
+    Returns:
+        Normalized correlation coefficient between -1 and 1
+        Returns 0.0 for edge cases (NaN inputs, zero variance)
+
+    """
+    # Handle NaN inputs
+    if np.any(np.isnan(arr1)) or np.any(np.isnan(arr2)):
+        return 0.0
+
+    mean1 = np.mean(arr1)
+    mean2 = np.mean(arr2)
+
+    numerator = np.sum((arr1 - mean1) * (arr2 - mean2))
+    var1 = np.sum((arr1 - mean1) ** 2)
+    var2 = np.sum((arr2 - mean2) ** 2)
+
+    # Handle zero variance edge cases
+    if var1 == 0 or var2 == 0:
+        return 0.0
+
+    denominator = np.sqrt(var1 * var2)
+    if denominator == 0:
+        return 0.0
+
+    return numerator / denominator
 
 
 @jit(nopython=True)
@@ -40,26 +82,7 @@ def compute_normalized_correlation(template: np.ndarray, image: np.ndarray) -> f
     - vidkompy/align/algorithms.py
     - vidkompy/utils/__init__.py
     """
-    # Handle NaN inputs
-    if np.any(np.isnan(template)) or np.any(np.isnan(image)):
-        return 0.0
-
-    template_mean = np.mean(template)
-    image_mean = np.mean(image)
-
-    numerator = np.sum((template - template_mean) * (image - image_mean))
-    template_var = np.sum((template - template_mean) ** 2)
-    image_var = np.sum((image - image_mean) ** 2)
-
-    # Handle zero variance edge cases
-    if template_var == 0 or image_var == 0:
-        return 0.0
-
-    denominator = np.sqrt(template_var * image_var)
-    if denominator == 0:
-        return 0.0
-
-    return numerator / denominator
+    return _safe_corr(template, image)
 
 
 @jit(nopython=True)
@@ -83,33 +106,18 @@ def histogram_correlation(hist1: np.ndarray, hist2: np.ndarray) -> float:
     - vidkompy/align/precision.py
     - vidkompy/utils/__init__.py
     """
-    # Handle empty or NaN histograms
+    # Handle empty histograms
     if len(hist1) == 0 or len(hist2) == 0:
         return 0.0
-    if np.any(np.isnan(hist1)) or np.any(np.isnan(hist2)):
-        return 0.0
 
-    # Normalize histograms with small epsilon to avoid division by zero
+    # Normalize histograms with epsilon to avoid division by zero
     sum1 = np.sum(hist1)
     sum2 = np.sum(hist2)
 
     if sum1 == 0 or sum2 == 0:
         return 0.0
 
-    h1 = hist1 / (sum1 + 1e-7)
-    h2 = hist2 / (sum2 + 1e-7)
+    h1 = hist1 / (sum1 + CORR_EPS)
+    h2 = hist2 / (sum2 + CORR_EPS)
 
-    # Compute correlation coefficient
-    mean1 = np.mean(h1)
-    mean2 = np.mean(h2)
-
-    numerator = np.sum((h1 - mean1) * (h2 - mean2))
-    var1 = np.sum((h1 - mean1) ** 2)
-    var2 = np.sum((h2 - mean2) ** 2)
-
-    denominator = np.sqrt(var1 * var2)
-
-    if denominator == 0:
-        return 0.0
-
-    return numerator / denominator
+    return _safe_corr(h1, h2)

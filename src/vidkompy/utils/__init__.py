@@ -6,17 +6,24 @@ Utility modules for vidkompy.
 
 Re-exports commonly used functions from correlation and image modules
 to simplify import paths throughout the codebase.
+
+Note: Logging utilities are now accessed directly from vidkompy.utils.logging
+to keep utilities I/O-free.
 """
 
-from .correlation import compute_normalized_correlation, histogram_correlation
+from .correlation import compute_normalized_correlation, histogram_correlation, CORR_EPS
 from .image import ensure_gray, resize_frame
-from .logging import LOG_FORMAT_VERBOSE, LOG_FORMAT_DEFAULT
 
-__all__ = [
-    "LOG_FORMAT_DEFAULT",
-    "LOG_FORMAT_VERBOSE",
-    "compute_normalized_correlation",
-    "ensure_gray",
-    "histogram_correlation",
-    "resize_frame",
-]
+
+def __getattr__(name: str):
+    """Dynamic attribute access for cleaner imports."""
+    if name == "__all__":
+        return [
+            "CORR_EPS",
+            "compute_normalized_correlation",
+            "ensure_gray",
+            "histogram_correlation",
+            "resize_frame",
+        ]
+    msg = f"module '{__name__}' has no attribute '{name}'"
+    raise AttributeError(msg)
