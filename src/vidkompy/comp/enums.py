@@ -40,4 +40,3 @@ class TemporalMethod(Enum):
 
     DTW = "dtw"  # Dynamic Time Warping (new default)
     CLASSIC = "classic"  # Original keyframe matching
-    FRAMES = "frames"  # Legacy alias for classic

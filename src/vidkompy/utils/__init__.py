@@ -14,16 +14,10 @@ to keep utilities I/O-free.
 from .correlation import compute_normalized_correlation, histogram_correlation, CORR_EPS
 from .image import ensure_gray, resize_frame
 
-
-def __getattr__(name: str):
-    """Dynamic attribute access for cleaner imports."""
-    if name == "__all__":
-        return [
-            "CORR_EPS",
-            "compute_normalized_correlation",
-            "ensure_gray",
-            "histogram_correlation",
-            "resize_frame",
-        ]
-    msg = f"module '{__name__}' has no attribute '{name}'"
-    raise AttributeError(msg)
+__all__ = [
+    "CORR_EPS",
+    "compute_normalized_correlation",
+    "ensure_gray", 
+    "histogram_correlation",
+    "resize_frame",
+]

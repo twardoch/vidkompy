@@ -320,7 +320,20 @@ Contains all dataclasses and data structures used across the composition system.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 from .enums import MatchTimeMode
+
+
+@dataclass
+class AudioInfo:
+    """Audio metadata container.
+
+    Extracted from VideoInfo to reduce nullable fields.
+
+    """
+
+    sample_rate: int
+    channels: int
 
 
 @dataclass
@@ -339,8 +352,7 @@ class VideoInfo:
     duration: float
     frame_count: int
     has_audio: bool
-    audio_sample_rate: int | None = None
-    audio_channels: int | None = None
+    audio_info: AudioInfo | None = None
     path: str = ""
 
     @property
@@ -352,6 +364,85 @@ class VideoInfo:
     def aspect_ratio(self) -> float:
         """Calculate aspect ratio."""
         return self.width / self.height if self.height > 0 else 0
+
+    @classmethod
+    def from_path(cls, video_path: Path | str) -> "VideoInfo":
+        """Create VideoInfo by analyzing video file with ffprobe.
+
+        Encapsulates ffprobe call currently scattered across VideoProcessor.
+
+        Args:
+            video_path: Path to video file
+
+        Returns:
+            VideoInfo instance with metadata
+
+        """
+        import subprocess
+        import json
+
+        video_path = Path(video_path)
+
+        # Use ffprobe to get video metadata
+        cmd = [
+            "ffprobe",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            str(video_path),
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            data = json.loads(result.stdout)
+
+            # Find video and audio streams
+            video_stream = None
+            audio_stream = None
+
+            for stream in data.get("streams", []):
+                if stream.get("codec_type") == "video" and video_stream is None:
+                    video_stream = stream
+                elif stream.get("codec_type") == "audio" and audio_stream is None:
+                    audio_stream = stream
+
+            if not video_stream:
+                msg = f"No video stream found in {video_path}"
+                raise ValueError(msg)
+
+            # Extract video info
+            width = int(video_stream["width"])
+            height = int(video_stream["height"])
+            fps = eval(video_stream["r_frame_rate"])  # e.g., "30/1" -> 30.0
+            duration = float(video_stream.get("duration", 0))
+            frame_count = int(video_stream.get("nb_frames", duration * fps))
+
+            # Extract audio info if present
+            audio_info = None
+            has_audio = audio_stream is not None
+            if has_audio:
+                audio_info = AudioInfo(
+                    sample_rate=int(audio_stream["sample_rate"]),
+                    channels=int(audio_stream["channels"]),
+                )
+
+            return cls(
+                width=width,
+                height=height,
+                fps=fps,
+                duration=duration,
+                frame_count=frame_count,
+                has_audio=has_audio,
+                audio_info=audio_info,
+                path=str(video_path),
+            )
+
+        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
+            msg = f"Failed to analyze video {video_path}: {e}"
+            raise RuntimeError(msg) from e
 
 
 @dataclass
@@ -375,8 +466,11 @@ class FrameAlignment:
 
 
 @dataclass
-class SpatialAlignment:
-    """Spatial offset for overlaying foreground on background.
+class SpatialTransform:
+    """Spatial transformation for overlaying foreground on background.
+
+    Represents a 2D similarity transform (scaling + translation) for
+    spatial alignment of videos.
 
     Used in:
     - vidkompy/comp/alignment_engine.py
@@ -392,6 +486,27 @@ class SpatialAlignment:
     def offset(self) -> tuple[int, int]:
         """Get offset as tuple."""
         return (self.x_offset, self.y_offset)
+
+    def as_matrix(self) -> "np.ndarray":
+        """Return 3x3 homography matrix for this spatial transform.
+
+        Returns:
+            3x3 transformation matrix for use with cv2.warpAffine
+
+        """
+        import numpy as np
+
+        # 2D similarity transform: scale + translation
+        matrix = np.array(
+            [
+                [self.scale_factor, 0, self.x_offset],
+                [0, self.scale_factor, self.y_offset],
+                [0, 0, 1],
+            ],
+            dtype=np.float32,
+        )
+
+        return matrix
 
 
 @dataclass
@@ -435,9 +550,10 @@ class ProcessingOptions:
 
 
 __all__ = [
+    "AudioInfo",
     "FrameAlignment",
     "ProcessingOptions",
-    "SpatialAlignment",
+    "SpatialTransform",
     "TemporalAlignment",
     "VideoInfo",
 ]
@@ -486,165 +602,6 @@ class TemporalMethod(Enum):
 
     DTW = "dtw"  # Dynamic Time Warping (new default)
     CLASSIC = "classic"  # Original keyframe matching
-    FRAMES = "frames"  # Legacy alias for classic
-</file>
-
-<file path="src/vidkompy/utils/__init__.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/utils/__init__.py
-
-"""
-Utility modules for vidkompy.
-
-Re-exports commonly used functions from correlation and image modules
-to simplify import paths throughout the codebase.
-
-Note: Logging utilities are now accessed directly from vidkompy.utils.logging
-to keep utilities I/O-free.
-"""
-
-from .correlation import compute_normalized_correlation, histogram_correlation, CORR_EPS
-from .image import ensure_gray, resize_frame
-
-
-def __getattr__(name: str):
-    """Dynamic attribute access for cleaner imports."""
-    if name == "__all__":
-        return [
-            "CORR_EPS",
-            "compute_normalized_correlation",
-            "ensure_gray",
-            "histogram_correlation",
-            "resize_frame",
-        ]
-    msg = f"module '{__name__}' has no attribute '{name}'"
-    raise AttributeError(msg)
-</file>
-
-<file path="src/vidkompy/utils/correlation.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/utils/correlation.py
-
-"""
-Correlation computation utilities with Numba optimization.
-
-This module provides fast correlation functions used across the
-alignment and matching algorithms. All functions are JIT-compiled
-with Numba for optimal performance.
-
-Used in:
-- vidkompy/align/algorithms.py
-- vidkompy/align/precision.py
-- vidkompy/comp/numba_optimizations.py
-"""
-
-import numpy as np
-from numba import jit
-
-# Correlation epsilon to avoid numerical issues
-CORR_EPS = 1e-7
-
-__all__ = ["CORR_EPS", "compute_normalized_correlation", "histogram_correlation"]
-
-
-@jit(nopython=True)
-def _safe_corr(arr1: np.ndarray, arr2: np.ndarray) -> float:
-    """
-    Safe correlation computation with NaN and variance guards.
-
-    Private helper that centralizes the common correlation logic
-    used by both public correlation functions.
-
-    Args:
-        arr1: First array
-        arr2: Second array
-
-    Returns:
-        Normalized correlation coefficient between -1 and 1
-        Returns 0.0 for edge cases (NaN inputs, zero variance)
-
-    """
-    # Handle NaN inputs
-    if np.any(np.isnan(arr1)) or np.any(np.isnan(arr2)):
-        return 0.0
-
-    mean1 = np.mean(arr1)
-    mean2 = np.mean(arr2)
-
-    numerator = np.sum((arr1 - mean1) * (arr2 - mean2))
-    var1 = np.sum((arr1 - mean1) ** 2)
-    var2 = np.sum((arr2 - mean2) ** 2)
-
-    # Handle zero variance edge cases
-    if var1 == 0 or var2 == 0:
-        return 0.0
-
-    denominator = np.sqrt(var1 * var2)
-    if denominator == 0:
-        return 0.0
-
-    return numerator / denominator
-
-
-@jit(nopython=True)
-def compute_normalized_correlation(template: np.ndarray, image: np.ndarray) -> float:
-    """
-    Fast normalized cross-correlation computation using Numba.
-
-    Computes the normalized cross-correlation between two arrays,
-    handling edge cases like zero variance gracefully.
-
-    Args:
-        template: Template array to match
-        image: Image array to search in
-
-    Returns:
-        Normalized correlation coefficient between -1 and 1
-        Returns 0.0 for edge cases (zero variance, NaN inputs)
-
-    Used in:
-    - vidkompy/align/algorithms.py
-    - vidkompy/utils/__init__.py
-    """
-    return _safe_corr(template, image)
-
-
-@jit(nopython=True)
-def histogram_correlation(hist1: np.ndarray, hist2: np.ndarray) -> float:
-    """
-    Fast histogram correlation for ballpark scale estimation.
-
-    Computes normalized correlation between two histograms,
-    useful for quick scale estimation based on intensity distributions.
-
-    Args:
-        hist1: First histogram array
-        hist2: Second histogram array
-
-    Returns:
-        Correlation coefficient between -1 and 1
-        Returns 0.0 for edge cases (empty histograms, zero variance)
-
-    Used in:
-    - vidkompy/align/algorithms.py
-    - vidkompy/align/precision.py
-    - vidkompy/utils/__init__.py
-    """
-    # Handle empty histograms
-    if len(hist1) == 0 or len(hist2) == 0:
-        return 0.0
-
-    # Normalize histograms with epsilon to avoid division by zero
-    sum1 = np.sum(hist1)
-    sum2 = np.sum(hist2)
-
-    if sum1 == 0 or sum2 == 0:
-        return 0.0
-
-    h1 = hist1 / (sum1 + CORR_EPS)
-    h2 = hist2 / (sum2 + CORR_EPS)
-
-    return _safe_corr(h1, h2)
 </file>
 
 <file path="src/vidkompy/utils/image.py">
@@ -751,62 +708,6 @@ def resize_frame(
 
     # This shouldn't be reached, but just in case
     return frame
-</file>
-
-<file path="src/vidkompy/utils/logging.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/utils/logging.py
-
-"""
-Logging utilities and constants for vidkompy.
-
-This module provides standard logging formats and configuration
-used across the application.
-"""
-
-import sys
-
-# Standard logging formats
-FORMAT_VERBOSE = (
-    "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-    "<level>{level: <8}</level> | "
-    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-    "<level>{message}</level>"
-)
-
-FORMAT_COMPACT = (
-    "<green>{time:HH:mm:ss}</green> | "
-    "<level>{level: <8}</level> | "
-    "<level>{message}</level>"
-)
-
-
-def make_logger(name: str, verbose: bool = False) -> "Logger":
-    """
-    Create a logger with standardized configuration.
-
-    Centralizes logger wiring to ensure consistent formatting
-    and configuration across the application.
-
-    Args:
-        name: Logger name, typically __name__
-        verbose: Whether to use verbose formatting with file/line info
-
-    Returns:
-        Configured logger instance
-
-    """
-    from loguru import logger
-
-    # Remove default handler and add our custom one
-    logger.remove()
-    format_str = FORMAT_VERBOSE if verbose else FORMAT_COMPACT
-    logger.add(sys.stderr, format=format_str, level="DEBUG" if verbose else "INFO")
-
-    return logger.bind(name=name)
-
-
-__all__ = ["FORMAT_COMPACT", "FORMAT_VERBOSE", "make_logger"]
 </file>
 
 <file path=".pre-commit-config.yaml">
@@ -1271,6 +1172,220 @@ class ResultDisplayer:
 
 <file path="src/vidkompy/comp/__init__.py">
 # this_file: src/vidkompy/comp/__init__.py
+</file>
+
+<file path="src/vidkompy/utils/__init__.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/utils/__init__.py
+
+"""
+Utility modules for vidkompy.
+
+Re-exports commonly used functions from correlation and image modules
+to simplify import paths throughout the codebase.
+
+Note: Logging utilities are now accessed directly from vidkompy.utils.logging
+to keep utilities I/O-free.
+"""
+
+from .correlation import compute_normalized_correlation, histogram_correlation, CORR_EPS
+from .image import ensure_gray, resize_frame
+
+
+def __getattr__(name: str):
+    """Dynamic attribute access for cleaner imports."""
+    if name == "__all__":
+        return [
+            "CORR_EPS",
+            "compute_normalized_correlation",
+            "ensure_gray",
+            "histogram_correlation",
+            "resize_frame",
+        ]
+    msg = f"module '{__name__}' has no attribute '{name}'"
+    raise AttributeError(msg)
+</file>
+
+<file path="src/vidkompy/utils/correlation.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/utils/correlation.py
+
+"""
+Correlation computation utilities with Numba optimization.
+
+This module provides fast correlation functions used across the
+alignment and matching algorithms. All functions are JIT-compiled
+with Numba for optimal performance.
+
+Used in:
+- vidkompy/align/algorithms.py
+- vidkompy/align/precision.py
+- vidkompy/comp/numba_optimizations.py
+"""
+
+import numpy as np
+from numba import jit
+
+# Correlation epsilon to avoid numerical issues
+CORR_EPS = 1e-7
+
+__all__ = ["CORR_EPS", "compute_normalized_correlation", "histogram_correlation"]
+
+
+@jit(nopython=True)
+def _safe_corr(arr1: np.ndarray, arr2: np.ndarray) -> float:
+    """
+    Safe correlation computation with NaN and variance guards.
+
+    Private helper that centralizes the common correlation logic
+    used by both public correlation functions.
+
+    Args:
+        arr1: First array
+        arr2: Second array
+
+    Returns:
+        Normalized correlation coefficient between -1 and 1
+        Returns 0.0 for edge cases (NaN inputs, zero variance)
+
+    """
+    # Handle NaN inputs
+    if np.any(np.isnan(arr1)) or np.any(np.isnan(arr2)):
+        return 0.0
+
+    mean1 = np.mean(arr1)
+    mean2 = np.mean(arr2)
+
+    numerator = np.sum((arr1 - mean1) * (arr2 - mean2))
+    var1 = np.sum((arr1 - mean1) ** 2)
+    var2 = np.sum((arr2 - mean2) ** 2)
+
+    # Handle zero variance edge cases
+    if var1 == 0 or var2 == 0:
+        return 0.0
+
+    denominator = np.sqrt(var1 * var2)
+    if denominator == 0:
+        return 0.0
+
+    return numerator / denominator
+
+
+@jit(nopython=True)
+def compute_normalized_correlation(template: np.ndarray, image: np.ndarray) -> float:
+    """
+    Fast normalized cross-correlation computation using Numba.
+
+    Computes the normalized cross-correlation between two arrays,
+    handling edge cases like zero variance gracefully.
+
+    Args:
+        template: Template array to match
+        image: Image array to search in
+
+    Returns:
+        Normalized correlation coefficient between -1 and 1
+        Returns 0.0 for edge cases (zero variance, NaN inputs)
+
+    Used in:
+    - vidkompy/align/algorithms.py
+    - vidkompy/utils/__init__.py
+    """
+    return _safe_corr(template, image)
+
+
+@jit(nopython=True)
+def histogram_correlation(hist1: np.ndarray, hist2: np.ndarray) -> float:
+    """
+    Fast histogram correlation for ballpark scale estimation.
+
+    Computes normalized correlation between two histograms,
+    useful for quick scale estimation based on intensity distributions.
+
+    Args:
+        hist1: First histogram array
+        hist2: Second histogram array
+
+    Returns:
+        Correlation coefficient between -1 and 1
+        Returns 0.0 for edge cases (empty histograms, zero variance)
+
+    Used in:
+    - vidkompy/align/algorithms.py
+    - vidkompy/align/precision.py
+    - vidkompy/utils/__init__.py
+    """
+    # Handle empty histograms
+    if len(hist1) == 0 or len(hist2) == 0:
+        return 0.0
+
+    # Normalize histograms with epsilon to avoid division by zero
+    sum1 = np.sum(hist1)
+    sum2 = np.sum(hist2)
+
+    if sum1 == 0 or sum2 == 0:
+        return 0.0
+
+    h1 = hist1 / (sum1 + CORR_EPS)
+    h2 = hist2 / (sum2 + CORR_EPS)
+
+    return _safe_corr(h1, h2)
+</file>
+
+<file path="src/vidkompy/utils/logging.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/utils/logging.py
+
+"""
+Logging utilities and constants for vidkompy.
+
+This module provides standard logging formats and configuration
+used across the application.
+"""
+
+import sys
+
+# Standard logging formats
+FORMAT_VERBOSE = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+    "<level>{level: <8}</level> | "
+    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+    "<level>{message}</level>"
+)
+
+FORMAT_COMPACT = (
+    "<green>{time:HH:mm:ss}</green> | "
+    "<level>{level: <8}</level> | "
+    "<level>{message}</level>"
+)
+
+
+def make_logger(name: str, verbose: bool = False) -> "Logger":
+    """
+    Create a logger with standardized configuration.
+
+    Centralizes logger wiring to ensure consistent formatting
+    and configuration across the application.
+
+    Args:
+        name: Logger name, typically __name__
+        verbose: Whether to use verbose formatting with file/line info
+
+    Returns:
+        Configured logger instance
+
+    """
+    from loguru import logger
+
+    # Remove default handler and add our custom one
+    logger.remove()
+    format_str = FORMAT_VERBOSE if verbose else FORMAT_COMPACT
+    logger.add(sys.stderr, format=format_str, level="DEBUG" if verbose else "INFO")
+
+    return logger.bind(name=name)
+
+
+__all__ = ["FORMAT_COMPACT", "FORMAT_VERBOSE", "make_logger"]
 </file>
 
 <file path="src/vidkompy/__init__.py">
@@ -3074,7 +3189,9 @@ different levels of speed vs accuracy trade-offs.
 """
 
 import time
+from collections import namedtuple
 from collections.abc import Callable
+from functools import cached_property
 
 import numpy as np
 
@@ -3088,31 +3205,41 @@ from .algorithms import (
 )
 
 
-# Scale parameters for each precision level: (scale_range_func, scale_steps)
-SCALE_PARAMS: dict[PrecisionLevel, tuple[Callable, int]] = {
-    PrecisionLevel.BALLPARK: (lambda prev_scale=1.0: (0.3, 1.5), 10),
-    PrecisionLevel.COARSE: (
-        lambda prev_scale=1.0: (max(0.3, prev_scale * 0.8), min(1.5, prev_scale * 1.2)),
-        5,
-    ),
-    PrecisionLevel.BALANCED: (
-        lambda prev_scale=1.0: (max(0.3, prev_scale * 0.9), min(1.5, prev_scale * 1.1)),
-        10,
-    ),
-    PrecisionLevel.FINE: (
-        lambda prev_scale=1.0: (
-            max(0.3, prev_scale * 0.95),
-            min(1.5, prev_scale * 1.05),
-        ),
-        20,
-    ),
-    PrecisionLevel.PRECISE: (
-        lambda prev_scale=1.0: (
-            max(0.3, prev_scale * 0.98),
-            min(1.5, prev_scale * 1.02),
-        ),
-        30,
-    ),
+# Scale parameters for each precision level using namedtuple for type safety
+ScaleParams = namedtuple("ScaleParams", ["range_fn", "steps"])
+
+
+def _ballpark_range(prev_scale: float = 1.0) -> tuple[float, float]:
+    """Wide search range for ballpark estimation."""
+    return (0.3, 1.5)
+
+
+def _coarse_range(prev_scale: float = 1.0) -> tuple[float, float]:
+    """Narrow around previous estimate."""
+    return (max(0.3, prev_scale * 0.8), min(1.5, prev_scale * 1.2))
+
+
+def _balanced_range(prev_scale: float = 1.0) -> tuple[float, float]:
+    """Balanced refinement around previous estimate."""
+    return (max(0.3, prev_scale * 0.9), min(1.5, prev_scale * 1.1))
+
+
+def _fine_range(prev_scale: float = 1.0) -> tuple[float, float]:
+    """Fine-grained search around previous estimate."""
+    return (max(0.3, prev_scale * 0.95), min(1.5, prev_scale * 1.05))
+
+
+def _precise_range(prev_scale: float = 1.0) -> tuple[float, float]:
+    """Very precise search around previous estimate."""
+    return (max(0.3, prev_scale * 0.98), min(1.5, prev_scale * 1.02))
+
+
+SCALE_PARAMS: dict[PrecisionLevel, ScaleParams] = {
+    PrecisionLevel.BALLPARK: ScaleParams(_ballpark_range, 10),
+    PrecisionLevel.COARSE: ScaleParams(_coarse_range, 5),
+    PrecisionLevel.BALANCED: ScaleParams(_balanced_range, 10),
+    PrecisionLevel.FINE: ScaleParams(_fine_range, 20),
+    PrecisionLevel.PRECISE: ScaleParams(_precise_range, 30),
 }
 
 
@@ -3143,23 +3270,46 @@ class PrecisionAnalyzer:
             PrecisionLevel.PRECISE: self._analyze_precise,
         }
 
+    @cached_property
+    def template_matcher(self) -> TemplateMatchingAlgorithm:
+        """Template matching algorithm instance."""
+        return TemplateMatchingAlgorithm(self.verbose)
+
+    @cached_property
+    def feature_matcher(self) -> FeatureMatchingAlgorithm:
+        """Feature matching algorithm instance."""
+        return FeatureMatchingAlgorithm(verbose=self.verbose)
+
+    @cached_property
+    def subpixel_refiner(self) -> SubPixelRefinementAlgorithm:
+        """Sub-pixel refinement algorithm instance."""
+        return SubPixelRefinementAlgorithm()
+
+    @cached_property
+    def phase_matcher(self) -> PhaseCorrelationAlgorithm:
+        """Phase correlation algorithm instance."""
+        return PhaseCorrelationAlgorithm(self.verbose)
+
+    @cached_property
+    def hybrid_matcher(self) -> HybridMatchingAlgorithm:
+        """Hybrid matching algorithm instance."""
+        return HybridMatchingAlgorithm(self.verbose)
+
     def _get_algorithm(self, name: str):
-        """Lazy singleton access to algorithms."""
-        if name not in self._algorithms:
-            if name == "template_matcher":
-                self._algorithms[name] = TemplateMatchingAlgorithm(self.verbose)
-            elif name == "feature_matcher":
-                self._algorithms[name] = FeatureMatchingAlgorithm(verbose=self.verbose)
-            elif name == "subpixel_refiner":
-                self._algorithms[name] = SubPixelRefinementAlgorithm()
-            elif name == "phase_matcher":
-                self._algorithms[name] = PhaseCorrelationAlgorithm(self.verbose)
-            elif name == "hybrid_matcher":
-                self._algorithms[name] = HybridMatchingAlgorithm(self.verbose)
-            else:
-                msg = f"Unknown algorithm: {name}"
-                raise ValueError(msg)
-        return self._algorithms[name]
+        """Legacy method for backward compatibility."""
+        if name == "template_matcher":
+            return self.template_matcher
+        elif name == "feature_matcher":
+            return self.feature_matcher
+        elif name == "subpixel_refiner":
+            return self.subpixel_refiner
+        elif name == "phase_matcher":
+            return self.phase_matcher
+        elif name == "hybrid_matcher":
+            return self.hybrid_matcher
+        else:
+            msg = f"Unknown algorithm: {name}"
+            raise NotImplementedError(msg)
 
     def analyze_at_precision(
         self,
@@ -3244,11 +3394,10 @@ class PrecisionAnalyzer:
         color histograms with the enhanced algorithm from template matcher.
 
         """
-        template_matcher = self._get_algorithm("template_matcher")
-        scale_range_func, _ = SCALE_PARAMS[PrecisionLevel.BALLPARK]
-        scale_range = scale_range_func()
+        scale_params = SCALE_PARAMS[PrecisionLevel.BALLPARK]
+        scale_range = scale_params.range_fn()
 
-        scale, confidence = template_matcher.ballpark_scale_estimation(
+        scale, confidence = self.template_matcher.ballpark_scale_estimation(
             fg_frame, bg_frame, scale_range=scale_range
         )
 
@@ -3279,13 +3428,12 @@ class PrecisionAnalyzer:
             ballpark_scale = previous_results[0].scale
 
         # Get scale parameters from SCALE_PARAMS
-        scale_range_func, scale_steps = SCALE_PARAMS[PrecisionLevel.COARSE]
-        scale_range = scale_range_func(ballpark_scale)
+        scale_params = SCALE_PARAMS[PrecisionLevel.COARSE]
+        scale_range = scale_params.range_fn(ballpark_scale)
 
         # Use parallel template matching for better performance
-        template_matcher = self._get_algorithm("template_matcher")
-        result = template_matcher.parallel_multiscale_template_matching(
-            fg_frame, bg_frame, scale_range, scale_steps=scale_steps
+        result = self.template_matcher.parallel_multiscale_template_matching(
+            fg_frame, bg_frame, scale_range, scale_steps=scale_params.steps
         )
 
         if result:
@@ -3307,8 +3455,7 @@ class PrecisionAnalyzer:
 
         """
         # Try enhanced feature matching first
-        feature_matcher = self._get_algorithm("feature_matcher")
-        feature_result = feature_matcher.enhanced_feature_matching(
+        feature_result = self.feature_matcher.enhanced_feature_matching(
             fg_frame, bg_frame, detector_type="auto"
         )
 
@@ -3321,15 +3468,14 @@ class PrecisionAnalyzer:
                 previous_results[1].scale
 
         # Use ballpark estimation for template matching
-        scale_range_func, scale_steps = SCALE_PARAMS[PrecisionLevel.BALANCED]
-        scale_range = scale_range_func(ballpark_scale)
+        scale_params = SCALE_PARAMS[PrecisionLevel.BALANCED]
+        scale_range = scale_params.range_fn(ballpark_scale)
 
-        template_matcher = self._get_algorithm("template_matcher")
-        template_result = template_matcher.parallel_multiscale_template_matching(
+        template_result = self.template_matcher.parallel_multiscale_template_matching(
             fg_frame,
             bg_frame,
             scale_range=scale_range,
-            scale_steps=scale_steps,
+            scale_steps=scale_params.steps,
         )
 
         # Choose best result
@@ -3360,8 +3506,7 @@ class PrecisionAnalyzer:
 
         """
         # Use hybrid matching for best results
-        hybrid_matcher = self._get_algorithm("hybrid_matcher")
-        hybrid_result = hybrid_matcher.hybrid_matching(
+        hybrid_result = self.hybrid_matcher.hybrid_matching(
             fg_frame, bg_frame, method="accurate"
         )
 
@@ -3369,8 +3514,7 @@ class PrecisionAnalyzer:
             return hybrid_result
 
         # Fallback to enhanced feature matching
-        feature_matcher = self._get_algorithm("feature_matcher")
-        feature_result = feature_matcher.enhanced_feature_matching(
+        feature_result = self.feature_matcher.enhanced_feature_matching(
             fg_frame, bg_frame, detector_type="auto"
         )
 
@@ -3421,8 +3565,7 @@ class PrecisionAnalyzer:
             return MatchResult(0.0, 0, 0, 1.0, method="precise")
 
         # Apply sub-pixel refinement
-        subpixel_refiner = self._get_algorithm("subpixel_refiner")
-        refined_result = subpixel_refiner.refine_position(
+        refined_result = self.subpixel_refiner.refine_position(
             fg_frame, bg_frame, fine_result
         )
 

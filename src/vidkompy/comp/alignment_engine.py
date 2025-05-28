@@ -25,7 +25,7 @@ from rich.console import Console
 
 from .domain_models import (
     VideoInfo,
-    SpatialAlignment,
+    SpatialTransform,
     TemporalAlignment,
     FrameAlignment,
 )
@@ -92,17 +92,17 @@ class AlignmentEngine:
         self.verbose = verbose
         self.engine_mode = engine_mode
 
-    def _convert_thumbnail_result(self, result: ThumbnailResult) -> SpatialAlignment:
-        """Convert ThumbnailResult from align module to comp module's SpatialAlignment format.
+    def _convert_thumbnail_result(self, result: ThumbnailResult) -> SpatialTransform:
+        """Convert ThumbnailResult from align module to comp module's SpatialTransform format.
 
         Args:
             result: ThumbnailResult from the align module
 
         Returns:
-            SpatialAlignment compatible with existing comp module code
+            SpatialTransform compatible with existing comp module code
 
         """
-        return SpatialAlignment(
+        return SpatialTransform(
             x_offset=result.x_thumb_in_bg,
             y_offset=result.y_thumb_in_bg,
             scale_factor=result.scale_fg_to_thumb
@@ -223,7 +223,7 @@ class AlignmentEngine:
 
     def _compute_spatial_alignment(
         self, bg_info: VideoInfo, fg_info: VideoInfo, method: str, skip: bool
-    ) -> SpatialAlignment:
+    ) -> SpatialTransform:
         """Compute spatial alignment using sample frames.
 
         Why we use middle frames for alignment:
@@ -241,7 +241,7 @@ class AlignmentEngine:
             logger.info("Skipping spatial alignment - centering foreground")
             x_offset = (bg_info.width - fg_info.width) // 2
             y_offset = (bg_info.height - fg_info.height) // 2
-            return SpatialAlignment(x_offset, y_offset, 1.0, 1.0)
+            return SpatialTransform(x_offset, y_offset, 1.0, 1.0)
 
         # Use the align module for spatial alignment with unity scale preference
         try:
@@ -262,7 +262,7 @@ class AlignmentEngine:
             logger.info("Falling back to simple centering")
             x_offset = (bg_info.width - fg_info.width) // 2
             y_offset = (bg_info.height - fg_info.height) // 2
-            return SpatialAlignment(x_offset, y_offset, 1.0, 0.0)
+            return SpatialTransform(x_offset, y_offset, 1.0, 0.0)
 
     def _compute_temporal_alignment(
         self,
@@ -271,7 +271,7 @@ class AlignmentEngine:
         mode: MatchTimeMode,
         temporal_method: TemporalMethod,
         trim: bool,
-        spatial_alignment: SpatialAlignment,
+        spatial_alignment: SpatialTransform,
         border_thickness: int,
         window: int,
     ) -> TemporalAlignment:
@@ -315,7 +315,7 @@ class AlignmentEngine:
         bg_info: VideoInfo,
         fg_info: VideoInfo,
         output_path: str,
-        spatial: SpatialAlignment,
+        spatial: SpatialTransform,
         temporal: TemporalAlignment,
         trim: bool,
         blend: bool = False,
@@ -389,7 +389,7 @@ class AlignmentEngine:
         bg_info: VideoInfo,
         fg_info: VideoInfo,
         output_path: str,
-        spatial: SpatialAlignment,
+        spatial: SpatialTransform,
         alignments: list[FrameAlignment],
         blend: bool = False,
         border_thickness: int = 8,
@@ -493,7 +493,7 @@ class AlignmentEngine:
         self,
         bg_frame: np.ndarray,
         fg_frame: np.ndarray,
-        spatial: SpatialAlignment,
+        spatial: SpatialTransform,
         blend_mask: np.ndarray | None = None,
     ) -> np.ndarray:
         """Overlay foreground on background with spatial alignment and optional blending."""

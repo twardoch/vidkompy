@@ -4,9 +4,35 @@ All notable changes to vidkompy will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - Unified Spatial Alignment Integration
+## [Unreleased] - Code Quality and Architecture Improvements
 
-### 🔧 Changed - Unified Spatial Alignment System
+### 🔧 Changed - Code Quality Refactoring
+
+#### **Implementation of PLAN.md Refactoring**
+- **utils Module Improvements**: 
+  - Replaced logging constants export with dedicated `vidkompy.utils.logging` module
+  - Generated dynamic `__all__` via explicit export list to avoid manual drift
+  - Added `make_logger(name, verbose=False)` helper to centralize logger wiring
+  - Implemented `_safe_corr()` helper to eliminate duplicate correlation code
+  - Added `CORR_EPS = 1e-7` constant to avoid scattered magic numbers
+
+- **Precision Analysis Enhancements**:
+  - Replaced dict-of-lambdas with `namedtuple ScaleParams(range_fn, steps)` for type safety  
+  - Converted algorithm access to `@functools.cached_property` per algorithm
+  - Replaced generic `ValueError` with `NotImplementedError` for unknown algorithms
+  - Improved scale parameter handling with dedicated range functions
+
+- **Domain Model Improvements**:
+  - Renamed `SpatialAlignment` to `SpatialTransform` for clarity
+  - Added `as_matrix()` method returning 3×3 homography for downstream compositors
+  - Extracted `AudioInfo` dataclass to reduce nullable fields in `VideoInfo`
+  - Added `@classmethod from_path()` to `VideoInfo` to encapsulate ffprobe calls
+
+- **Enum Cleanup**:
+  - Removed legacy `FRAMES` alias from `TemporalMethod`, keeping canonical `CLASSIC`
+  - Updated all call sites to use consistent enum values
+
+### 🔧 Changed - Unified Spatial Alignment System (Previous Integration)
 
 #### **Major Integration Update**
 - **Unified Spatial Alignment**: Replaced simple spatial alignment in `comp` module with advanced `align` module
