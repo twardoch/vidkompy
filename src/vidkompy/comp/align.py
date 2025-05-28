@@ -23,17 +23,17 @@ from rich.progress import (
 )
 from rich.console import Console
 
-from .domain_models import (
+from vidkompy.comp.data_types import (
     VideoInfo,
     SpatialTransform,
-    TemporalAlignment,
+    TemporalSync,
     FrameAlignment,
 )
-from .enums import MatchTimeMode, TemporalMethod
-from .video_processor import VideoProcessor
+from vidkompy.utils.enums import TimeMode
+from vidkompy.comp.video_processor import VideoProcessor
 from vidkompy.align import ThumbnailFinder
-from vidkompy.align.result_types import ThumbnailResult
-from .temporal_alignment import TemporalAligner
+from vidkompy.align.data_types import ThumbnailResult
+from vidkompy.comp.temporal_sync import TemporalSyncer
 
 
 console = Console()
@@ -63,7 +63,7 @@ class AlignmentEngine:
         drift_interval: int = 100,
         window: int = 100,
         spatial_precision: int = 2,
-        unity_scale: bool = True,
+        unscaled: bool = True,
     ):
         """Initialize alignment engine.
 
@@ -75,14 +75,14 @@ class AlignmentEngine:
             drift_interval: Frame interval for drift correction in precise engine
             window: DTW window size
             spatial_precision: Spatial alignment precision level (0-4, default: 2)
-            unity_scale: Prefer unity scale for spatial alignment (default: True)
+            unscaled: Prefer unscaled for spatial alignment (default: True)
 
         """
         self.processor = processor
         self.thumbnail_finder = ThumbnailFinder()
         self.spatial_precision = spatial_precision
-        self.unity_scale = unity_scale
-        self.temporal_aligner = TemporalAligner(
+        self.unscaled = unscaled
+        self.temporal_aligner = TemporalSyncer(
             processor=processor,
             max_keyframes=max_keyframes,
             drift_interval=drift_interval,
@@ -115,9 +115,8 @@ class AlignmentEngine:
         bg_path: str,
         fg_path: str,
         output_path: str,
-        time_mode: MatchTimeMode,
+        time_mode: TimeMode,
         space_method: str,
-        temporal_method: TemporalMethod,
         skip_spatial: bool,
         trim: bool,
         border_thickness: int = 8,
@@ -132,7 +131,6 @@ class AlignmentEngine:
             output_path: Output video path
             time_mode: Temporal alignment mode
             space_method: Spatial alignment method
-            temporal_method: Temporal algorithm to use (DTW or classic)
             skip_spatial: Skip spatial alignment
             trim: Trim to overlapping segment
             border_thickness: Border thickness for border matching mode
@@ -167,7 +165,6 @@ class AlignmentEngine:
             bg_info,
             fg_info,
             time_mode,
-            temporal_method,
             trim,
             spatial_alignment,
             border_thickness,
@@ -243,13 +240,13 @@ class AlignmentEngine:
             y_offset = (bg_info.height - fg_info.height) // 2
             return SpatialTransform(x_offset, y_offset, 1.0, 1.0)
 
-        # Use the align module for spatial alignment with unity scale preference
+        # Use the align module for spatial alignment with unscaled preference
         try:
             thumbnail_result = self.thumbnail_finder.find_thumbnail(
                 fg=fg_info.path,
                 bg=bg_info.path,
                 precision=self.spatial_precision,  # Configured precision level
-                unity_scale=self.unity_scale,  # Prefer unity scale for video composition
+                unscaled=self.unscaled,  # Prefer unscaled for video composition
                 num_frames=1,  # Single frame analysis for speed
                 verbose=self.verbose,
             )
@@ -268,13 +265,12 @@ class AlignmentEngine:
         self,
         bg_info: VideoInfo,
         fg_info: VideoInfo,
-        mode: MatchTimeMode,
-        temporal_method: TemporalMethod,
+        mode: TimeMode,
         trim: bool,
         spatial_alignment: SpatialTransform,
         border_thickness: int,
         window: int,
-    ) -> TemporalAlignment:
+    ) -> TemporalSync:
         """Compute temporal alignment based on mode.
 
         Why we have multiple modes:
@@ -290,7 +286,7 @@ class AlignmentEngine:
         if window > 0:
             self.temporal_aligner.cli_window_size = window
 
-        if mode == MatchTimeMode.BORDER:
+        if mode == TimeMode.BORDER:
             # Use border-based alignment with mask
             logger.info(
                 f"Using border-based temporal alignment (border thickness: {border_thickness}px)"
@@ -302,13 +298,13 @@ class AlignmentEngine:
                 bg_info, fg_info, trim, border_mask
             )
 
-        elif mode == MatchTimeMode.PRECISE:
+        elif mode == TimeMode.PRECISE:
             # Always use frame-based alignment
-            return self.temporal_aligner.align_frames(bg_info, fg_info, trim)
+            return self.temporal_aligner.sync_frames(bg_info, fg_info, trim)
 
         else:
             # For any other mode, use frame-based alignment
-            return self.temporal_aligner.align_frames(bg_info, fg_info, trim)
+            return self.temporal_aligner.sync_frames(bg_info, fg_info, trim)
 
     def _compose_video(
         self,
@@ -316,7 +312,7 @@ class AlignmentEngine:
         fg_info: VideoInfo,
         output_path: str,
         spatial: SpatialTransform,
-        temporal: TemporalAlignment,
+        temporal: TemporalSync,
         trim: bool,
         blend: bool = False,
         border_thickness: int = 8,
@@ -557,7 +553,7 @@ class AlignmentEngine:
         output_path: str,
         bg_info: VideoInfo,
         fg_info: VideoInfo,
-        temporal: TemporalAlignment,
+        temporal: TemporalSync,
     ):
         """Add audio track to the composed video."""
         # Prefer foreground audio as it's "better quality"

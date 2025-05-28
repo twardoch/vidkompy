@@ -137,12 +137,12 @@ class AnalysisData:
     Complete analysis data for alternative result reporting.
 
     Attributes:
-        unity_scale_result: Best result from exact 100% scale search
+        unscaled_result: Best result from exact 100% scale search
         scaled_result: Best result from multi-scale search
         total_results: Total number of results analyzed
-        unity_scale_count: Number of near-unity scale results
+        unscaled_count: Number of near-unscaled results
         precision_level: Precision level used
-        unity_scale_preference_active: Whether unity scale preference applied
+        unscaled_preference_active: Whether unscaled preference applied
         precision_analysis: List of results from each precision level
 
     Used in:
@@ -151,12 +151,12 @@ class AnalysisData:
     - vidkompy/align/display.py
     """
 
-    unity_scale_result: MatchResult | None = None
+    unscaled_result: MatchResult | None = None
     scaled_result: MatchResult | None = None
     total_results: int = 0
-    unity_scale_count: int = 0
+    unscaled_count: int = 0
     precision_level: int = 2
-    unity_scale_preference_active: bool = True
+    unscaled_preference_active: bool = True
     precision_analysis: list[PrecisionAnalysisResult] | None = None
 
     def __post_init__(self):

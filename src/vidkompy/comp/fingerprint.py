@@ -16,17 +16,11 @@ import multiprocessing as mp
 from loguru import logger
 import time
 
-try:
-    from vidkompy.core.numba_optimizations import (
+from vidkompy.utils.numba_ops import (
         compute_hamming_distances_batch,
         compute_histogram_correlation,
         compute_weighted_similarity,
     )
-
-    NUMBA_AVAILABLE = True
-except ImportError:
-    logger.warning("Numba optimizations not available for fingerprinting")
-    NUMBA_AVAILABLE = False
 
 
 class FrameFingerprinter:
@@ -233,20 +227,10 @@ class FrameFingerprinter:
         - Histogram adds color information
         """
         # Try numba optimization for histogram comparison if available
-        if self.use_numba and "histogram" in fp1 and "histogram" in fp2:
-            try:
-                hist_score = compute_histogram_correlation(
+        if  "histogram" in fp1 and "histogram" in fp2:
+            hist_score = compute_histogram_correlation(
                     fp1["histogram"], fp2["histogram"]
                 )
-            except Exception:
-                # Fallback to OpenCV
-                hist_score = cv2.compareHist(
-                    fp1["histogram"], fp2["histogram"], cv2.HISTCMP_CORREL
-                )
-        elif "histogram" in fp1 and "histogram" in fp2:
-            hist_score = cv2.compareHist(
-                fp1["histogram"], fp2["histogram"], cv2.HISTCMP_CORREL
-            )
         else:
             hist_score = 0.0
 

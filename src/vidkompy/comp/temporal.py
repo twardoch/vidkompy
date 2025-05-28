@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/comp/temporal_alignment.py
+# this_file: src/vidkompy/comp/temporal_sync.py
 
 """
 Temporal alignment module for synchronizing videos.
@@ -12,12 +12,16 @@ preserving all foreground frames without retiming.
 import numpy as np
 from loguru import logger
 
-from .domain_models import VideoInfo, FrameAlignment, TemporalAlignment
-from .video_processor import VideoProcessor
-from .tunnel_aligner import TunnelFullAligner, TunnelMaskAligner, TunnelConfig
+from vidkompy.comp.data_types import VideoInfo, FrameAlignment, TemporalSync
+from vidkompy.comp.video_processor import VideoProcessor
+from vidkompy.comp.tunnel_syncer import (
+    TunnelFullSyncer,
+    TunnelMaskSyncer,
+    TunnelConfig,
+)
 
 
-class TemporalAligner:
+class TemporalSyncer:
     """Handles temporal alignment between videos.
 
     This module synchronizes two videos in time, finding which frames
@@ -60,11 +64,11 @@ class TemporalAligner:
         self.engine_mode = engine_mode
         self.use_tunnel_engine = engine_mode in {"full", "mask"}
         self.cli_window_size = window
-        self.tunnel_aligner = None
+        self.tunnel_syncer = None
 
-    def align_frames(
+    def sync_frames(
         self, bg_info: VideoInfo, fg_info: VideoInfo, trim: bool = False
-    ) -> TemporalAlignment:
+    ) -> TemporalSync:
         """Align videos using frame content matching.
 
         This method ensures ALL foreground frames are preserved without
@@ -77,7 +81,7 @@ class TemporalAligner:
             trim: Whether to trim to overlapping segment
 
         Returns:
-            TemporalAlignment with frame mappings
+            TemporalSync with frame mappings
 
         Used in:
         - vidkompy/comp/alignment_engine.py
@@ -87,15 +91,15 @@ class TemporalAligner:
         # Use tunnel engine if enabled
         if self.use_tunnel_engine:
             logger.info(f"Using {self.engine_mode} temporal alignment engine")
-            return self._align_frames_tunnel(bg_info, fg_info, trim)
+            return self._sync_frames_tunnel(bg_info, fg_info, trim)
 
         # Fallback: should not reach here if tunnel engines are working
         logger.error("No alignment engine active - fallback to direct mapping")
         return self._create_direct_mapping(bg_info, fg_info)
 
-    def _align_frames_tunnel(
+    def _sync_frames_tunnel(
         self, bg_info: VideoInfo, fg_info: VideoInfo, trim: bool = False
-    ) -> TemporalAlignment:
+    ) -> TemporalSync:
         """Align videos using tunnel-based direct frame comparison.
 
         Args:
@@ -104,11 +108,11 @@ class TemporalAligner:
             trim: Whether to trim to overlapping segment
 
         Returns:
-            TemporalAlignment with frame mappings
+            TemporalSync with frame mappings
 
         """
         # Initialize tunnel aligner if not already done
-        if self.tunnel_aligner is None:
+        if self.tunnel_syncer is None:
             config = TunnelConfig(
                 window_size=self.cli_window_size if self.cli_window_size > 0 else 30,
                 downsample_factor=0.5,  # Downsample to 50% for faster processing
@@ -117,9 +121,9 @@ class TemporalAligner:
             )
 
             if self.engine_mode == "full":
-                self.tunnel_aligner = TunnelFullAligner(config)
+                self.tunnel_syncer = TunnelFullSyncer(config)
             else:  # mask
-                self.tunnel_aligner = TunnelMaskAligner(config)
+                self.tunnel_syncer = TunnelMaskSyncer(config)
 
         # Perform spatial alignment first
         logger.info("Performing spatial alignment for tunnel engine...")
@@ -170,7 +174,7 @@ class TemporalAligner:
 
         # Perform tunnel alignment
         logger.info(f"Performing {self.engine_mode} alignment...")
-        frame_alignments, confidence = self.tunnel_aligner.align(
+        frame_alignments, confidence = self.tunnel_syncer.sync(
             fg_all_frames, bg_all_frames, scaled_x_offset, scaled_y_offset, verbose=True
         )
 
@@ -183,7 +187,7 @@ class TemporalAligner:
         else:
             offset_seconds = 0.0
 
-        return TemporalAlignment(
+        return TemporalSync(
             offset_seconds=offset_seconds,
             frame_alignments=frame_alignments,
             method_used=self.engine_mode,
@@ -192,7 +196,7 @@ class TemporalAligner:
 
     def _create_direct_mapping(
         self, bg_info: VideoInfo, fg_info: VideoInfo
-    ) -> TemporalAlignment:
+    ) -> TemporalSync:
         """Create simple direct frame mapping as fallback."""
         fps_ratio = bg_info.fps / fg_info.fps if fg_info.fps > 0 else 1.0
 
@@ -207,7 +211,7 @@ class TemporalAligner:
                 )
             )
 
-        return TemporalAlignment(
+        return TemporalSync(
             offset_seconds=0.0,
             frame_alignments=alignments,
             method_used="direct",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/comp/domain_models.py
+# this_file: src/vidkompy/comp/data_models.py
 
 """
 Domain models for vidkompy composition module.
@@ -9,7 +9,7 @@ Contains all dataclasses and data structures used across the composition system.
 
 from dataclasses import dataclass
 from pathlib import Path
-from .enums import MatchTimeMode
+from vidkompy.utils.enums import TimeMode
 
 
 @dataclass
@@ -30,7 +30,7 @@ class VideoInfo:
 
     Used in:
     - vidkompy/comp/alignment_engine.py
-    - vidkompy/comp/temporal_alignment.py
+    - vidkompy/comp/temporal_sync.py
     - vidkompy/comp/video_processor.py
     """
 
@@ -140,8 +140,8 @@ class FrameAlignment:
     Used in:
     - vidkompy/comp/alignment_engine.py
     - vidkompy/comp/dtw_aligner.py
-    - vidkompy/comp/temporal_alignment.py
-    - vidkompy/comp/tunnel_aligner.py
+    - vidkompy/comp/temporal_sync.py
+    - vidkompy/comp/tunnel_syncer.py
     """
 
     fg_frame_idx: int  # Foreground frame index (never changes)
@@ -198,12 +198,12 @@ class SpatialTransform:
 
 
 @dataclass
-class TemporalAlignment:
+class TemporalSync:
     """Temporal alignment results.
 
     Used in:
     - vidkompy/comp/alignment_engine.py
-    - vidkompy/comp/temporal_alignment.py
+    - vidkompy/comp/temporal_sync.py
     """
 
     offset_seconds: float  # Time offset in seconds
@@ -226,7 +226,7 @@ class TemporalAlignment:
 class ProcessingOptions:
     """Options for video processing."""
 
-    time_mode: MatchTimeMode
+    time_mode: TimeMode
     space_method: str
     skip_spatial: bool
     trim: bool
@@ -242,6 +242,6 @@ __all__ = [
     "FrameAlignment",
     "ProcessingOptions",
     "SpatialTransform",
-    "TemporalAlignment",
+    "TemporalSync",
     "VideoInfo",
 ]

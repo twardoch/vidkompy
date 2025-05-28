@@ -20,7 +20,7 @@ from rich.progress import (
 )
 from rich.console import Console
 
-from .domain_models import VideoInfo
+from vidkompy.com.data_types import VideoInfo
 
 console = Console()
 
@@ -43,7 +43,7 @@ class VideoProcessor:
 
     Used in:
     - vidkompy/comp/alignment_engine.py
-    - vidkompy/comp/temporal_alignment.py
+    - vidkompy/comp/temporal_sync.py
     """
 
     def get_video_info(self, video_path: str) -> VideoInfo:
@@ -173,7 +173,7 @@ class VideoProcessor:
 
         Used in:
         - vidkompy/comp/alignment_engine.py
-        - vidkompy/comp/temporal_alignment.py
+        - vidkompy/comp/temporal_sync.py
         """
         frames = []
         cap = cv2.VideoCapture(video_path)
@@ -341,7 +341,7 @@ class VideoProcessor:
             Array of frames or None if extraction fails
 
         Used in:
-        - vidkompy/comp/temporal_alignment.py
+        - vidkompy/comp/temporal_sync.py
         """
         cap = cv2.VideoCapture(video_path)
 

@@ -13,9 +13,12 @@ from loguru import logger
 from scipy.signal import find_peaks
 from scipy.ndimage import gaussian_filter1d
 
-from .frame_fingerprint import FrameFingerprinter
-from .multi_resolution_aligner import MultiResolutionAligner, PreciseEngineConfig
-from .dtw_aligner import DTWAligner
+from vidkompy.comp.frame_fingerprint import FrameFingerprinter
+from vidkompy.comp.multi_resolution_aligner import (
+    MultiResolutionAligner,
+    PreciseEngineConfig,
+)
+from vidkompy.comp.dtw_aligner import DTWSyncer
 
 
 class PreciseTemporalAlignment:
@@ -107,7 +110,7 @@ class PreciseTemporalAlignment:
         bg_kf_prints = bg_fingerprints[bg_keyframes]
 
         # Use DTW for keyframe alignment
-        dtw = DTWAligner(window=len(bg_keyframes))
+        dtw = DTWSyncer(window=len(bg_keyframes))
         cost_matrix = dtw._compute_cost_matrix(fg_kf_prints, bg_kf_prints)
         path = dtw._compute_path(cost_matrix)
 
@@ -137,7 +140,7 @@ class PreciseTemporalAlignment:
             Averaged bidirectional alignment
 
         """
-        dtw = DTWAligner(window=window)
+        dtw = DTWSyncer(window=window)
 
         # Forward alignment
         logger.debug("Computing forward DTW alignment")

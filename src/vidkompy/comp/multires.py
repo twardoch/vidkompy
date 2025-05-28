@@ -15,11 +15,11 @@ from loguru import logger
 # Import Savitzky-Golay filter if it's not already imported
 from scipy.signal import savgol_filter
 
-from .dtw_aligner import DTWAligner
+from .dtw_aligner import DTWSyncer
 from .frame_fingerprint import FrameFingerprinter
 
 try:
-    from vidkompy.core.numba_optimizations import (
+    from vidkompy.utils.numba_ops import (
         apply_polynomial_drift_correction,
     )
 
@@ -160,7 +160,7 @@ class MultiResolutionAligner:
 
         # Use DTW with large window
         window_size = int(len(bg_coarse) * self.config.initial_window_ratio)
-        dtw = DTWAligner(window=window_size)
+        dtw = DTWSyncer(window=window_size)
 
         # Compute cost matrix
         cost_matrix = dtw._compute_cost_matrix(fg_coarse, bg_coarse)
@@ -230,7 +230,7 @@ class MultiResolutionAligner:
 
             # Local DTW alignment
             window = min(len(bg_segment) // 2, 10)
-            dtw = DTWAligner(window=window)
+            dtw = DTWSyncer(window=window)
 
             try:
                 cost_matrix = dtw._compute_cost_matrix(fg_segment, bg_segment)

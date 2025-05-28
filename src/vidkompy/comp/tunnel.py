@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/comp/tunnel_aligner.py
+# this_file: src/vidkompy/comp/tunnel_syncer.py
 """Tunnel-based temporal alignment using direct frame comparison with sliding windows."""
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from loguru import logger
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from .domain_models import FrameAlignment
+from vidkompy.comp.data_types import FrameAlignment
 
 console = Console()
 
@@ -23,7 +23,7 @@ class TunnelConfig:
     """Configuration for tunnel-based alignment.
 
     Used in:
-    - vidkompy/comp/temporal_alignment.py
+    - vidkompy/comp/temporal_sync.py
     """
 
     window_size: int = 30
@@ -34,7 +34,7 @@ class TunnelConfig:
     mask_erosion: int = 2  # For tunnel_mask
 
 
-class TunnelAligner(ABC):
+class TunnelSyncer(ABC):
     """Base class for tunnel-based temporal alignment."""
 
     def __init__(self, config: TunnelConfig | None = None):
@@ -44,7 +44,7 @@ class TunnelAligner(ABC):
         self._cache_hits = 0
         self._cache_misses = 0
 
-    def align(
+    def sync(
         self,
         fg_frames: np.ndarray,
         bg_frames: np.ndarray,
@@ -65,7 +65,7 @@ class TunnelAligner(ABC):
             Tuple of (frame alignments, confidence score)
 
         Used in:
-        - vidkompy/comp/temporal_alignment.py
+        - vidkompy/comp/temporal_sync.py
         """
         if verbose:
             logger.info(
@@ -316,11 +316,11 @@ class TunnelAligner(ABC):
         """
 
 
-class TunnelFullAligner(TunnelAligner):
+class TunnelFullSyncer(TunnelSyncer):
     """Tunnel aligner using full frame comparison.
 
     Used in:
-    - vidkompy/comp/temporal_alignment.py
+    - vidkompy/comp/temporal_sync.py
     """
 
     def compute_frame_difference(
@@ -343,11 +343,11 @@ class TunnelFullAligner(TunnelAligner):
         return np.mean(diff)
 
 
-class TunnelMaskAligner(TunnelAligner):
+class TunnelMaskSyncer(TunnelSyncer):
     """Tunnel aligner using masked frame comparison.
 
     Used in:
-    - vidkompy/comp/temporal_alignment.py
+    - vidkompy/comp/temporal_sync.py
     """
 
     def __init__(self, config: TunnelConfig | None = None):
@@ -355,7 +355,7 @@ class TunnelMaskAligner(TunnelAligner):
         super().__init__(config)
         self._mask_cache: dict[tuple[int, int], np.ndarray] = {}
 
-    def align(
+    def sync(
         self,
         fg_frames: np.ndarray,
         bg_frames: np.ndarray,
@@ -366,7 +366,7 @@ class TunnelMaskAligner(TunnelAligner):
         """Perform alignment with mask generation.
 
         Used in:
-        - vidkompy/comp/temporal_alignment.py
+        - vidkompy/comp/temporal_sync.py
         """
         # Generate mask from first few FG frames
         self._generate_mask(fg_frames[:10])
@@ -376,7 +376,7 @@ class TunnelMaskAligner(TunnelAligner):
             logger.info(f"Generated mask with {mask_coverage:.1%} coverage")
 
         # Perform standard alignment
-        return super().align(fg_frames, bg_frames, x_offset, y_offset, verbose)
+        return super().sync(fg_frames, bg_frames, x_offset, y_offset, verbose)
 
     def _generate_mask(self, sample_frames: np.ndarray):
         """Generate content mask from sample frames."""
