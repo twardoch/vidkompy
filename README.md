@@ -87,7 +87,7 @@ The modular thumbnail detection system provides multiple specialized algorithms 
 - **Multi-Scale Processing**: Tests multiple scale factors in parallel using ThreadPoolExecutor
 - **Ballpark Estimation**: Ultra-fast histogram correlation for initial scale estimation (~1ms)
 - **Parallel Optimization**: Numba JIT compilation for critical computational functions
-- **Unity Scale Bias**: Small preference for exact scale matches when confidence is similar
+- **unscaled Bias**: Small preference for exact scale matches when confidence is similar
 - **Normalized Cross-Correlation**: Uses OpenCV's TM_CCOEFF_NORMED for reliable matching
 
 #### 4.1.2. Feature Matching Algorithm
@@ -188,9 +188,9 @@ The system offers 5 precision levels for optimal speed/accuracy trade-offs:
 - **Level 3 (Fine)**: Hybrid multi-algorithm (~50ms) - high quality detection
 - **Level 4 (Precise)**: Sub-pixel refinement (~200ms) - maximum accuracy
 
-#### 4.4.3. Unity Scale Preference
+#### 4.4.3. unscaled Preference
 
-The system includes intelligent **unity scale preference** that slightly favors 100% scale matches when confidence scores are similar, ideal for video composition where exact-size overlays are common.
+The system includes intelligent **unscaled preference** that slightly favors 100% scale matches when confidence scores are similar, ideal for video composition where exact-size overlays are common.
 
 #### 4.4.4. Benefits of Unified System
 
@@ -302,16 +302,16 @@ The system performed progressive analysis with 4 precision levels on the first f
 - **Level 2 (Balanced ~25ms)**: Feature + template matching → scale = 100.51%, pos = (-3, 104), confidence = 0.875
 - **Level 3 (Fine ~50ms)**: Hybrid multi-algorithm → scale = 98.97%, pos = (9, 114), confidence = 0.970
 
-**Step 3: Unity Scale Verification**
-Since `unity_scale=True` (default), the system performed an additional check for exact 100% scale matching:
-- **Unity Scale Test**: Template matching at scale = 1.0 (100%)
+**Step 3: unscaled Verification**
+Since `unscaled=True` (default), the system performed an additional check for exact 100% scale matching:
+- **unscaled Test**: Template matching at scale = 1.0 (100%)
 - **Result**: confidence = 0.981, position = (0, 109)
-- **Decision**: Unity scale result (98.11%) was chosen over best precision result (97.0%)
+- **Decision**: unscaled result (98.11%) was chosen over best precision result (97.0%)
 
 **Step 4: Final Result Calculation**
 The algorithm determined the optimal alignment:
 
-- **Confidence**: 98.11% (from unity scale matching)
+- **Confidence**: 98.11% (from unscaled matching)
 - **Scale**: 100% (no scaling needed)
 - **Position**: Foreground should be placed at (0, 109) in background coordinates
 - **Interpretation**: The 1920×684 foreground fits perfectly within the 1920×1080 background, centered horizontally (x=0) and positioned 109 pixels down from the top (y=109)
@@ -370,10 +370,10 @@ python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --output result.mp4
 python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --drift_interval 10 --window 10
 
 # High-precision spatial alignment (slower but more accurate)
-python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --spatial_precision 4
+python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --align_precision 4
 
 # Multi-scale spatial alignment (allows scale detection)
-python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --unity_scale false
+python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --unscaled false
 ```
 
 **Thumbnail Detection Examples:**
@@ -393,8 +393,8 @@ python -m vidkompy align foreground.jpg background.jpg --precision 4
 # Enable verbose logging for detailed analysis
 python -m vidkompy align foreground.jpg background.jpg --verbose
 
-# Multi-scale search (both unity and scaled results)
-python -m vidkompy align foreground.jpg background.jpg --unity_scale false
+# Multi-scale search (both no and scaled results)
+python -m vidkompy align foreground.jpg background.jpg --unscaled false
 
 # Process multiple video frames for better accuracy
 python -m vidkompy align foreground.mp4 background.mp4 --num_frames 10
@@ -434,7 +434,7 @@ The CLI now supports these main commands:
 - `--margin`: Border thickness for border matching mode (default: 8)
 - `--smooth`: Enable smooth blending at frame edges
 - `--spatial_precision`: Spatial alignment precision level 0-4 (0=ballpark ~1ms, 2=balanced ~25ms, 4=precise ~200ms, default: 2)
-- `--unity_scale`: Prefer unity scale for spatial alignment (default: True)
+- `--unscaled`: Prefer unscaled for spatial alignment (default: True)
 - `--verbose`: Enable verbose logging
 
 **Thumbnail Detection Parameters (align command):**
@@ -443,7 +443,7 @@ The CLI now supports these main commands:
 - `bg`: Background image/video path (second positional argument)
 - `--precision`: Precision level 0-4 (0=ballpark ~1ms, 2=balanced ~25ms, 4=precise ~200ms, default: 2)
 - `--num_frames`: Maximum number of frames to process for videos (default: 7)
-- `--unity_scale`: If True, only search at 100% scale; if False, search both unity and multi-scale (default: True)
+- `--unscaled`: If True, only search at 100% scale; if False, search both no and multi-scale (default: True)
 - `--verbose`: Enable detailed output and debug logging
 
 ## 7. Performance

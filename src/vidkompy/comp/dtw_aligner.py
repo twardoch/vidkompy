@@ -14,17 +14,17 @@ from loguru import logger
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn
 from rich.console import Console
 
-from .domain_models import FrameAlignment
-from vidkompy.core.numba_optimizations import (
-    compute_dtw_cost_matrix_numba,
-    find_dtw_path_numba,
+from vidkompy.comp.data_types import FrameAlignment
+from vidkompy.utils.numba_ops import (
+    compute_dtw_cost_matrix,
+    find_dtw_path,
     log_numba_compilation,
 )
 
 console = Console()
 
 
-class DTWAligner:
+class DTWSyncer:
     """Dynamic Time Warping for video frame alignment.
 
     Why DTW over current greedy matching:
@@ -39,8 +39,8 @@ class DTWAligner:
     - Makes algorithm practical for long videos
 
     Used in:
-    - vidkompy/comp/multi_resolution_aligner.py
-    - vidkompy/comp/precise_temporal_alignment.py
+    - vidkompy/comp/multires.py
+    - vidkompy/comp/precision.py
     """
 
     def __init__(self, window: int = 100):
@@ -66,7 +66,7 @@ class DTWAligner:
         else:
             self.window = self.default_window
 
-    def align_videos(
+    def sync_videos(
         self,
         fg_fingerprints: dict[int, dict[str, np.ndarray]],
         bg_fingerprints: dict[int, dict[str, np.ndarray]],
@@ -114,7 +114,7 @@ class DTWAligner:
         path = self._find_optimal_path(dtw_matrix, n_fg, n_bg)
 
         # Convert path to frame alignments with confidence scores
-        alignments = self._path_to_alignments(
+        alignments = self._path_to_sync(
             path,
             fg_indices,
             bg_indices,
@@ -165,9 +165,7 @@ class DTWAligner:
                     console.print("  Using Numba-optimized DTW computation...")
 
                 # Use numba-optimized version
-                dtw = compute_dtw_cost_matrix_numba(
-                    fg_features, bg_features, self.window
-                )
+                dtw = compute_dtw_cost_matrix(fg_features, bg_features, self.window)
                 return dtw
 
             except Exception as e:
@@ -235,7 +233,7 @@ class DTWAligner:
         if self.use_numba and n_fg > 10 and n_bg > 10:
             try:
                 # Use numba-optimized version
-                path_array = find_dtw_path_numba(dtw)
+                path_array = find_dtw_path(dtw)
                 # Convert to list of tuples
                 path = [(int(i), int(j)) for i, j in path_array]
                 return path
@@ -283,7 +281,7 @@ class DTWAligner:
 
         return path
 
-    def _path_to_alignments(
+    def _path_to_sync(
         self,
         path: list[tuple[int, int]],
         fg_indices: list[int],
@@ -354,7 +352,7 @@ class DTWAligner:
         """
         if not dtw_matches:
             # Fallback to simple linear mapping
-            return self._create_linear_alignment(total_fg_frames, total_bg_frames)
+            return self._create_linear_sync(total_fg_frames, total_bg_frames)
 
         # Sort by fg index
         dtw_matches.sort(key=lambda x: x[1])
@@ -413,7 +411,7 @@ class DTWAligner:
 
         return alignments
 
-    def _create_linear_alignment(
+    def _create_linear_sync(
         self, total_fg_frames: int, total_bg_frames: int
     ) -> list[FrameAlignment]:
         """Create simple linear frame mapping as fallback.

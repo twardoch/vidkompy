@@ -153,7 +153,7 @@ The modular thumbnail detection system provides multiple specialized algorithms 
 - **Multi-Scale Processing**: Tests multiple scale factors in parallel using ThreadPoolExecutor
 - **Ballpark Estimation**: Ultra-fast histogram correlation for initial scale estimation (~1ms)
 - **Parallel Optimization**: Numba JIT compilation for critical computational functions
-- **Unity Scale Bias**: Small preference for exact scale matches when confidence is similar
+- **unscaled Bias**: Small preference for exact scale matches when confidence is similar
 - **Normalized Cross-Correlation**: Uses OpenCV's TM_CCOEFF_NORMED for reliable matching
 
 #### 8.1.2. Feature Matching Algorithm
@@ -373,8 +373,8 @@ python -m vidkompy align foreground.jpg background.jpg --precision 4
 # Enable verbose logging for detailed analysis
 python -m vidkompy align foreground.jpg background.jpg --verbose
 
-# Multi-scale search (both unity and scaled results)
-python -m vidkompy align foreground.jpg background.jpg --unity_scale false
+# Multi-scale search (both no and scaled results)
+python -m vidkompy align foreground.jpg background.jpg --unscaled false
 
 # Process multiple video frames for better accuracy
 python -m vidkompy align foreground.mp4 background.mp4 --num_frames 10
@@ -421,7 +421,7 @@ The CLI now supports these main commands:
 - `bg`: Background image/video path (second positional argument)
 - `--precision`: Precision level 0-4 (0=ballpark ~1ms, 2=balanced ~25ms, 4=precise ~200ms, default: 2)
 - `--num_frames`: Maximum number of frames to process for videos (default: 7)
-- `--unity_scale`: If True, only search at 100% scale; if False, search both unity and multi-scale (default: True)
+- `--unscaled`: If True, only search at 100% scale; if False, search both no and multi-scale (default: True)
 - `--verbose`: Enable detailed output and debug logging
 
 ## 10. Performance

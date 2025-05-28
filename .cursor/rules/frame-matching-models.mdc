@@ -21,7 +21,7 @@ alwaysApply: false
 ### Full Engine
 - Bidirectional frame matching with sliding windows
 - Monotonic progression enforcement
-- Direct pixel comparison with unity confidence scoring
+- Direct pixel comparison with no confidence scoring
 - Zero temporal drift by design
 
 ### Mask Engine

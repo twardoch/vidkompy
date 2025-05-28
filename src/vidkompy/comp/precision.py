@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/comp/precise_temporal_alignment.py
+# this_file: src/vidkompy/comp/precision.py
 
 """
 Precise temporal alignment implementation with advanced techniques.
@@ -13,8 +13,8 @@ from loguru import logger
 from scipy.signal import find_peaks
 from scipy.ndimage import gaussian_filter1d
 
-from vidkompy.comp.frame_fingerprint import FrameFingerprinter
-from vidkompy.comp.multi_resolution_aligner import (
+from vidkompy.comp.fingerprint import FrameFingerprinter
+from vidkompy.comp.multires import (
     MultiResolutionAligner,
     PreciseEngineConfig,
 )

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/align/result_types.py
+# this_file: src/vidkompy/align/data_types.py
 
 """
 Data structures and types for thumbnail detection results.
@@ -191,7 +191,7 @@ class ThumbnailResult:
     - vidkompy/align/__init__.py
     - vidkompy/align/core.py
     - vidkompy/align/display.py
-    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/align.py
     """
 
     confidence: float

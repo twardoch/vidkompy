@@ -6,12 +6,12 @@ The precise temporal alignment engine within the vidkompy system is engineered t
 1.  **Spatial Alignment (to define BG crop region)**:
     *   Before temporal matching starts, a quick spatial alignment determines where the FG video sits on the BG video. This is usually done by comparing the middle frames of both videos using template matching (`SpatialAligner.align`).
     *   The `(x, y)` offset and FG dimensions from this step define a rectangular region on the BG.
-    *   *Files involved*: `TemporalAligner._align_frames_precise()` calls `SpatialAligner`.
+    *   *Files involved*: `TemporalSyncer._align_frames_precise()` calls `SpatialAligner`.
 
 2.  **Frame Extraction**:
     *   **Foreground (FG) Frames**: All frames from the FG video are extracted. They are typically resized down (e.g., to 25% of original size) to make fingerprinting faster.
     *   **Background (BG) Frames**: All frames from the BG video are extracted. **Crucially, each BG frame is first cropped to the exact rectangular region identified in Step 1.** This ensures we're only comparing the part of the BG that will actually be behind the FG. These cropped BG frames are then also resized to match the FG's processing dimensions.
-    *   *Files involved*: `TemporalAligner._align_frames_precise()` calls `VideoProcessor.extract_all_frames()`, which handles the cropping for BG frames.
+    *   *Files involved*: `TemporalSyncer._align_frames_precise()` calls `VideoProcessor.extract_all_frames()`, which handles the cropping for BG frames.
 
 3.  **Fingerprint Computation (The "Eyes" of the System)**:
     *   For every extracted (and resized/cropped) FG and BG frame, a "fingerprint" is computed. This is done by `FrameFingerprinter.compute_fingerprints()`.
@@ -27,7 +27,7 @@ This is handled by `MultiResolutionAligner.align()` and is like looking for a pa
     *   The sequences of FG and BG fingerprints are downsampled at several rates (e.g., taking every 16th fingerprint, then every 8th, etc.). This creates shorter, "coarser" versions of the video's timeline.
 
 2.  **Coarse Alignment (Rough Sketch of the Path)**:
-    *   Using the *most downsampled* (coarsest) fingerprint sequences, Dynamic Time Warping (DTW, via `DTWAligner`) is used.
+    *   Using the *most downsampled* (coarsest) fingerprint sequences, Dynamic Time Warping (DTW, via `DTWSyncer`) is used.
     *   DTW compares the coarse FG and BG sequences and finds the optimal path that minimizes the total "distance" (dissimilarity) between matched fingerprints, while ensuring time only moves forward (monotonicity). This gives a very rough initial alignment.
 
 3.  **Hierarchical Refinement (Zooming In)**:
@@ -77,7 +77,7 @@ This happens in `PreciseTemporalAlignment.align()`:
 **How individual frames are "matched" at the lowest level:**
 
 *   The "matching" is based on the **distance between their fingerprints**.
-*   During DTW (in `DTWAligner._compute_cost_matrix`), the cost of aligning FG frame `i` with BG frame `j` is typically the Euclidean distance between their fingerprint vectors.
+*   During DTW (in `DTWSyncer._compute_cost_matrix`), the cost of aligning FG frame `i` with BG frame `j` is typically the Euclidean distance between their fingerprint vectors.
 *   During the sliding window refinement (`PreciseTemporalAlignment.refine_with_sliding_window`), the sum of Euclidean distances between fingerprints in the window is minimized.
 
 The "flag wave drift" you're seeing means that despite all these alignment and smoothing steps, the sequence of chosen BG frames, when played back, creates an unnatural speeding up and slowing down of the background content relative to the foreground. This suggests that minimizing fingerprint distance alone, even with DTW and smoothing, isn't always enough to guarantee perceptually smooth motion. This is why exploring optical flow (Idea 2) is a logical next step, as it directly considers motion between frames.

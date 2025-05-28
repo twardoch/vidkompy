@@ -9,13 +9,12 @@ handling parameter validation and entry point logic.
 """
 
 from pathlib import Path
-import sys
 
 import fire
 from loguru import logger
 
-from .core import ThumbnailFinder
-from src.vidkompy.utils.logging import LOG_FORMAT_VERBOSE, LOG_FORMAT_DEFAULT
+from vidkompy.align.core import ThumbnailFinder
+from vidkompy.utils.logging import make_logger
 
 
 def find_thumbnail(
@@ -24,7 +23,7 @@ def find_thumbnail(
     num_frames: int = 7,
     verbose: bool = False,
     precision: int = 2,
-    unity_scale: bool = True,
+    unscaled: bool = True,
 ):
     """
     Main entry point for the thumbnail finder.
@@ -36,7 +35,7 @@ def find_thumbnail(
         verbose: Enable verbose logging
         precision: Precision level 0-4 (0=ballpark ~1ms, 1=coarse ~10ms,
                   2=balanced ~25ms, 3=fine ~50ms, 4=precise ~200ms)
-        unity_scale: If True (default), performs a search ONLY for the
+        unscaled: If True (default), performs a search ONLY for the
                     foreground at 100% scale (translation only). If False,
                     performs both a 100% scale search and a multi-scale search,
                     presenting both results.
@@ -55,10 +54,7 @@ def find_thumbnail(
         raise ValueError(msg)
 
     # Configure logging level
-    if verbose:
-        logger.add(sys.stderr, format=LOG_FORMAT_VERBOSE, level="DEBUG")
-    else:
-        logger.add(sys.stderr, format=LOG_FORMAT_DEFAULT, level="INFO")
+    make_logger(name="find_thumbnail", verbose=verbose)
 
     # Create and run thumbnail finder
     align = ThumbnailFinder()
@@ -70,7 +66,7 @@ def find_thumbnail(
             num_frames=num_frames,
             verbose=verbose,
             precision=precision,
-            unity_scale=unity_scale,
+            unscaled=unscaled,
         )
         # Fire CLI: Don't return the result object to avoid help display
         # The result is already displayed by the find_thumbnail method

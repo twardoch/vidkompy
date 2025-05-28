@@ -21,13 +21,13 @@ Usage:
 """
 
 # Core classes
-from .core import ThumbnailFinder
-from .precision import PrecisionAnalyzer
-from .frame_extractor import FrameExtractor
-from .display import ResultDisplayer
+from vidkompy.align.core import ThumbnailFinder
+from vidkompy.align.precision import PrecisionAnalyzer
+from vidkompy.align.frame_extractor import FrameExtractor
+from vidkompy.align.display import ResultDisplayer
 
 # Algorithm classes
-from .algorithms import (
+from vidkompy.align.algorithms import (
     TemplateMatchingAlgorithm,
     FeatureMatchingAlgorithm,
     SubPixelRefinementAlgorithm,
@@ -36,7 +36,7 @@ from .algorithms import (
 )
 
 # Data types
-from .result_types import (
+from vidkompy.align.data_types import (
     ThumbnailResult,
     MatchResult,
     PrecisionAnalysisResult,

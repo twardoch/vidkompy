@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/comp/tunnel_syncer.py
+# this_file: src/vidkompy/comp/tunnel.py
 """Tunnel-based temporal alignment using direct frame comparison with sliding windows."""
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ class TunnelConfig:
     """Configuration for tunnel-based alignment.
 
     Used in:
-    - vidkompy/comp/temporal_sync.py
+    - vidkompy/comp/temporal.py
     """
 
     window_size: int = 30
@@ -65,7 +65,7 @@ class TunnelSyncer(ABC):
             Tuple of (frame alignments, confidence score)
 
         Used in:
-        - vidkompy/comp/temporal_sync.py
+        - vidkompy/comp/temporal.py
         """
         if verbose:
             logger.info(
@@ -320,7 +320,7 @@ class TunnelFullSyncer(TunnelSyncer):
     """Tunnel aligner using full frame comparison.
 
     Used in:
-    - vidkompy/comp/temporal_sync.py
+    - vidkompy/comp/temporal.py
     """
 
     def compute_frame_difference(
@@ -347,7 +347,7 @@ class TunnelMaskSyncer(TunnelSyncer):
     """Tunnel aligner using masked frame comparison.
 
     Used in:
-    - vidkompy/comp/temporal_sync.py
+    - vidkompy/comp/temporal.py
     """
 
     def __init__(self, config: TunnelConfig | None = None):
@@ -366,7 +366,7 @@ class TunnelMaskSyncer(TunnelSyncer):
         """Perform alignment with mask generation.
 
         Used in:
-        - vidkompy/comp/temporal_sync.py
+        - vidkompy/comp/temporal.py
         """
         # Generate mask from first few FG frames
         self._generate_mask(fg_frames[:10])

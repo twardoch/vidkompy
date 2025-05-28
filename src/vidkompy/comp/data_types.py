@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/comp/data_models.py
+# this_file: src/vidkompy/comp/data_types.py
 
 """
 Domain models for vidkompy composition module.
@@ -29,9 +29,9 @@ class VideoInfo:
     """Video metadata container.
 
     Used in:
-    - vidkompy/comp/alignment_engine.py
-    - vidkompy/comp/temporal_sync.py
-    - vidkompy/comp/video_processor.py
+    - vidkompy/comp/align.py
+    - vidkompy/comp/temporal.py
+    - vidkompy/comp/video.py
     """
 
     width: int
@@ -138,10 +138,10 @@ class FrameAlignment:
     """Represents alignment between a foreground and background frame.
 
     Used in:
-    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/align.py
     - vidkompy/comp/dtw_aligner.py
-    - vidkompy/comp/temporal_sync.py
-    - vidkompy/comp/tunnel_syncer.py
+    - vidkompy/comp/temporal.py
+    - vidkompy/comp/tunnel.py
     """
 
     fg_frame_idx: int  # Foreground frame index (never changes)
@@ -161,7 +161,7 @@ class SpatialTransform:
     spatial alignment of videos.
 
     Used in:
-    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/align.py
     - vidkompy/comp/spatial_alignment.py
     """
 
@@ -202,8 +202,8 @@ class TemporalSync:
     """Temporal alignment results.
 
     Used in:
-    - vidkompy/comp/alignment_engine.py
-    - vidkompy/comp/temporal_sync.py
+    - vidkompy/comp/align.py
+    - vidkompy/comp/temporal.py
     """
 
     offset_seconds: float  # Time offset in seconds

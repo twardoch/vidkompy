@@ -16,8 +16,9 @@ class TimeMode(Enum):
     """Temporal alignment modes.
 
     Used in:
-    - vidkompy/comp/alignment_engine.py
-    - vidkompy/comp/vidkompy_models.py
+    - vidkompy/comp/align.py
+    - vidkompy/comp/data_types.py
+    - vidkompy/comp/vidkompy.py
     """
 
     BORDER = "border"  # Border-based matching (default)

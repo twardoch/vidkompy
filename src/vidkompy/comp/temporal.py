@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/comp/temporal_sync.py
+# this_file: src/vidkompy/comp/temporal.py
 
 """
 Temporal alignment module for synchronizing videos.
@@ -13,12 +13,13 @@ import numpy as np
 from loguru import logger
 
 from vidkompy.comp.data_types import VideoInfo, FrameAlignment, TemporalSync
-from vidkompy.comp.video_processor import VideoProcessor
-from vidkompy.comp.tunnel_syncer import (
+from vidkompy.comp.video import VideoProcessor
+from vidkompy.comp.tunnel import (
     TunnelFullSyncer,
     TunnelMaskSyncer,
     TunnelConfig,
 )
+from vidkompy.align import ThumbnailFinder
 
 
 class TemporalSyncer:
@@ -37,7 +38,7 @@ class TemporalSyncer:
     Future versions will use Dynamic Time Warping (see SPEC4.md).
 
     Used in:
-    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/align.py
     """
 
     def __init__(
@@ -84,7 +85,7 @@ class TemporalSyncer:
             TemporalSync with frame mappings
 
         Used in:
-        - vidkompy/comp/alignment_engine.py
+        - vidkompy/comp/align.py
         """
         logger.info("Starting frame-based temporal alignment")
 
@@ -127,7 +128,7 @@ class TemporalSyncer:
 
         # Perform spatial alignment first
         logger.info("Performing spatial alignment for tunnel engine...")
-        spatial_aligner = SpatialAligner()
+        spatial_aligner = ThumbnailFinder()
 
         # Extract sample frames for spatial alignment
         bg_frames = self.processor.extract_frames(
@@ -240,7 +241,7 @@ class TemporalSyncer:
             Binary mask where 1 indicates border region, 0 indicates non-border
 
         Used in:
-        - vidkompy/comp/alignment_engine.py
+        - vidkompy/comp/align.py
         """
         # Get foreground position on background canvas
         x_offset = spatial_alignment.x_offset
@@ -334,7 +335,7 @@ class TemporalSyncer:
             Float mask with values 0.0-1.0 for alpha blending
 
         Used in:
-        - vidkompy/comp/alignment_engine.py
+        - vidkompy/comp/align.py
         """
         # Get foreground position on background canvas
         x_offset = spatial_alignment.x_offset

@@ -11,13 +11,17 @@ Note: Logging utilities are now accessed directly from vidkompy.utils.logging
 to keep utilities I/O-free.
 """
 
-from .correlation import compute_normalized_correlation, histogram_correlation, CORR_EPS
-from .image import ensure_gray, resize_frame
+from vidkompy.utils.numba_ops import (
+    compute_normalized_correlation,
+    histogram_correlation,
+    CORR_EPS,
+)
+from vidkompy.utils.image import ensure_gray, resize_frame
 
 __all__ = [
     "CORR_EPS",
     "compute_normalized_correlation",
-    "ensure_gray", 
+    "ensure_gray",
     "histogram_correlation",
     "resize_frame",
 ]

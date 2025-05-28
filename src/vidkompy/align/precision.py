@@ -16,8 +16,12 @@ from functools import cached_property
 
 import numpy as np
 
-from .result_types import MatchResult, PrecisionLevel, PrecisionAnalysisResult
-from .algorithms import (
+from vidkompy.align.data_types import (
+    MatchResult,
+    PrecisionLevel,
+    PrecisionAnalysisResult,
+)
+from vidkompy.align.algorithms import (
     TemplateMatchingAlgorithm,
     FeatureMatchingAlgorithm,
     SubPixelRefinementAlgorithm,

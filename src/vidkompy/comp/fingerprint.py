@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/comp/frame_fingerprint.py
+# this_file: src/vidkompy/comp/fingerprint.py
 
 """
 Fast frame fingerprinting system using perceptual hashing.
@@ -16,11 +16,16 @@ import multiprocessing as mp
 from loguru import logger
 import time
 
-from vidkompy.utils.numba_ops import (
+try:
+    from vidkompy.utils.numba_ops import (
         compute_hamming_distances_batch,
         compute_histogram_correlation,
         compute_weighted_similarity,
     )
+
+    NUMBA_AVAILABLE = True
+except ImportError:
+    NUMBA_AVAILABLE = False
 
 
 class FrameFingerprinter:
@@ -38,8 +43,8 @@ class FrameFingerprinter:
     - Reduces false positives/negatives
 
     Used in:
-    - vidkompy/comp/multi_resolution_aligner.py
-    - vidkompy/comp/precise_temporal_alignment.py
+    - vidkompy/comp/multires.py
+    - vidkompy/comp/precision.py
     """
 
     def __init__(self, log_init: bool = True):
@@ -227,10 +232,10 @@ class FrameFingerprinter:
         - Histogram adds color information
         """
         # Try numba optimization for histogram comparison if available
-        if  "histogram" in fp1 and "histogram" in fp2:
+        if "histogram" in fp1 and "histogram" in fp2:
             hist_score = compute_histogram_correlation(
-                    fp1["histogram"], fp2["histogram"]
-                )
+                fp1["histogram"], fp2["histogram"]
+            )
         else:
             hist_score = 0.0
 

@@ -860,7 +860,7 @@ For Rust, the [opencv-rust](https://crates.io/crates/opencv) crate provides bind
 - Estimate homography with `opencv::calib3d::find_homography`.
 - Extract scale and translation parameters similarly.
 
-However, due to Python’s extensive OpenCV support and community resources, it is recommended unless Rust is specifically required. A sample Rust implementation would require additional setup (e.g., linking OpenCV libraries), which is more complex than Python’s `pip install opencv-python`.
+However, due to Python’s extensive OpenCV support and commno resources, it is recommended unless Rust is specifically required. A sample Rust implementation would require additional setup (e.g., linking OpenCV libraries), which is more complex than Python’s `pip install opencv-python`.
 
 #### Alternative Approaches
 1. **Multi-Scale Template Matching**:

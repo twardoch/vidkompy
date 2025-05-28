@@ -173,7 +173,7 @@ Let me check the current working directory and look for the old file:
 | 📁 `tests` |
 | 📄 `README.md` |
 | 📄 `LLM.txt` |
-| 📄 `PLAN.md` |
+| 📄 `PROGRESS.md` |
 | 📁 `.ruff_cache` |
 | 📄 `CHANGELOG.md` |
 | 📄 `pyproject.toml` |
@@ -439,7 +439,7 @@ Let me now check the current state and update the project files:
 
 ---
 
-Read file: PLAN.md
+Read file: PROGRESS.md
 
 ---
 

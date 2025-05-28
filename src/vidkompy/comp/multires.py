@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/comp/multi_resolution_aligner.py
+# this_file: src/vidkompy/comp/multires.py
 
 """
 Multi-resolution temporal alignment for precise video synchronization.
@@ -16,7 +16,7 @@ from loguru import logger
 from scipy.signal import savgol_filter
 
 from .dtw_aligner import DTWSyncer
-from .frame_fingerprint import FrameFingerprinter
+from .fingerprint import FrameFingerprinter
 
 try:
     from vidkompy.utils.numba_ops import (
@@ -34,7 +34,7 @@ class PreciseEngineConfig:
     """Configuration for precise temporal alignment engine.
 
     Used in:
-    - vidkompy/comp/precise_temporal_alignment.py
+    - vidkompy/comp/precision.py
     """
 
     # Sampling parameters
@@ -75,7 +75,7 @@ class MultiResolutionAligner:
     """Multi-resolution temporal alignment with drift correction.
 
     Used in:
-    - vidkompy/comp/precise_temporal_alignment.py
+    - vidkompy/comp/precision.py
     """
 
     def __init__(
@@ -402,7 +402,7 @@ class MultiResolutionAligner:
         """Perform multi-resolution temporal alignment.
 
         Used in:
-        - vidkompy/comp/precise_temporal_alignment.py
+        - vidkompy/comp/precision.py
         """
         logger.info(f"Multi-res align: {len(fg_frames)} -> {len(bg_frames)} frames")
 

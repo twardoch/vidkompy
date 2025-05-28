@@ -14,16 +14,12 @@ import logging
 
 import numpy as np
 
-from .result_types import (
-    ThumbnailResult,
-    AnalysisData,
-    MatchResult,
-)
-from .frame_extractor import FrameExtractor
-from .precision import PrecisionAnalyzer
-from .algorithms import TemplateMatchingAlgorithm
-from .display import ResultDisplayer
-from src.vidkompy.utils.image import ensure_gray
+from vidkompy.align.data_types import ThumbnailResult, AnalysisData, MatchResult
+from vidkompy.align.frame_extractor import FrameExtractor
+from vidkompy.align.precision import PrecisionAnalyzer
+from vidkompy.align.algorithms import TemplateMatchingAlgorithm
+from vidkompy.align.display import ResultDisplayer
+from vidkompy.utils.image import ensure_gray
 
 
 class ThumbnailFinder:
@@ -37,7 +33,8 @@ class ThumbnailFinder:
     Used in:
     - vidkompy/align/__init__.py
     - vidkompy/align/cli.py
-    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/align.py
+    - vidkompy/comp/temporal.py
     """
 
     def __init__(self, logger: logging.Logger | None = None):
@@ -55,7 +52,7 @@ class ThumbnailFinder:
         num_frames: int = 7,
         verbose: bool = False,
         precision: int = 2,
-        unity_scale: bool = True,
+        unscaled: bool = True,
     ) -> ThumbnailResult:
         """
         Find thumbnail in background image/video.
@@ -66,7 +63,7 @@ class ThumbnailFinder:
             num_frames: Maximum number of frames to process
             verbose: Enable verbose logging
             precision: Precision level 0-4
-            unity_scale: If True, only search at 100% scale. If False,
+            unscaled: If True, only search at 100% scale. If False,
                         search both at 100% scale and multi-scale.
 
         Returns:
@@ -74,7 +71,7 @@ class ThumbnailFinder:
 
         Used in:
         - vidkompy/align/cli.py
-        - vidkompy/comp/alignment_engine.py
+        - vidkompy/comp/align.py
         """
         fg_path = Path(fg)
         bg_path = Path(bg)
@@ -105,7 +102,7 @@ class ThumbnailFinder:
                 fg_extraction.frames,
                 bg_extraction.frames,
                 precision,
-                unity_scale,
+                unscaled,
                 progress,
                 task,
             )
@@ -149,7 +146,7 @@ class ThumbnailFinder:
         fg_frames: list[np.ndarray],
         bg_frames: list[np.ndarray],
         precision: int,
-        unity_scale: bool,
+        unscaled: bool,
         progress=None,
         task=None,
     ) -> tuple:
@@ -160,7 +157,7 @@ class ThumbnailFinder:
             fg_frames: List of foreground frames
             bg_frames: List of background frames
             precision: Precision level
-            unity_scale: Unity scale mode flag
+            unscaled: unscaled mode flag
             progress: Optional progress bar
             task: Optional progress task
 
@@ -188,9 +185,9 @@ class ThumbnailFinder:
         if progress and task:
             progress.update(task, advance=50)
 
-        # Step 3: Select main result based on analysis and unity scale preference
+        # Step 3: Select main result based on analysis and unscaled preference
         main_result, analysis_data = self._select_main_result(
-            precision_results, unity_scale, first_fg_gray, first_bg_gray
+            precision_results, unscaled, first_fg_gray, first_bg_gray
         )
 
         if progress and task:
@@ -265,16 +262,16 @@ class ThumbnailFinder:
     def _select_main_result(
         self,
         precision_results: list,
-        unity_scale: bool,
+        unscaled: bool,
         fg_gray: np.ndarray,
         bg_gray: np.ndarray,
     ) -> tuple[MatchResult, AnalysisData]:
         """
-        Select the main result based on precision analysis and unity scale preference.
+        Select the main result based on precision analysis and unscaled preference.
 
         Args:
             precision_results: Results from precision analysis
-            unity_scale: Unity scale mode flag
+            unscaled: unscaled mode flag
             fg_gray: Grayscale foreground frame
             bg_gray: Grayscale background frame
 
@@ -290,22 +287,22 @@ class ThumbnailFinder:
             precision_level=precision_results[0].method
             if precision_results
             else "unknown",
-            unity_scale_preference_active=unity_scale,
+            unscaled_preference_active=unscaled,
             precision_analysis=precision_results,
         )
 
-        if unity_scale:
-            # Unity scale mode: prefer 100% scale but fallback to best precision result
-            unity_result = self.template_matcher.match_template(
-                fg_gray, bg_gray, scale=1.0, method="unity"
+        if unscaled:
+            # unscaled mode: prefer 100% scale but fallback to best precision result
+            unscaled_result = self.template_matcher.match_template(
+                fg_gray, bg_gray, scale=1.0, method="no"
             )
-            analysis_data.unity_scale_result = unity_result
+            analysis_data.unscaled_result = unscaled_result
 
-            # Use unity result only if it's better than precision analysis
-            if unity_result.confidence > best_precision_result.confidence:
-                main_result = unity_result
+            # Use no result only if it's better than precision analysis
+            if unscaled_result.confidence > best_precision_result.confidence:
+                main_result = unscaled_result
             else:
-                # Keep the best precision result if unity scale fails
+                # Keep the best precision result if unscaled fails
                 main_result = MatchResult(
                     confidence=best_precision_result.confidence,
                     x=best_precision_result.x,
@@ -314,11 +311,11 @@ class ThumbnailFinder:
                     method=f"precision_fallback_{best_precision_result.method}",
                 )
         else:
-            # Multi-scale mode: both unity and scaled searches
-            unity_result = self.template_matcher.match_template(
-                fg_gray, bg_gray, scale=1.0, method="unity"
+            # Multi-scale mode: both no and scaled searches
+            unscaled_result = self.template_matcher.match_template(
+                fg_gray, bg_gray, scale=1.0, method="no"
             )
-            analysis_data.unity_scale_result = unity_result
+            analysis_data.unscaled_result = unscaled_result
             analysis_data.scaled_result = best_precision_result
 
             # Use the best of both approaches

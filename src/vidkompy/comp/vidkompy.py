@@ -21,9 +21,9 @@ import sys
 from loguru import logger
 from pathlib import Path
 
-from src.vidkompy.comp.video_processor import VideoProcessor
-from src.vidkompy.comp.alignment_engine import AlignmentEngine
-from src.vidkompy.comp.enums import MatchTimeMode, TemporalMethod
+from vidkompy.comp.video import VideoProcessor
+from vidkompy.comp.align import AlignmentEngine
+from vidkompy.utils.enums import TimeMode
 
 
 def composite_videos(
@@ -36,8 +36,8 @@ def composite_videos(
     smooth: bool = False,
     gpu: bool = False,  # Future GPU acceleration support
     window: int = 10,
-    spatial_precision: int = 2,
-    unity_scale: bool = True,
+    align_precision: int = 2,
+    unscaled: bool = True,
     verbose: bool = False,
 ):
     """Overlay foreground video onto background video with intelligent alignment.
@@ -52,8 +52,8 @@ def composite_videos(
         smooth: Enable smooth blending at frame edges
         gpu: Enable GPU acceleration (future feature)
         window: DTW window size for temporal alignment (default: 10)
-        spatial_precision: Spatial alignment precision level 0-4 (default: 2)
-        unity_scale: Prefer unity scale for spatial alignment (default: True)
+        align_precision: Spatial alignment precision level 0-4 (default: 2)
+        unscaled: Prefer unscaled for spatial alignment (default: True)
         verbose: Enable verbose logging
 
     Used in:
@@ -86,8 +86,8 @@ def composite_videos(
         logger.info(f"  Margin: {margin}")
         logger.info(f"  Smooth blending: {smooth}")
         logger.info(f"  GPU acceleration: {gpu}")
-        logger.info(f"  Spatial precision: {spatial_precision}")
-        logger.info(f"  Unity scale: {unity_scale}")
+        logger.info(f"  Spatial precision: {align_precision}")
+        logger.info(f"  unscaled: {unscaled}")
         logger.info(f"  Verbose logging: {verbose}")
 
     # Validate inputs
@@ -127,9 +127,8 @@ def composite_videos(
         return
 
     # Initialize config variables with defaults
-    time_mode: MatchTimeMode = MatchTimeMode.PRECISE
+    time_mode: TimeMode = TimeMode.PRECISE
     space_method: str = "template"
-    temporal_method: TemporalMethod = TemporalMethod.CLASSIC
     max_keyframes: int = 1  # Not used by alignment engines
 
     if gpu:
@@ -144,8 +143,8 @@ def composite_videos(
         engine_mode=engine,
         drift_interval=drift_interval,
         window=window,
-        spatial_precision=spatial_precision,
-        unity_scale=unity_scale,
+        spatial_precision=align_precision,
+        unscaled=unscaled,
     )
 
     # Process the videos
@@ -156,7 +155,6 @@ def composite_videos(
             output_path=output_str,
             time_mode=time_mode,
             space_method=space_method,
-            temporal_method=temporal_method,
             skip_spatial=False,
             trim=True,
             border_thickness=margin,

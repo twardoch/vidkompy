@@ -16,5 +16,14 @@
       "mcp__search1api__crawl"
     ],
     "deny": []
-  }
+  },
+  "enableAllProjectMcpServers": false,
+  "enabledMcpjsonServers": [
+    "ask-chatgpt",
+    "ask-pplx",
+    "control-the-browser",
+    "search-the-web-1api",
+    "search-web-ddg",
+    "sequential-thinking"
+  ]
 }

@@ -16,7 +16,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 from rich.table import Table
 from rich.text import Text
 
-from .result_types import (
+from vidkompy.align.data_types import (
     ThumbnailResult,
     PrecisionAnalysisResult,
     PrecisionLevel,
@@ -234,11 +234,11 @@ class ResultDisplayer:
         """
         self.console.print("\n[bold blue]Alternative Analysis:[/bold blue]")
 
-        if analysis_data.unity_scale_result:
-            unity = analysis_data.unity_scale_result
+        if analysis_data.unscaled_result:
+            no = analysis_data.unscaled_result
             self.console.print(
-                f"  Unity scale (100%) option: confidence={unity.confidence:.3f}, "
-                f"position=({unity.x}, {unity.y})"
+                f"  unscaled (100%) option: confidence={no.confidence:.3f}, "
+                f"position=({no.x}, {no.y})"
             )
 
         if analysis_data.scaled_result:
@@ -249,16 +249,16 @@ class ResultDisplayer:
             )
 
         # Display preference mode
-        if analysis_data.unity_scale_preference_active:
-            self.console.print("  Preference mode: Unity scale preferred")
+        if analysis_data.unscaled_preference_active:
+            self.console.print("  Preference mode: unscaled preferred")
         else:
             self.console.print("  Preference mode: Multi-scale analysis")
 
         # Display result counts
         total = analysis_data.total_results
-        unity_count = analysis_data.unity_scale_count
+        unscaled_count = analysis_data.unscaled_count
         self.console.print(
-            f"  Total results analyzed: {total} ({unity_count} near 100% scale)"
+            f"  Total results analyzed: {total} ({unscaled_count} near 100% scale)"
         )
 
     def display_verbose_info(self, message: str):

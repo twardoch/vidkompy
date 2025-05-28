@@ -1,93 +1,64 @@
 # Refactoring Plan
 
-Below is the **remaining refactoring work**. Major improvements have been completed including utils module refactoring, precision analysis improvements, domain model enhancements, and enum cleanup.
+1. Analyze the entire codebase very carefully. 
 
-H2 sections list files; H3 subsections drill down to concrete objects that deserve work.
-Actions are phrased imperatively so they read like commit messages.
+2. Check if every .py file from the codebase structure: 
 
----
+```
+src
+├── __init__.py
+├── __pycache__
+└── vidkompy
+    ├── __init__.py
+    ├── __main__.py
+    ├── __pycache__
+    ├── __version__.py
+    ├── align
+    │   ├── __init__.py
+    │   ├── __pycache__
+    │   ├── algorithms.py
+    │   ├── cli.py
+    │   ├── core.py
+    │   ├── data_types.py
+    │   ├── display.py
+    │   ├── frame_extractor.py
+    │   └── precision.py
+    ├── comp
+    │   ├── __init__.py
+    │   ├── __pycache__
+    │   ├── align.py
+    │   ├── data_types.py
+    │   ├── dtw_aligner.py
+    │   ├── fingerprint.py
+    │   ├── multires.py
+    │   ├── precision.py
+    │   ├── temporal.py
+    │   ├── tunnel.py
+    │   ├── video.py
+    │   └── vidkompy.py
+    └── utils
+        ├── __init__.py
+        ├── enums.py
+        ├── image.py
+        ├── logging.py
+        └── numba_ops.py
 
-## ✅ Completed
+9 directories, 28 files
+```
 
-- **utils module refactoring**: Improved logging, correlation, and __all__ exports
-- **precision analysis**: Replaced lambdas with namedtuple, added cached_property
-- **domain models**: Renamed SpatialAlignment → SpatialTransform, added AudioInfo, from_path() method  
-- **enum cleanup**: Removed FRAMES alias, updated call sites
-- **type safety**: Added NotImplementedError for unknown algorithms
+is actually used. 
 
----
+3. Check the content of every .py file. Check if the imports are correct, if all code is reachable. 
 
-## 🔄 Remaining Work
+4. Especially check if all code that claims to be optimized with numba is actually using it. Check if numba implementations for all functions that are expecting them are present in `utils/numba_ops.py`.
 
-## src/vidkompy/align/algorithms.py
+5. For every function and method, check if it can be flattened into multiple smaller constructs.  
 
-### High Priority Improvements
+6. For every single file, check if it’s not too complex. If it is, break it down into smaller files. 
 
-* **Split `enhanced_feature_matching()`**: Break into `_choose_detector()`, `_match_descriptors()`, `_estimate_transform()` helpers (currently 79+ statements, too complex)
-* **Replace bare `except`**: Surface unexpected errors in verbose mode instead of silent failure
-* **Factory pattern for detectors**: Replace `if/elif` chain with enum-to-cv2-factory map
+7. As you work, use tools: 
 
-### Medium Priority Optimizations
+- use `sequentialthinking` from the `sequential-thinking` tool to think about the best way to refactor the code
+- consult with the `openai/o3` model via `chat_completion` from the `ask-chatgpt` tool to get help with the refactoring 
+- use `search` and `fetch_content` from the `search_web_ddg` tool to get more info on the web
 
-* **Extract scale-grid generation**: Move to `_iter_scales()` to remove duplication
-* **Early return optimization**: Return early on invalid scale instead of constructing zero-confidence `MatchResult`
-* **Function composition**: Accept iterable of scales instead of range tuple
-
-## src/vidkompy/align/core.py
-
-### Refactoring Opportunities
-
-* **Decompose `_find_thumbnail_in_frames()`**: Split into pure helpers: `_prepare()`, `_analyse()`, `_aggregate()`
-* **Progress handling cleanup**: Remove `progress` argument threading; let caller handle UI
-* **Input validation**: Move `validate_inputs()` to shared `vidkompy.validation` module
-
-## src/vidkompy/align/frame_extractor.py
-
-### Strategy Pattern Implementation
-
-* **Polymorphic extraction**: Merge `_extract_frames_from_video` and `_load_image_as_frames` behind unified `_extract()` strategy
-* **Constants consolidation**: Move `VIDEO_EXTS` & `IMAGE_EXTS` to `constants.py` for reuse
-* **Resize unification**: Replace manual resize with `utils.image.resize_frame` for consistency
-
-## src/vidkompy/align/result_types.py
-
-### Data Model Improvements
-
-* **MatchResult cleanup**: Remove unused `bg_frame_idx`; add optional `metadata: dict` for extensibility
-* **Required timing**: Make `processing_time` non-optional to surface missing instrumentation
-
-## src/vidkompy/comp/alignment_engine.py
-
-### Single Responsibility Improvements
-
-* **Break monolithic `process()`**: Split into `analyse()`, `align()`, `compose()` methods
-* **Flag consolidation**: Convert bool flags (`skip_spatial`, `trim`, `blend`) into `ProcessingOptions` dataclass
-* **Overlay delegation**: Move ROI/blending logic to `VideoProcessor.overlay_frames()` to eliminate duplication
-
-## src/vidkompy/comp/dtw_aligner.py
-
-### Performance and Clarity
-
-* **Numba optimization**: Extract fallback decision into `_try_numba()` helper
-* **Progress standardization**: Use shared `utils.progress.create_bar()` instead of local Rich setup
-* **API simplification**: Accept pre-computed `Fingerprints` iterable, return `list[FrameAlignment]` directly
-
-## src/vidkompy/comp/temporal_alignment.py
-
-### Method Consolidation
-
-* **Mask parameter**: Collapse `align_frames` variants by accepting optional `mask` argument
-* **Shared utilities**: Promote border-mask creation to `utils.masks.create_border_mask`
-
----
-
-## 🌟 Cross-Cutting Improvements
-
-### Planned Enhancements
-
-* **Progress bars**: Standardize Rich progress construction in `utils.progress` helper
-* **Constants module**: Create `vidkompy.constants` for file-type sets, default windows, epsilons
-* **Documentation**: Adopt Google-style docstrings consistently; enforce via `pydocstyle` pre-commit
-* **Testing**: Refactor unit tests to use parametrized fixtures for shared algorithm behavior
-
-This plan focuses on the most impactful remaining improvements while maintaining incremental, focused changes.

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased] - Code Quality and Architecture Improvements
 
+### 🐛 Fixed - Critical Import Bugs
+- **Import Resolution**: Fixed typo in `comp/video.py` import path (`vidkompy.com.data_types` → `vidkompy.comp.data_types`)
+- **Numba Availability**: Added proper `NUMBA_AVAILABLE` definition in `comp/fingerprint.py` with try/except import handling
+- **Spatial Alignment**: Replaced undefined `SpatialAligner` with `ThumbnailFinder` in `comp/temporal.py`
+- **Code Quality**: All imports now resolve correctly, improving code reliability and preventing runtime errors
+
 ### 🔧 Changed - Code Quality Refactoring
 
 #### **Implementation of PLAN.md Refactoring**
@@ -39,7 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - **Enhanced Accuracy**: Now uses 6 specialized algorithms with automatic fallbacks instead of single template matching
   - **Multi-Scale Detection**: Supports scale detection from 10% to 500% instead of only 1:1 matching
   - **Configurable Precision**: Added 5 precision levels (0-4) for speed/accuracy trade-offs
-  - **Unity Scale Preference**: Intelligent bias toward 100% scale for video composition workflows
+  - **unscaled Preference**: Intelligent bias toward 100% scale for video composition workflows
   - **Robust Fallbacks**: Automatic algorithm switching when detection methods fail
 
 #### **New CLI Parameters for Video Composition**
@@ -49,7 +55,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Level 2: Balanced feature + template (~25ms, default)
   - Level 3: Fine hybrid multi-algorithm (~50ms)
   - Level 4: Precise sub-pixel refinement (~200ms)
-- **`--unity_scale`**: Prefer unity scale for spatial alignment (default: True)
+- **`--unscaled`**: Prefer unscaled for spatial alignment (default: True)
 
 #### **Implementation Details**
 - **ThumbnailFinder Integration**: Video composition now uses `ThumbnailFinder` instead of `SpatialAligner`
@@ -83,7 +89,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Parallel processing with `ThreadPoolExecutor` for concurrent scale testing
   - Ballpark scale estimation using ultra-fast histogram correlation (~1ms)
   - Numba JIT optimization for critical computational functions
-  - Unity scale bias for exact match preference when confidence is similar
+  - unscaled bias for exact match preference when confidence is similar
   - Normalized cross-correlation with OpenCV's `TM_CCOEFF_NORMED`
 
 - **`FeatureMatchingAlgorithm`**: Enhanced feature-based matching
@@ -144,7 +150,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 #### **Rich Display and User Experience**
 - **Comprehensive result presentation**: Detailed confidence metrics and processing time reports
 - **Multi-level analysis display**: Progressive results across precision levels
-- **Alternative analysis**: Comparative results (unity vs scaled) with confidence metrics
+- **Alternative analysis**: Comparative results (no vs scaled) with confidence metrics
 - **Verbose debugging**: Detailed algorithm selection and processing information
 - **Progress tracking**: Rich console progress bars with time estimates
 

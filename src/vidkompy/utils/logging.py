@@ -39,6 +39,8 @@ def make_logger(name: str, verbose: bool = False) -> "Logger":
     Returns:
         Configured logger instance
 
+    Used in:
+    - vidkompy/align/cli.py
     """
     from loguru import logger
 

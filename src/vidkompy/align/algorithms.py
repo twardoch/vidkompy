@@ -18,9 +18,9 @@ from enum import Enum
 import cv2
 import numpy as np
 
-from .result_types import MatchResult
-from src.vidkompy.utils.correlation import histogram_correlation
-from src.vidkompy.utils.image import ensure_gray, resize_frame
+from vidkompy.align.data_types import MatchResult
+from vidkompy.utils.numba_ops import histogram_correlation
+from vidkompy.utils.image import ensure_gray, resize_frame
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ class TemplateMatchingAlgorithm:
             scaled_fg = fg_frame
 
         # Ensure template is smaller than or equal to search area
-        # Allow equal dimensions for unity scale matching
+        # Allow equal dimensions for unscaled matching
         if (
             scaled_fg.shape[0] > bg_frame.shape[0]
             or scaled_fg.shape[1] > bg_frame.shape[1]
@@ -302,10 +302,10 @@ class TemplateMatchingAlgorithm:
             if result.confidence == 0.0:
                 return None
 
-            # Apply small bias toward unity scale (1.0) for similar confidence scores
+            # Apply small bias toward unscaled (1.0) for similar confidence scores
             adjusted_val = result.confidence
-            if abs(scale - 1.0) < 0.05:  # Within 5% of unity scale
-                adjusted_val *= 1.02  # Small 2% bonus for near-unity scales
+            if abs(scale - 1.0) < 0.05:  # Within 5% of unscaled
+                adjusted_val *= 1.02  # Small 2% bonus for near-unscaleds
 
             return (scale, result.x, result.y, result.confidence, adjusted_val)
 

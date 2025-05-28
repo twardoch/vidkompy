@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/comp/video_processor.py
+# this_file: src/vidkompy/comp/video.py
 
 """
 Core video processing functionality.
@@ -20,7 +20,7 @@ from rich.progress import (
 )
 from rich.console import Console
 
-from vidkompy.com.data_types import VideoInfo
+from vidkompy.comp.data_types import VideoInfo
 
 console = Console()
 
@@ -42,8 +42,9 @@ class VideoProcessor:
     - FFmpeg: Audio handling, codec support, fast encoding
 
     Used in:
-    - vidkompy/comp/alignment_engine.py
-    - vidkompy/comp/temporal_sync.py
+    - vidkompy/comp/align.py
+    - vidkompy/comp/temporal.py
+    - vidkompy/comp/vidkompy.py
     """
 
     def get_video_info(self, video_path: str) -> VideoInfo:
@@ -71,7 +72,7 @@ class VideoProcessor:
             ValueError: If video cannot be probed
 
         Used in:
-        - vidkompy/comp/alignment_engine.py
+        - vidkompy/comp/align.py
         """
         logger.debug(f"Probing video: {video_path}")
 
@@ -172,8 +173,8 @@ class VideoProcessor:
             List of frames as numpy arrays
 
         Used in:
-        - vidkompy/comp/alignment_engine.py
-        - vidkompy/comp/temporal_sync.py
+        - vidkompy/comp/align.py
+        - vidkompy/comp/temporal.py
         """
         frames = []
         cap = cv2.VideoCapture(video_path)
@@ -310,7 +311,7 @@ class VideoProcessor:
             VideoWriter object
 
         Used in:
-        - vidkompy/comp/alignment_engine.py
+        - vidkompy/comp/align.py
         """
         fourcc = cv2.VideoWriter_fourcc(*codec)
         writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
@@ -341,7 +342,7 @@ class VideoProcessor:
             Array of frames or None if extraction fails
 
         Used in:
-        - vidkompy/comp/temporal_sync.py
+        - vidkompy/comp/temporal.py
         """
         cap = cv2.VideoCapture(video_path)
 

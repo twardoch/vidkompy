@@ -16,8 +16,8 @@ import cv2
 import numpy as np
 from loguru import logger
 
-from .result_types import FrameExtractionResult
-from src.vidkompy.utils.image import ensure_gray, resize_frame
+from vidkompy.align.data_types import FrameExtractionResult
+from vidkompy.utils.image import ensure_gray, resize_frame
 
 # File extension constants
 VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"}

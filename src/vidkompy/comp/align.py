@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/comp/alignment_engine.py
+# this_file: src/vidkompy/comp/align.py
 
 """
 Main alignment engine that coordinates spatial and temporal alignment.
@@ -30,10 +30,10 @@ from vidkompy.comp.data_types import (
     FrameAlignment,
 )
 from vidkompy.utils.enums import TimeMode
-from vidkompy.comp.video_processor import VideoProcessor
+from vidkompy.comp.video import VideoProcessor
 from vidkompy.align import ThumbnailFinder
 from vidkompy.align.data_types import ThumbnailResult
-from vidkompy.comp.temporal_sync import TemporalSyncer
+from vidkompy.comp.temporal import TemporalSyncer
 
 
 console = Console()
@@ -52,6 +52,8 @@ class AlignmentEngine:
     - Testability: Each component can be tested independently
     - Progress tracking: Centralized progress reporting for better UX
 
+    Used in:
+    - vidkompy/comp/vidkompy.py
     """
 
     def __init__(
@@ -137,6 +139,8 @@ class AlignmentEngine:
             blend: Enable smooth blending at frame edges
             window: Sliding window size for frame matching
 
+        Used in:
+        - vidkompy/comp/vidkompy.py
         """
         # Analyze videos - quick task, use simple logging
         logger.info("Analyzing videos...")

@@ -1030,9 +1030,9 @@ The user asked for the implementation of `TODO.md`, which involves:
 3.  Writing a detailed specification in `SPEC.md` to instruct a junior dev to take the steps *I will take* to improve it (Done, focused on Idea 1).
 4.  Implementing the specified improvements (Done for Idea 1: Enhanced Drift Correction & Smoothing in Multi-Resolution Aligner).
 
-The next step according to the user's overall instructions (from `.cursorrules` and `AGENT.md`) would be to update `PLAN.md`, `TODO.md`, `CHANGELOG.md`, and `README.md`.
+The next step according to the user's overall instructions (from `.cursorrules` and `AGENT.md`) would be to update `PROGRESS.md`, `TODO.md`, `CHANGELOG.md`, and `README.md`.
 
-First, I'll update `PLAN.md`.
+First, I'll update `PROGRESS.md`.
 
 
 ---
@@ -2108,7 +2108,7 @@ Okay, it's frustrating when drift persists even after improvements! The "flag wa
 
 1.  **Parameter Interaction/Sensitivity**: The new smoothing and drift correction parameters in `PreciseEngineConfig` (polynomial degree, Savitzky-Golay window/polyorder, adaptive blend factor) might need specific tuning for your content. The defaults are general.
 2.  **Insufficiency of Current Fixes**: While Idea 1 (enhanced drift correction in `MultiResolutionAligner`) aimed to help, the drift might stem from other parts of the complex `PreciseTemporalAlignment` pipeline, or the fix itself isn't aggressive/configured enough.
-3.  **`-w` (window) Parameter Ineffectiveness**: As noted in `SPEC.md` and `PLAN.md`, the `-w` CLI parameter for DTW window size wasn't fully plumbed through all DTW stages within the `precise` (and thus `mask`) engine. This means your attempts to vary `-w` might not have had the intended effect on all internal alignment steps.
+3.  **`-w` (window) Parameter Ineffectiveness**: As noted in `SPEC.md` and `PROGRESS.md`, the `-w` CLI parameter for DTW window size wasn't fully plumbed through all DTW stages within the `precise` (and thus `mask`) engine. This means your attempts to vary `-w` might not have had the intended effect on all internal alignment steps.
 
 Let's first address point 3 more thoroughly, as it's a known bug/limitation that could be masking the true behavior of other parameters. If the DTW window isn't being respected where it matters, the alignment quality can suffer.
 
@@ -2207,6 +2207,95 @@ How exactly do the "mask" and "precise" methods perform the temporal frame match
 _**Assistant**_
 
 
+
+---
+
+You're asking for a deep dive into how the `precise` and `mask` engines temporally match background (BG) frames to foreground (FG) frames. It's a multi-layered process, and I'll break it down.
+
+Essentially, both engines follow the same complex pipeline orchestrated by `PreciseTemporalAlignment.align()`, which heavily relies on `MultiResolutionAligner` and `DTWAligner`. The core idea is to compare frames based on their visual "fingerprints" and find the smoothest, most consistent timeline match.
+
+Here's the detailed workflow:
+
+**Phase 0: Preparation (Getting Frames and Fingerprints)**
+
+1.  **Spatial Alignment (to define BG crop region)**:
+    *   Before temporal matching starts, a quick spatial alignment determines where the FG video sits on the BG video. This is usually done by comparing the middle frames of both videos using template matching (`SpatialAligner.align`).
+    *   The `(x, y)` offset and FG dimensions from this step define a rectangular region on the BG.
+    *   *Files involved*: `TemporalAligner._align_frames_precise()` calls `SpatialAligner`.
+
+2.  **Frame Extraction**:
+    *   **Foreground (FG) Frames**: All frames from the FG video are extracted. They are typically resized down (e.g., to 25% of original size) to make fingerprinting faster.
+    *   **Background (BG) Frames**: All frames from the BG video are extracted. **Crucially, each BG frame is first cropped to the exact rectangular region identified in Step 1.** This ensures we're only comparing the part of the BG that will actually be behind the FG. These cropped BG frames are then also resized to match the FG's processing dimensions.
+    *   *Files involved*: `TemporalAligner._align_frames_precise()` calls `VideoProcessor.extract_all_frames()`, which handles the cropping for BG frames.
+
+3.  **Fingerprint Computation (The "Eyes" of the System)**:
+    *   For every extracted (and resized/cropped) FG and BG frame, a "fingerprint" is computed. This is done by `FrameFingerprinter.compute_fingerprints()`.
+    *   A fingerprint is a numerical vector that represents the visual content of the frame. It's created by combining several perceptual hashing algorithms (like pHash, AverageHash, ColorMomentHash, MarrHildrethHash) and a color histogram. This is much faster than comparing raw pixel data and is robust to minor changes like compression artifacts.
+    *   **For the `mask` engine**: The intention is that this fingerprinting step is performed with an awareness of a "mask." In the current implementation, for the `mask` engine, an "all-ones" mask (a mask that covers the entire frame) is implicitly used for the FG frames and for the already-cropped BG frames when `FrameFingerprinter.compute_fingerprints` is called. This ensures the masking pathway in the code is used, though the actual visual data fingerprinted for these whole (resized/cropped) frames might be the same as the `precise` engine. The conceptual difference is that the `mask` engine is designed to operate as if it's always dealing with potentially sub-regions of frames, even if that sub-region is the whole (already processed) frame.
+    *   *Files involved*: `PreciseTemporalAlignment.align()` calls `FrameFingerprinter.compute_fingerprints()`.
+
+**Phase 1: Multi-Resolution Alignment (Finding the Initial Path)**
+
+This is handled by `MultiResolutionAligner.align()` and is like looking for a path on a map at different zoom levels.
+
+1.  **Temporal Pyramid Creation**:
+    *   The sequences of FG and BG fingerprints are downsampled at several rates (e.g., taking every 16th fingerprint, then every 8th, etc.). This creates shorter, "coarser" versions of the video's timeline.
+
+2.  **Coarse Alignment (Rough Sketch of the Path)**:
+    *   Using the *most downsampled* (coarsest) fingerprint sequences, Dynamic Time Warping (DTW, via `DTWAligner`) is used.
+    *   DTW compares the coarse FG and BG sequences and finds the optimal path that minimizes the total "distance" (dissimilarity) between matched fingerprints, while ensuring time only moves forward (monotonicity). This gives a very rough initial alignment.
+
+3.  **Hierarchical Refinement (Zooming In)**:
+    *   The alignment is refined by moving from coarser to finer levels of the temporal pyramid.
+    *   At each finer level, the mapping from the previous coarser level is used as a guide. Local DTW is performed within smaller windows around this guided path, fine-tuning the alignment.
+
+4.  **Drift Correction & Smoothing (Ironing out Kinks)**:
+    *   The mapping from the finest pyramid level (which is still a bit sparse) undergoes drift correction. This involves:
+        *   Breaking the mapping into segments.
+        *   For each segment, fitting a model (e.g., polynomial, or previously linear) to the mapping points.
+        *   Blending the actual mapping points with this fitted model to smooth out sudden jumps. An adaptive blend factor can be used.
+    *   The entire corrected sparse mapping is then smoothed using a Savitzky-Golay filter to remove high-frequency jitters (the "flag waves").
+    *   Monotonicity is enforced after each correction/smoothing step.
+
+5.  **Interpolation to Full Mapping**:
+    *   The smoothed, corrected, sparse mapping is linearly interpolated to get a BG frame index for *every single* FG frame.
+    *   This full mapping is the main output of the multi-resolution phase.
+
+**Phase 2: Keyframe Anchoring (Pinning Down Important Moments)**
+
+This phase, within `PreciseTemporalAlignment`, identifies and aligns visually significant frames.
+
+1.  **Keyframe Detection**:
+    *   Keyframes (frames with significant visual changes) are detected in both FG and BG videos by analyzing their fingerprint sequences.
+
+2.  **Keyframe Alignment**:
+    *   The FG keyframes are matched to the BG keyframes using DTW on their fingerprints. This creates strong anchor points in the timeline.
+
+**Phase 3: Bidirectional DTW (Looking from Both Directions)**
+
+This phase, also in `PreciseTemporalAlignment`, tries to reduce any directional bias in the DTW.
+
+1.  **Downsample & DTW**: Fingerprints are downsampled (e.g., to ~500 per video).
+    *   A forward DTW is run (FG -> BG).
+    *   A backward DTW is run (reversed BG -> reversed FG, then the path is reversed).
+2.  **Average & Interpolate**: The two mappings are averaged, monotonicity is enforced, and the result is interpolated to cover all FG frames.
+
+**Phase 4: Final Combination and Refinements (The Polish)**
+
+This happens in `PreciseTemporalAlignment.align()`:
+
+1.  **Combine Mappings**: The full mapping from Phase 1 (Multi-Resolution) and Phase 3 (Bidirectional DTW) are averaged.
+2.  **Enforce Keyframes**: The keyframe matches from Phase 2 are strictly applied to this averaged mapping. The timeline *between* these keyframes is then re-interpolated linearly.
+3.  **Sliding Window Refinement**: The mapping is further refined locally. The FG timeline is broken into small, overlapping windows. For each window, the algorithm re-evaluates the BG frame choices in a small search area around the current mapping, aiming to minimize fingerprint distances within that local window. The result is smoothed.
+4.  **Final Clip & Confidence**: The mapping is clipped to ensure BG frame indices are valid, and an overall confidence score is calculated.
+
+**How individual frames are "matched" at the lowest level:**
+
+*   The "matching" is based on the **distance between their fingerprints**.
+*   During DTW (in `DTWAligner._compute_cost_matrix`), the cost of aligning FG frame `i` with BG frame `j` is typically the Euclidean distance between their fingerprint vectors.
+*   During the sliding window refinement (`PreciseTemporalAlignment.refine_with_sliding_window`), the sum of Euclidean distances between fingerprints in the window is minimized.
+
+The "flag wave drift" you're seeing means that despite all these alignment and smoothing steps, the sequence of chosen BG frames, when played back, creates an unnatural speeding up and slowing down of the background content relative to the foreground. This suggests that minimizing fingerprint distance alone, even with DTW and smoothing, isn't always enough to guarantee perceptually smooth motion. This is why exploring optical flow (Idea 2) is a logical next step, as it directly considers motion between frames.
 
 ---
 

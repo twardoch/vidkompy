@@ -112,9 +112,9 @@ Scale up: 102.95% → 1976×1111 px
 Reverse position: (-3, -123) px
 
 Alternative Analysis:
-Unity scale (100%) option: confidence=0.991, position=(3, 120)
+unscaled (100%) option: confidence=0.991, position=(3, 120)
 Scaled option: confidence=0.692, scale=88.33%, position=(124, 157)
-Preference mode: Unity scale preferred
+Preference mode: unscaled preferred
 Total results analyzed: 64 (49 near 100% scale)
 ```
 
