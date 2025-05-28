@@ -20,7 +20,7 @@ from rich.progress import (
 )
 from rich.console import Console
 
-from vidkompy.comp.models import VideoInfo
+from .domain_models import VideoInfo
 
 console = Console()
 

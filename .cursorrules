@@ -61,7 +61,7 @@ When you’re finished, print "Wait, but" to go back, think & reflect, revise & 
 ## 4. After Python changes run:
 
 ```
-fd -e py -x autoflake {}; fd -e py -x pyupgrade --py312-plus {}; fd -e py -x ruff check --output-format=github --fix --unsafe-fixes {}; fd -e py -x ruff format --respect-gitignore --target-version py312 {}; python -m pytest;
+./cleanup.sh;
 ```
 
 Be creative, diligent, critical, relentless & funny! </guidelines>

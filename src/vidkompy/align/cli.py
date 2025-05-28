@@ -15,6 +15,7 @@ import fire
 from loguru import logger
 
 from .core import ThumbnailFinder
+from src.vidkompy.utils.logging import LOG_FORMAT_VERBOSE, LOG_FORMAT_DEFAULT
 
 
 def find_thumbnail(
@@ -44,13 +45,7 @@ def find_thumbnail(
     - vidkompy/__main__.py
     - vidkompy/align/__init__.py
     """
-    # Configure logging level
-    if verbose:
-        logger.add(sys.stderr, format=log_format_verbose, level="DEBUG")
-    else:
-        logger.add(sys.stderr, format=log_format_default, level="INFO")
-
-    # Validate parameters
+    # Validate parameters before logger setup (sanity check first)
     if not 0 <= precision <= 4:
         msg = f"Precision must be between 0 and 4, got {precision}"
         raise ValueError(msg)
@@ -58,6 +53,12 @@ def find_thumbnail(
     if num_frames < 1:
         msg = f"num_frames must be at least 1, got {num_frames}"
         raise ValueError(msg)
+
+    # Configure logging level
+    if verbose:
+        logger.add(sys.stderr, format=LOG_FORMAT_VERBOSE, level="DEBUG")
+    else:
+        logger.add(sys.stderr, format=LOG_FORMAT_DEFAULT, level="INFO")
 
     # Create and run thumbnail finder
     align = ThumbnailFinder()

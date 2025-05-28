@@ -10,6 +10,7 @@ between all the other components to provide the high-level interface.
 """
 
 from pathlib import Path
+import logging
 
 import numpy as np
 
@@ -22,6 +23,7 @@ from .frame_extractor import FrameExtractor
 from .precision import PrecisionAnalyzer
 from .algorithms import TemplateMatchingAlgorithm
 from .display import ResultDisplayer
+from src.vidkompy.utils.image import ensure_gray
 
 
 class ThumbnailFinder:
@@ -35,14 +37,16 @@ class ThumbnailFinder:
     Used in:
     - vidkompy/align/__init__.py
     - vidkompy/align/cli.py
+    - vidkompy/comp/alignment_engine.py
     """
 
-    def __init__(self):
+    def __init__(self, logger: logging.Logger | None = None):
         """Initialize the thumbnail finder with component instances."""
         self.frame_extractor = FrameExtractor()
         self.precision_analyzer = PrecisionAnalyzer()
         self.template_matcher = TemplateMatchingAlgorithm()
         self.displayer = ResultDisplayer()
+        self.logger = logger or logging.getLogger(__name__)
 
     def find_thumbnail(
         self,
@@ -70,9 +74,13 @@ class ThumbnailFinder:
 
         Used in:
         - vidkompy/align/cli.py
+        - vidkompy/comp/alignment_engine.py
         """
         fg_path = Path(fg)
         bg_path = Path(bg)
+
+        # Validate inputs
+        self.validate_inputs(fg_path, bg_path)
 
         # Display header
         self.displayer.display_header(fg_path, bg_path, num_frames, precision)
@@ -146,7 +154,7 @@ class ThumbnailFinder:
         task=None,
     ) -> tuple:
         """
-        Core thumbnail detection logic.
+        Core thumbnail detection logic using modular helper methods.
 
         Args:
             fg_frames: List of foreground frames
@@ -163,48 +171,125 @@ class ThumbnailFinder:
         if not fg_frames or not bg_frames:
             return (0.0, 0.0, 0, 0, 100.0, 0, 0, AnalysisData())
 
-        # Use first frames for analysis
-        first_fg = fg_frames[0]
-        first_bg = bg_frames[0]
-
-        # Convert to grayscale for analysis
-        if len(first_fg.shape) == 3:
-            first_fg_gray = self.frame_extractor.preprocess_frame(
-                first_fg, grayscale=True
+        # Step 1: Prepare grayscale frames for analysis
+        try:
+            first_fg_gray, first_bg_gray = self._prepare_gray_frames(
+                fg_frames, bg_frames
             )
-        else:
-            first_fg_gray = first_fg
+        except ValueError as e:
+            self.logger.error(f"Frame preparation failed: {e}")
+            return (0.0, 0.0, 0, 0, 100.0, 0, 0, AnalysisData())
 
-        if len(first_bg.shape) == 3:
-            first_bg_gray = self.frame_extractor.preprocess_frame(
-                first_bg, grayscale=True
-            )
-        else:
-            first_bg_gray = first_bg
-
-        # Perform precision analysis
-        precision_results = self.precision_analyzer.progressive_analysis(
+        # Step 2: Run precision analysis
+        precision_results = self._run_precision_analysis(
             first_fg_gray, first_bg_gray, precision
         )
 
         if progress and task:
             progress.update(task, advance=50)
 
+        # Step 3: Select main result based on analysis and unity scale preference
+        main_result, analysis_data = self._select_main_result(
+            precision_results, unity_scale, first_fg_gray, first_bg_gray
+        )
+
+        if progress and task:
+            progress.update(task, advance=30)
+
+        # Step 4: Build final thumbnail result
+        result = self._build_thumbnail_result(main_result, analysis_data)
+
+        if progress and task:
+            progress.update(task, advance=20)
+
+        return result
+
+    def _calculate_thumbnail_size(
+        self, fg_size: tuple[int, int], scale_percent: float
+    ) -> tuple[int, int]:
+        """Calculate thumbnail size from foreground size and scale."""
+        scale_factor = scale_percent / 100.0
+        return (int(fg_size[0] * scale_factor), int(fg_size[1] * scale_factor))
+
+    def _calculate_upscaled_bg_size(
+        self, bg_size: tuple[int, int], scale_percent: float
+    ) -> tuple[int, int]:
+        """Calculate upscaled background size."""
+        scale_factor = scale_percent / 100.0
+        return (int(bg_size[0] * scale_factor), int(bg_size[1] * scale_factor))
+
+    def _prepare_gray_frames(
+        self, fg_frames: list[np.ndarray], bg_frames: list[np.ndarray]
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Prepare grayscale versions of the first frames for analysis.
+
+        Args:
+            fg_frames: List of foreground frames
+            bg_frames: List of background frames
+
+        Returns:
+            Tuple of (first_fg_gray, first_bg_gray)
+
+        """
+        if not fg_frames or not bg_frames:
+            msg = "Frame lists cannot be empty"
+            raise ValueError(msg)
+
+        first_fg = fg_frames[0]
+        first_bg = bg_frames[0]
+
+        # Convert to grayscale using utils
+        first_fg_gray = ensure_gray(first_fg)
+        first_bg_gray = ensure_gray(first_bg)
+
+        return first_fg_gray, first_bg_gray
+
+    def _run_precision_analysis(
+        self, fg_gray: np.ndarray, bg_gray: np.ndarray, precision: int
+    ) -> list:
+        """
+        Run precision analysis on grayscale frames.
+
+        Args:
+            fg_gray: Grayscale foreground frame
+            bg_gray: Grayscale background frame
+            precision: Precision level
+
+        Returns:
+            List of precision analysis results
+
+        """
+        return self.precision_analyzer.progressive_analysis(fg_gray, bg_gray, precision)
+
+    def _select_main_result(
+        self,
+        precision_results: list,
+        unity_scale: bool,
+        fg_gray: np.ndarray,
+        bg_gray: np.ndarray,
+    ) -> tuple[MatchResult, AnalysisData]:
+        """
+        Select the main result based on precision analysis and unity scale preference.
+
+        Args:
+            precision_results: Results from precision analysis
+            unity_scale: Unity scale mode flag
+            fg_gray: Grayscale foreground frame
+            bg_gray: Grayscale background frame
+
+        Returns:
+            Tuple of (main_result, analysis_data)
+
+        """
         # Get best result from precision analysis
         best_precision_result = max(precision_results, key=lambda r: r.confidence)
 
-        # Create main match result
-        main_result = MatchResult(
-            confidence=best_precision_result.confidence,
-            x=best_precision_result.x,
-            y=best_precision_result.y,
-            scale=best_precision_result.scale,
-            method=best_precision_result.method,
-        )
-
-        # Handle unity scale logic
+        # Create analysis data container
         analysis_data = AnalysisData(
-            precision_level=precision,
+            precision_level=precision_results[0].method
+            if precision_results
+            else "unknown",
             unity_scale_preference_active=unity_scale,
             precision_analysis=precision_results,
         )
@@ -212,7 +297,7 @@ class ThumbnailFinder:
         if unity_scale:
             # Unity scale mode: prefer 100% scale but fallback to best precision result
             unity_result = self.template_matcher.match_template(
-                first_fg_gray, first_bg_gray, scale=1.0, method="unity"
+                fg_gray, bg_gray, scale=1.0, method="unity"
             )
             analysis_data.unity_scale_result = unity_result
 
@@ -231,14 +316,30 @@ class ThumbnailFinder:
         else:
             # Multi-scale mode: both unity and scaled searches
             unity_result = self.template_matcher.match_template(
-                first_fg_gray, first_bg_gray, scale=1.0, method="unity"
+                fg_gray, bg_gray, scale=1.0, method="unity"
             )
             analysis_data.unity_scale_result = unity_result
-            analysis_data.scaled_result = main_result
+            analysis_data.scaled_result = best_precision_result
 
-        if progress and task:
-            progress.update(task, advance=30)
+            # Use the best of both approaches
+            main_result = best_precision_result
 
+        return main_result, analysis_data
+
+    def _build_thumbnail_result(
+        self, main_result: MatchResult, analysis_data: AnalysisData
+    ) -> tuple:
+        """
+        Build the final thumbnail result tuple from the main result.
+
+        Args:
+            main_result: The selected main match result
+            analysis_data: Analysis data container
+
+        Returns:
+            Tuple of final transformation parameters
+
+        """
         # Calculate final transformation parameters
         confidence = main_result.confidence
         scale_fg_to_thumb = main_result.scale * 100.0
@@ -254,9 +355,6 @@ class ThumbnailFinder:
             -int(main_result.y / main_result.scale) if main_result.scale > 0 else 0
         )
 
-        if progress and task:
-            progress.update(task, advance=20)
-
         return (
             confidence,
             scale_fg_to_thumb,
@@ -267,20 +365,6 @@ class ThumbnailFinder:
             y_fg_in_scaled_bg,
             analysis_data,
         )
-
-    def _calculate_thumbnail_size(
-        self, fg_size: tuple[int, int], scale_percent: float
-    ) -> tuple[int, int]:
-        """Calculate thumbnail size from foreground size and scale."""
-        scale_factor = scale_percent / 100.0
-        return (int(fg_size[0] * scale_factor), int(fg_size[1] * scale_factor))
-
-    def _calculate_upscaled_bg_size(
-        self, bg_size: tuple[int, int], scale_percent: float
-    ) -> tuple[int, int]:
-        """Calculate upscaled background size."""
-        scale_factor = scale_percent / 100.0
-        return (int(bg_size[0] * scale_factor), int(bg_size[1] * scale_factor))
 
     def validate_inputs(self, fg_path: Path, bg_path: Path) -> bool:
         """

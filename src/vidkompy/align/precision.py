@@ -10,6 +10,7 @@ different levels of speed vs accuracy trade-offs.
 """
 
 import time
+from collections.abc import Callable
 
 import numpy as np
 
@@ -17,11 +18,38 @@ from .result_types import MatchResult, PrecisionLevel, PrecisionAnalysisResult
 from .algorithms import (
     TemplateMatchingAlgorithm,
     FeatureMatchingAlgorithm,
-    HistogramCorrelationAlgorithm,
     SubPixelRefinementAlgorithm,
     PhaseCorrelationAlgorithm,
     HybridMatchingAlgorithm,
 )
+
+
+# Scale parameters for each precision level: (scale_range_func, scale_steps)
+SCALE_PARAMS: dict[PrecisionLevel, tuple[Callable, int]] = {
+    PrecisionLevel.BALLPARK: (lambda prev_scale=1.0: (0.3, 1.5), 10),
+    PrecisionLevel.COARSE: (
+        lambda prev_scale=1.0: (max(0.3, prev_scale * 0.8), min(1.5, prev_scale * 1.2)),
+        5,
+    ),
+    PrecisionLevel.BALANCED: (
+        lambda prev_scale=1.0: (max(0.3, prev_scale * 0.9), min(1.5, prev_scale * 1.1)),
+        10,
+    ),
+    PrecisionLevel.FINE: (
+        lambda prev_scale=1.0: (
+            max(0.3, prev_scale * 0.95),
+            min(1.5, prev_scale * 1.05),
+        ),
+        20,
+    ),
+    PrecisionLevel.PRECISE: (
+        lambda prev_scale=1.0: (
+            max(0.3, prev_scale * 0.98),
+            min(1.5, prev_scale * 1.02),
+        ),
+        30,
+    ),
+}
 
 
 class PrecisionAnalyzer:
@@ -38,14 +66,36 @@ class PrecisionAnalyzer:
     """
 
     def __init__(self, verbose: bool = False):
-        """Initialize the precision analyzer with algorithm instances."""
+        """Initialize the precision analyzer with lazy algorithm loading."""
         self.verbose = verbose
-        self.template_matcher = TemplateMatchingAlgorithm(verbose)
-        self.feature_matcher = FeatureMatchingAlgorithm(verbose=verbose)
-        self.histogram_correlator = HistogramCorrelationAlgorithm()
-        self.subpixel_refiner = SubPixelRefinementAlgorithm()
-        self.phase_matcher = PhaseCorrelationAlgorithm(verbose)
-        self.hybrid_matcher = HybridMatchingAlgorithm(verbose)
+        self._algorithms: dict[str, any] = {}  # Lazy loading cache
+
+        # Strategy map for precision analysis
+        self._strategy_map: dict[PrecisionLevel, Callable] = {
+            PrecisionLevel.BALLPARK: self._analyze_ballpark,
+            PrecisionLevel.COARSE: self._analyze_coarse,
+            PrecisionLevel.BALANCED: self._analyze_balanced,
+            PrecisionLevel.FINE: self._analyze_fine,
+            PrecisionLevel.PRECISE: self._analyze_precise,
+        }
+
+    def _get_algorithm(self, name: str):
+        """Lazy singleton access to algorithms."""
+        if name not in self._algorithms:
+            if name == "template_matcher":
+                self._algorithms[name] = TemplateMatchingAlgorithm(self.verbose)
+            elif name == "feature_matcher":
+                self._algorithms[name] = FeatureMatchingAlgorithm(verbose=self.verbose)
+            elif name == "subpixel_refiner":
+                self._algorithms[name] = SubPixelRefinementAlgorithm()
+            elif name == "phase_matcher":
+                self._algorithms[name] = PhaseCorrelationAlgorithm(self.verbose)
+            elif name == "hybrid_matcher":
+                self._algorithms[name] = HybridMatchingAlgorithm(self.verbose)
+            else:
+                msg = f"Unknown algorithm: {name}"
+                raise ValueError(msg)
+        return self._algorithms[name]
 
     def analyze_at_precision(
         self,
@@ -55,7 +105,7 @@ class PrecisionAnalyzer:
         previous_results: list[PrecisionAnalysisResult] | None = None,
     ) -> PrecisionAnalysisResult:
         """
-        Perform analysis at a specific precision level.
+        Perform analysis at a specific precision level using strategy map.
 
         Args:
             fg_frame: Foreground frame
@@ -70,19 +120,18 @@ class PrecisionAnalyzer:
         level = PrecisionLevel(precision_level)
         start_time = time.time()
 
-        if level == PrecisionLevel.BALLPARK:
-            result = self._analyze_ballpark(fg_frame, bg_frame)
-        elif level == PrecisionLevel.COARSE:
-            result = self._analyze_coarse(fg_frame, bg_frame, previous_results)
-        elif level == PrecisionLevel.BALANCED:
-            result = self._analyze_balanced(fg_frame, bg_frame, previous_results)
-        elif level == PrecisionLevel.FINE:
-            result = self._analyze_fine(fg_frame, bg_frame, previous_results)
-        elif level == PrecisionLevel.PRECISE:
-            result = self._analyze_precise(fg_frame, bg_frame, previous_results)
-        else:
+        # Use strategy map to select analysis method
+        if level not in self._strategy_map:
             msg = f"Invalid precision level: {precision_level}"
             raise ValueError(msg)
+
+        strategy = self._strategy_map[level]
+
+        # Call appropriate analysis method
+        if level == PrecisionLevel.BALLPARK:
+            result = strategy(fg_frame, bg_frame)
+        else:
+            result = strategy(fg_frame, bg_frame, previous_results)
 
         processing_time = time.time() - start_time
 
@@ -131,8 +180,12 @@ class PrecisionAnalyzer:
         color histograms with the enhanced algorithm from template matcher.
 
         """
-        scale, confidence = self.template_matcher.ballpark_scale_estimation(
-            fg_frame, bg_frame, scale_range=(0.3, 1.5)
+        template_matcher = self._get_algorithm("template_matcher")
+        scale_range_func, _ = SCALE_PARAMS[PrecisionLevel.BALLPARK]
+        scale_range = scale_range_func()
+
+        scale, confidence = template_matcher.ballpark_scale_estimation(
+            fg_frame, bg_frame, scale_range=scale_range
         )
 
         return MatchResult(
@@ -161,12 +214,14 @@ class PrecisionAnalyzer:
         if previous_results:
             ballpark_scale = previous_results[0].scale
 
-        # Define search range around ballpark estimate
-        scale_range = (max(0.3, ballpark_scale * 0.8), min(1.5, ballpark_scale * 1.2))
+        # Get scale parameters from SCALE_PARAMS
+        scale_range_func, scale_steps = SCALE_PARAMS[PrecisionLevel.COARSE]
+        scale_range = scale_range_func(ballpark_scale)
 
         # Use parallel template matching for better performance
-        result = self.template_matcher.parallel_multiscale_template_matching(
-            fg_frame, bg_frame, scale_range, scale_steps=10
+        template_matcher = self._get_algorithm("template_matcher")
+        result = template_matcher.parallel_multiscale_template_matching(
+            fg_frame, bg_frame, scale_range, scale_steps=scale_steps
         )
 
         if result:
@@ -188,7 +243,8 @@ class PrecisionAnalyzer:
 
         """
         # Try enhanced feature matching first
-        feature_result = self.feature_matcher.enhanced_feature_matching(
+        feature_matcher = self._get_algorithm("feature_matcher")
+        feature_result = feature_matcher.enhanced_feature_matching(
             fg_frame, bg_frame, detector_type="auto"
         )
 
@@ -201,14 +257,15 @@ class PrecisionAnalyzer:
                 previous_results[1].scale
 
         # Use ballpark estimation for template matching
-        template_result = self.template_matcher.parallel_multiscale_template_matching(
+        scale_range_func, scale_steps = SCALE_PARAMS[PrecisionLevel.BALANCED]
+        scale_range = scale_range_func(ballpark_scale)
+
+        template_matcher = self._get_algorithm("template_matcher")
+        template_result = template_matcher.parallel_multiscale_template_matching(
             fg_frame,
             bg_frame,
-            scale_range=(
-                max(0.3, ballpark_scale * 0.8),
-                min(1.5, ballpark_scale * 1.2),
-            ),
-            scale_steps=15,
+            scale_range=scale_range,
+            scale_steps=scale_steps,
         )
 
         # Choose best result
@@ -239,7 +296,8 @@ class PrecisionAnalyzer:
 
         """
         # Use hybrid matching for best results
-        hybrid_result = self.hybrid_matcher.hybrid_matching(
+        hybrid_matcher = self._get_algorithm("hybrid_matcher")
+        hybrid_result = hybrid_matcher.hybrid_matching(
             fg_frame, bg_frame, method="accurate"
         )
 
@@ -247,7 +305,8 @@ class PrecisionAnalyzer:
             return hybrid_result
 
         # Fallback to enhanced feature matching
-        feature_result = self.feature_matcher.enhanced_feature_matching(
+        feature_matcher = self._get_algorithm("feature_matcher")
+        feature_result = feature_matcher.enhanced_feature_matching(
             fg_frame, bg_frame, detector_type="auto"
         )
 
@@ -298,55 +357,9 @@ class PrecisionAnalyzer:
             return MatchResult(0.0, 0, 0, 1.0, method="precise")
 
         # Apply sub-pixel refinement
-        refined_result = self.subpixel_refiner.refine_position(
+        subpixel_refiner = self._get_algorithm("subpixel_refiner")
+        refined_result = subpixel_refiner.refine_position(
             fg_frame, bg_frame, fine_result
         )
 
         return refined_result
-
-    def get_scale_range_for_level(
-        self, level: PrecisionLevel, previous_scale: float = 1.0
-    ) -> tuple[float, float]:
-        """
-        Get appropriate scale range for a precision level.
-
-        Args:
-            level: Precision level
-            previous_scale: Scale estimate from previous level
-
-        Returns:
-            Tuple of (min_scale, max_scale)
-
-        """
-        if level == PrecisionLevel.BALLPARK:
-            return (0.3, 1.5)
-        elif level == PrecisionLevel.COARSE:
-            return (max(0.3, previous_scale * 0.8), min(1.5, previous_scale * 1.2))
-        elif level == PrecisionLevel.BALANCED:
-            return (max(0.3, previous_scale * 0.9), min(1.5, previous_scale * 1.1))
-        elif level == PrecisionLevel.FINE:
-            return (max(0.3, previous_scale * 0.95), min(1.5, previous_scale * 1.05))
-        elif level == PrecisionLevel.PRECISE:
-            return (max(0.3, previous_scale * 0.98), min(1.5, previous_scale * 1.02))
-        else:
-            return (0.5, 1.5)
-
-    def get_scale_steps_for_level(self, level: PrecisionLevel) -> int:
-        """
-        Get appropriate number of scale steps for a precision level.
-
-        Args:
-            level: Precision level
-
-        Returns:
-            Number of scale steps to use
-
-        """
-        steps_map = {
-            PrecisionLevel.BALLPARK: 10,
-            PrecisionLevel.COARSE: 5,
-            PrecisionLevel.BALANCED: 10,
-            PrecisionLevel.FINE: 20,
-            PrecisionLevel.PRECISE: 30,
-        }
-        return steps_map.get(level, 10)

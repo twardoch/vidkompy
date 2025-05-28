@@ -30,7 +30,6 @@ from .display import ResultDisplayer
 from .algorithms import (
     TemplateMatchingAlgorithm,
     FeatureMatchingAlgorithm,
-    HistogramCorrelationAlgorithm,
     SubPixelRefinementAlgorithm,
     PhaseCorrelationAlgorithm,
     HybridMatchingAlgorithm,
@@ -59,7 +58,6 @@ __all__ = [
     "FeatureMatchingAlgorithm",
     "FrameExtractionResult",
     "FrameExtractor",
-    "HistogramCorrelationAlgorithm",
     "HybridMatchingAlgorithm",
     "MatchResult",
     "PhaseCorrelationAlgorithm",

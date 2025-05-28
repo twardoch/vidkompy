@@ -61,7 +61,7 @@ class PrecisionLevel(Enum):
         return timings[self]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MatchResult:
     """
     Result of a single template matching operation.
@@ -71,7 +71,7 @@ class MatchResult:
         x: X coordinate of match position
         y: Y coordinate of match position
         scale: Scale factor applied to foreground
-        frame_idx: Index of the frame that produced this result
+        frame_idx: Index of the frame that produced this result (None if not set)
         bg_frame_idx: Index of the background frame used
         method: Algorithm method used for matching
         processing_time: Time taken for the matching operation
@@ -87,7 +87,7 @@ class MatchResult:
     x: int
     y: int
     scale: float
-    frame_idx: int = 0
+    frame_idx: int | None = None
     bg_frame_idx: int = 0
     method: str = "template"
     processing_time: float = 0.0
@@ -102,7 +102,7 @@ class MatchResult:
             raise ValueError(msg)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PrecisionAnalysisResult:
     """
     Result from a single precision level analysis.
@@ -131,7 +131,7 @@ class PrecisionAnalysisResult:
     method: str = "unknown"
 
 
-@dataclass
+@dataclass(slots=True)
 class AnalysisData:
     """
     Complete analysis data for alternative result reporting.
@@ -165,7 +165,7 @@ class AnalysisData:
             self.precision_analysis = []
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ThumbnailResult:
     """
     Complete thumbnail detection result.
@@ -191,6 +191,7 @@ class ThumbnailResult:
     - vidkompy/align/__init__.py
     - vidkompy/align/core.py
     - vidkompy/align/display.py
+    - vidkompy/comp/alignment_engine.py
     """
 
     confidence: float
@@ -261,7 +262,7 @@ class ThumbnailResult:
         return self.thumbnail_size[1]
 
 
-@dataclass
+@dataclass(slots=True)
 class FrameExtractionResult:
     """
     Result of frame extraction from video or image.

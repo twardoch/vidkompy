@@ -1,41 +1,25 @@
 #!/usr/bin/env python3
-# this_file: src/vidkompy/models.py
+# this_file: src/vidkompy/comp/domain_models.py
 
 """
-Data models and enums for vidkompy.
+Domain models for vidkompy composition module.
 
-Contains all shared data structures used across the application.
+Contains all dataclasses and data structures used across the composition system.
 """
 
 from dataclasses import dataclass
-from enum import Enum
-
-
-class MatchTimeMode(Enum):
-    """Temporal alignment modes."""
-
-    BORDER = "border"  # Border-based matching (default)
-    PRECISE = "precise"  # Use frame-based matching
-
-
-class SpatialMethod(Enum):
-    """Spatial alignment methods."""
-
-    TEMPLATE = "template"  # Template matching (only method)
-    CENTER = "center"  # Simple center alignment (fallback)
-
-
-class TemporalMethod(Enum):
-    """Temporal alignment algorithm methods."""
-
-    DTW = "dtw"  # Dynamic Time Warping (new default)
-    CLASSIC = "classic"  # Original keyframe matching
-    FRAMES = "frames"  # Legacy alias for classic
+from .enums import MatchTimeMode
 
 
 @dataclass
 class VideoInfo:
-    """Video metadata container."""
+    """Video metadata container.
+
+    Used in:
+    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/temporal_alignment.py
+    - vidkompy/comp/video_processor.py
+    """
 
     width: int
     height: int
@@ -60,20 +44,32 @@ class VideoInfo:
 
 @dataclass
 class FrameAlignment:
-    """Represents alignment between a foreground and background frame."""
+    """Represents alignment between a foreground and background frame.
+
+    Used in:
+    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/dtw_aligner.py
+    - vidkompy/comp/temporal_alignment.py
+    - vidkompy/comp/tunnel_aligner.py
+    """
 
     fg_frame_idx: int  # Foreground frame index (never changes)
     bg_frame_idx: int  # Corresponding background frame index
     similarity_score: float  # Similarity between frames (0-1)
 
     def __repr__(self) -> str:
-        """ """
+        """"""
         return f"FrameAlignment(fg={self.fg_frame_idx}, bg={self.bg_frame_idx}, sim={self.similarity_score:.3f})"
 
 
 @dataclass
 class SpatialAlignment:
-    """Spatial offset for overlaying foreground on background."""
+    """Spatial offset for overlaying foreground on background.
+
+    Used in:
+    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/spatial_alignment.py
+    """
 
     x_offset: int
     y_offset: int
@@ -88,7 +84,12 @@ class SpatialAlignment:
 
 @dataclass
 class TemporalAlignment:
-    """Temporal alignment results."""
+    """Temporal alignment results.
+
+    Used in:
+    - vidkompy/comp/alignment_engine.py
+    - vidkompy/comp/temporal_alignment.py
+    """
 
     offset_seconds: float  # Time offset in seconds
     frame_alignments: list[FrameAlignment]  # Frame-by-frame mapping
@@ -119,3 +120,12 @@ class ProcessingOptions:
     border_thickness: int = 8
     blend: bool = False
     window: int = 0
+
+
+__all__ = [
+    "FrameAlignment",
+    "ProcessingOptions",
+    "SpatialAlignment",
+    "TemporalAlignment",
+    "VideoInfo",
+]

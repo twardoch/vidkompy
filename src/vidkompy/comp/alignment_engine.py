@@ -23,14 +23,13 @@ from rich.progress import (
 )
 from rich.console import Console
 
-from vidkompy.comp.models import (
+from .domain_models import (
     VideoInfo,
-    MatchTimeMode,
-    TemporalMethod,
     SpatialAlignment,
     TemporalAlignment,
     FrameAlignment,
 )
+from .enums import MatchTimeMode, TemporalMethod
 from .video_processor import VideoProcessor
 from vidkompy.align import ThumbnailFinder
 from vidkompy.align.result_types import ThumbnailResult
@@ -101,6 +100,7 @@ class AlignmentEngine:
 
         Returns:
             SpatialAlignment compatible with existing comp module code
+
         """
         return SpatialAlignment(
             x_offset=result.x_thumb_in_bg,

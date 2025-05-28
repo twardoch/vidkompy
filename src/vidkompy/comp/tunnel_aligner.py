@@ -13,7 +13,7 @@ from loguru import logger
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from vidkompy.comp.models import FrameAlignment
+from .domain_models import FrameAlignment
 
 console = Console()
 

@@ -17,6 +17,34 @@ import numpy as np
 from loguru import logger
 
 from .result_types import FrameExtractionResult
+from src.vidkompy.utils.image import ensure_gray, resize_frame
+
+# File extension constants
+VIDEO_EXTS = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
+
+
+def _choose_indices(total: int, max_frames: int) -> list[int]:
+    """
+    Choose frame indices for extraction, evenly distributed.
+
+    This function is reused by comp.video_processor for consistent
+    frame selection logic across the codebase.
+
+    Args:
+        total: Total number of available frames
+        max_frames: Maximum number of frames to select
+
+    Returns:
+        List of frame indices to extract
+
+    """
+    if max_frames >= total:
+        return list(range(total))
+    else:
+        # Evenly distribute frames
+        step = total / max_frames
+        return [int(i * step) for i in range(max_frames)]
 
 
 class FrameExtractor:
@@ -63,19 +91,16 @@ class FrameExtractor:
             raise FileNotFoundError(msg)
 
         # Determine if it's a video or image based on extension
-        video_extensions = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"}
-        image_extensions = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"}
-
         file_ext = media_path.suffix.lower()
 
-        if file_ext in video_extensions:
+        if file_ext in VIDEO_EXTS:
             result = self._extract_frames_from_video(media_path, max_frames, verbose)
-        elif file_ext in image_extensions:
+        elif file_ext in IMAGE_EXTS:
             result = self._load_image_as_frames(media_path, verbose)
         else:
             msg = (
                 f"Unsupported file format: {file_ext}. "
-                f"Supported: {video_extensions | image_extensions}"
+                f"Supported: {VIDEO_EXTS | IMAGE_EXTS}"
             )
             raise ValueError(msg)
 
@@ -124,12 +149,7 @@ class FrameExtractor:
                 raise ValueError(msg)
 
             # Calculate frame indices to extract
-            if max_frames >= total_frames:
-                frame_indices = list(range(total_frames))
-            else:
-                # Evenly distribute frames across the video
-                step = total_frames / max_frames
-                frame_indices = [int(i * step) for i in range(max_frames)]
+            frame_indices = _choose_indices(total_frames, max_frames)
 
             frames = []
 
@@ -211,11 +231,11 @@ class FrameExtractor:
         processed = frame.copy()
 
         # Convert to grayscale if requested
-        if grayscale and len(processed.shape) == 3:
-            processed = cv2.cvtColor(processed, cv2.COLOR_BGR2GRAY)
+        if grayscale:
+            processed = ensure_gray(processed)
 
         # Resize if target size specified
         if target_size is not None:
-            processed = cv2.resize(processed, target_size)
+            processed = resize_frame(processed, size=target_size)
 
         return processed

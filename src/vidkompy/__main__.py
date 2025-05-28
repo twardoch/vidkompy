@@ -4,28 +4,33 @@
 """Enable running vidkompy as a module with python -m vidkompy."""
 
 import fire
-from .align.cli import find_thumbnail
 
-# Try to import comp module, but handle gracefully if it fails
-try:
+
+def _lazy_find_thumbnail(*args, **kwargs):
+    """Lazy wrapper for thumbnail finding to avoid heavy imports at startup."""
+    from .align.cli import find_thumbnail
+
+    return find_thumbnail(*args, **kwargs)
+
+
+def _lazy_composite_videos(*args, **kwargs):
+    """Lazy wrapper for video composition to avoid heavy imports at startup."""
     from .comp.vidkompy import composite_videos
 
-    COMP_AVAILABLE = True
-except ImportError:
-    COMP_AVAILABLE = False
+    return composite_videos(*args, **kwargs)
 
 
 def cli():
     """Main CLI entry point with subcommands."""
-    commands = {
-        "align": find_thumbnail,  # New name for thumbnail finding
-        "find": find_thumbnail,  # Keep old name for backward compatibility
-    }
 
-    if COMP_AVAILABLE:
-        commands["comp"] = composite_videos
-
-    fire.Fire(commands)
+    fire.Fire(
+        {
+            "align": _lazy_find_thumbnail,
+            "compose": _lazy_composite_videos,  # Renamed from "comp" to avoid clash
+            # Backward compatibility alias
+            "comp": _lazy_composite_videos,
+        }
+    )
 
 
 if __name__ == "__main__":

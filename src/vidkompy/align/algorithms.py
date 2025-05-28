@@ -12,13 +12,15 @@ feature detection, histogram correlation, and sub-pixel refinement.
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from enum import Enum
 
 import cv2
 import numpy as np
-from scipy.stats import pearsonr
-from numba import jit
 
 from .result_types import MatchResult
+from src.vidkompy.utils.correlation import histogram_correlation
+from src.vidkompy.utils.image import ensure_gray, resize_frame
 
 logger = logging.getLogger(__name__)
 
@@ -30,40 +32,26 @@ except ImportError:
     PHASE_CORRELATION_AVAILABLE = False
 
 
-@jit(nopython=True)
-def compute_normalized_correlation(template: np.ndarray, image: np.ndarray) -> float:
-    """Fast normalized cross-correlation computation using Numba."""
-    template_mean = np.mean(template)
-    image_mean = np.mean(image)
+@dataclass
+class PerformanceStats:
+    """Container for performance timing statistics."""
 
-    numerator = np.sum((template - template_mean) * (image - image_mean))
-    template_var = np.sum((template - template_mean) ** 2)
-    image_var = np.sum((image - image_mean) ** 2)
-
-    if template_var == 0 or image_var == 0:
-        return 0.0
-
-    return numerator / np.sqrt(template_var * image_var)
+    template_matching_time: float = 0.0
+    parallel_matching_time: float = 0.0
+    ballpark_estimation_time: float = 0.0
+    feature_matching_time: float = 0.0
+    phase_correlation_time: float = 0.0
+    hybrid_matching_time: float = 0.0
+    sub_pixel_refinement_time: float = 0.0
 
 
-@jit(nopython=True)
-def histogram_correlation(hist1: np.ndarray, hist2: np.ndarray) -> float:
-    """Fast histogram correlation for ballpark scale estimation."""
-    # Normalize histograms
-    h1 = hist1 / (np.sum(hist1) + 1e-7)
-    h2 = hist2 / (np.sum(hist2) + 1e-7)
+class FeatureDetector(Enum):
+    """Enumeration of available feature detectors."""
 
-    # Compute correlation coefficient
-    mean1 = np.mean(h1)
-    mean2 = np.mean(h2)
-
-    numerator = np.sum((h1 - mean1) * (h2 - mean2))
-    denominator = np.sqrt(np.sum((h1 - mean1) ** 2) * np.sum((h2 - mean2) ** 2))
-
-    if denominator == 0:
-        return 0.0
-
-    return numerator / denominator
+    AKAZE = "akaze"
+    ORB = "orb"
+    SIFT = "sift"
+    NONE = "none"
 
 
 class TemplateMatchingAlgorithm:
@@ -84,21 +72,19 @@ class TemplateMatchingAlgorithm:
         """Initialize the template matching algorithm."""
         self.method = cv2.TM_CCOEFF_NORMED
         self.verbose = verbose
-        self.performance_stats = {
-            "template_matching_time": 0.0,
-            "parallel_matching_time": 0.0,
-            "ballpark_estimation_time": 0.0,
-        }
+        self.performance_stats = PerformanceStats()
 
-    def match_template(
+    def _match_at_scale(
         self,
         fg_frame: np.ndarray,
         bg_frame: np.ndarray,
-        scale: float = 1.0,
+        scale: float,
         method: str = "template",
     ) -> MatchResult:
         """
-        Perform template matching at a specific scale.
+        Private worker method to perform template matching at a specific scale.
+
+        This is used by both match_at_multiple_scales and parallel_multiscale_template_matching.
 
         Args:
             fg_frame: Foreground frame (template)
@@ -109,14 +95,10 @@ class TemplateMatchingAlgorithm:
         Returns:
             MatchResult with best match position and confidence
 
-        Used in:
-        - vidkompy/align/core.py
         """
-        # Scale the foreground frame
+        # Scale the foreground frame using utils function
         if scale != 1.0:
-            new_width = int(fg_frame.shape[1] * scale)
-            new_height = int(fg_frame.shape[0] * scale)
-            scaled_fg = cv2.resize(fg_frame, (new_width, new_height))
+            scaled_fg = resize_frame(fg_frame, scale=scale)
         else:
             scaled_fg = fg_frame
 
@@ -140,6 +122,30 @@ class TemplateMatchingAlgorithm:
             scale=scale,
             method=method,
         )
+
+    def match_template(
+        self,
+        fg_frame: np.ndarray,
+        bg_frame: np.ndarray,
+        scale: float = 1.0,
+        method: str = "template",
+    ) -> MatchResult:
+        """
+        Perform template matching at a specific scale.
+
+        Args:
+            fg_frame: Foreground frame (template)
+            bg_frame: Background frame (search area)
+            scale: Scale factor to apply to foreground
+            method: Method identifier for result tracking
+
+        Returns:
+            MatchResult with best match position and confidence
+
+        Used in:
+        - vidkompy/align/core.py
+        """
+        return self._match_at_scale(fg_frame, bg_frame, scale, method)
 
     def match_at_multiple_scales(
         self,
@@ -168,7 +174,7 @@ class TemplateMatchingAlgorithm:
         results = []
 
         for scale in scales:
-            result = self.match_template(fg_frame, bg_frame, scale, method)
+            result = self._match_at_scale(fg_frame, bg_frame, scale, method)
             results.append(result)
 
         return results
@@ -191,15 +197,8 @@ class TemplateMatchingAlgorithm:
         start_time = time.time()
 
         # Convert to grayscale and downsample for speed
-        if len(template.shape) == 3:
-            template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-        else:
-            template_gray = template
-
-        if len(image.shape) == 3:
-            image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        else:
-            image_gray = image
+        template_gray = ensure_gray(template)
+        image_gray = ensure_gray(image)
 
         # Downsample for ultra-fast processing
         template_small = cv2.resize(template_gray, (64, 64))
@@ -251,7 +250,7 @@ class TemplateMatchingAlgorithm:
                 best_scale = scale
 
         processing_time = time.time() - start_time
-        self.performance_stats["ballpark_estimation_time"] += processing_time
+        self.performance_stats.ballpark_estimation_time += processing_time
 
         if self.verbose:
             logger.debug(
@@ -287,45 +286,28 @@ class TemplateMatchingAlgorithm:
         start_time = time.time()
 
         # Convert to grayscale for faster processing
-        if len(template.shape) == 3:
-            template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-        else:
-            template_gray = template
-
-        if len(image.shape) == 3:
-            image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        else:
-            image_gray = image
+        template_gray = ensure_gray(template)
+        image_gray = ensure_gray(image)
 
         # Generate scale factors
         scales = np.linspace(scale_range[0], scale_range[1], scale_steps)
 
         def process_scale(scale):
             """Process a single scale factor."""
-            # Resize template
-            new_width = int(template_gray.shape[1] * scale)
-            new_height = int(template_gray.shape[0] * scale)
-
-            # Skip if template becomes too small or larger than image
-            if new_width < 10 or new_height < 10:
-                return None
-            if new_height >= image_gray.shape[0] or new_width >= image_gray.shape[1]:
-                return None
-
-            resized_template = cv2.resize(template_gray, (new_width, new_height))
-
-            # Apply template matching
-            result = cv2.matchTemplate(
-                image_gray, resized_template, cv2.TM_CCOEFF_NORMED
+            # Use the extracted _match_at_scale method
+            result = self._match_at_scale(
+                template_gray, image_gray, scale, "parallel_template"
             )
-            _, max_val, _, max_loc = cv2.minMaxLoc(result)
+
+            if result.confidence == 0.0:
+                return None
 
             # Apply small bias toward unity scale (1.0) for similar confidence scores
-            adjusted_val = max_val
+            adjusted_val = result.confidence
             if abs(scale - 1.0) < 0.05:  # Within 5% of unity scale
                 adjusted_val *= 1.02  # Small 2% bonus for near-unity scales
 
-            return (scale, max_loc[0], max_loc[1], max_val, adjusted_val)
+            return (scale, result.x, result.y, result.confidence, adjusted_val)
 
         if self.verbose:
             logger.debug(
@@ -351,7 +333,7 @@ class TemplateMatchingAlgorithm:
         scale, x, y, correlation, _ = best_result
 
         processing_time = time.time() - start_time
-        self.performance_stats["parallel_matching_time"] += processing_time
+        self.performance_stats.parallel_matching_time += processing_time
 
         logger.debug(
             f"Parallel template matching: scale={scale:.3f}, pos=({x},{y}), correlation={correlation:.3f}"
@@ -389,40 +371,40 @@ class FeatureMatchingAlgorithm:
 
         """
         self.verbose = verbose
-        self.performance_stats = {
-            "feature_matching_time": 0.0,
-        }
+        self.performance_stats = PerformanceStats()
 
         # Initialize feature detectors
         self._init_feature_detectors(max_features)
 
     def _init_feature_detectors(self, max_features: int):
         """Initialize various feature detectors for robust matching."""
+        self.available_detectors = set()
+        self.detectors = {}
+
         try:
             # AKAZE - Best balance of speed and accuracy
-            self.akaze = cv2.AKAZE_create()
-            self.has_akaze = True
+            self.detectors[FeatureDetector.AKAZE] = cv2.AKAZE_create()
+            self.available_detectors.add(FeatureDetector.AKAZE)
         except AttributeError:
-            self.has_akaze = False
+            pass
 
         try:
             # ORB - Fastest option
-            self.orb = cv2.ORB_create(nfeatures=max_features)
-            self.has_orb = True
+            self.detectors[FeatureDetector.ORB] = cv2.ORB_create(nfeatures=max_features)
+            self.available_detectors.add(FeatureDetector.ORB)
         except AttributeError:
-            self.has_orb = False
+            pass
 
         try:
             # SIFT - Most accurate but slower
-            self.sift = cv2.SIFT_create()
-            self.has_sift = True
+            self.detectors[FeatureDetector.SIFT] = cv2.SIFT_create()
+            self.available_detectors.add(FeatureDetector.SIFT)
         except AttributeError:
-            self.has_sift = False
+            pass
 
         if self.verbose:
-            logger.debug(
-                f"Available detectors: AKAZE={self.has_akaze}, ORB={self.has_orb}, SIFT={self.has_sift}"
-            )
+            available_names = [d.value for d in self.available_detectors]
+            logger.debug(f"Available detectors: {available_names}")
 
     def enhanced_feature_matching(
         self, template: np.ndarray, image: np.ndarray, detector_type: str = "auto"
@@ -445,41 +427,39 @@ class FeatureMatchingAlgorithm:
 
         # Choose detector
         if detector_type == "auto":
-            if self.has_akaze:
-                detector = self.akaze
+            if FeatureDetector.AKAZE in self.available_detectors:
+                detector = self.detectors[FeatureDetector.AKAZE]
                 detector_name = "AKAZE"
-            elif self.has_orb:
-                detector = self.orb
+            elif FeatureDetector.ORB in self.available_detectors:
+                detector = self.detectors[FeatureDetector.ORB]
                 detector_name = "ORB"
-            elif self.has_sift:
-                detector = self.sift
+            elif FeatureDetector.SIFT in self.available_detectors:
+                detector = self.detectors[FeatureDetector.SIFT]
                 detector_name = "SIFT"
             else:
                 logger.error("No feature detectors available")
                 return None
-        elif detector_type == "akaze" and self.has_akaze:
-            detector = self.akaze
+        elif (
+            detector_type == "akaze"
+            and FeatureDetector.AKAZE in self.available_detectors
+        ):
+            detector = self.detectors[FeatureDetector.AKAZE]
             detector_name = "AKAZE"
-        elif detector_type == "orb" and self.has_orb:
-            detector = self.orb
+        elif detector_type == "orb" and FeatureDetector.ORB in self.available_detectors:
+            detector = self.detectors[FeatureDetector.ORB]
             detector_name = "ORB"
-        elif detector_type == "sift" and self.has_sift:
-            detector = self.sift
+        elif (
+            detector_type == "sift" and FeatureDetector.SIFT in self.available_detectors
+        ):
+            detector = self.detectors[FeatureDetector.SIFT]
             detector_name = "SIFT"
         else:
             logger.error(f"Detector {detector_type} not available")
             return None
 
         # Convert to grayscale
-        if len(template.shape) == 3:
-            template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-        else:
-            template_gray = template
-
-        if len(image.shape) == 3:
-            image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        else:
-            image_gray = image
+        template_gray = ensure_gray(template)
+        image_gray = ensure_gray(image)
 
         # Detect features
         kp1, des1 = detector.detectAndCompute(template_gray, None)
@@ -567,7 +547,7 @@ class FeatureMatchingAlgorithm:
         confidence = inliers / len(good_matches)
 
         processing_time = time.time() - start_time
-        self.performance_stats["feature_matching_time"] += processing_time
+        self.performance_stats.feature_matching_time += processing_time
 
         if self.verbose:
             logger.debug(
@@ -583,23 +563,10 @@ class FeatureMatchingAlgorithm:
             processing_time=processing_time,
         )
 
-    def match_features(
-        self, fg_frame: np.ndarray, bg_frame: np.ndarray, method: str = "feature"
-    ) -> MatchResult | None:
-        """
-        Simplified interface for backward compatibility.
-        Delegates to enhanced_feature_matching.
+    # Alias for backward compatibility
+    match = enhanced_feature_matching
 
-        """
-        return self.enhanced_feature_matching(fg_frame, bg_frame, "auto")
-
-    def _ensure_grayscale(self, frame: np.ndarray) -> np.ndarray:
-        """Convert frame to grayscale if needed."""
-        if len(frame.shape) == 3:
-            return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        return frame
-
-    def _extract_transform_params(
+    def _extract_transform_from_homography(
         self, homography: np.ndarray
     ) -> tuple[float, float, float]:
         """
@@ -622,102 +589,6 @@ class FeatureMatchingAlgorithm:
         y_offset = homography[1, 2]
 
         return scale, x_offset, y_offset
-
-
-class HistogramCorrelationAlgorithm:
-    """
-    Fast histogram-based correlation for initial scale estimation.
-
-    This algorithm provides a quick ballpark estimate of the scale
-    by comparing color histograms of the images.
-
-    Used in:
-    - vidkompy/align/__init__.py
-    - vidkompy/align/precision.py
-    """
-
-    def __init__(self, bins: int = 64):
-        """
-        Initialize the histogram correlation algorithm.
-
-        Args:
-            bins: Number of histogram bins per channel
-
-        """
-        self.bins = bins
-
-    def estimate_scale(
-        self,
-        fg_frame: np.ndarray,
-        bg_frame: np.ndarray,
-        scale_range: tuple[float, float] = (0.5, 1.5),
-        scale_steps: int = 20,
-    ) -> tuple[float, float]:
-        """
-        Estimate scale using histogram correlation.
-
-        Args:
-            fg_frame: Foreground frame
-            bg_frame: Background frame
-            scale_range: Min and max scale factors to test
-            scale_steps: Number of scale steps
-
-        Returns:
-            Tuple of (best_scale, correlation_score)
-
-        """
-        # Calculate histogram of foreground
-        fg_hist = self._calculate_histogram(fg_frame)
-
-        min_scale, max_scale = scale_range
-        scales = np.linspace(min_scale, max_scale, scale_steps)
-
-        best_scale = 1.0
-        best_correlation = 0.0
-
-        for scale in scales:
-            # Scale foreground and calculate histogram
-            scaled_fg = self._scale_frame(fg_frame, scale)
-            scaled_hist = self._calculate_histogram(scaled_fg)
-
-            # Calculate correlation
-            correlation = self._correlate_histograms(fg_hist, scaled_hist)
-
-            if correlation > best_correlation:
-                best_correlation = correlation
-                best_scale = scale
-
-        return best_scale, best_correlation
-
-    def _calculate_histogram(self, frame: np.ndarray) -> np.ndarray:
-        """Calculate normalized histogram of frame."""
-        if len(frame.shape) == 3:
-            # Color image - calculate histogram for each channel
-            hist_b = cv2.calcHist([frame], [0], None, [self.bins], [0, 256])
-            hist_g = cv2.calcHist([frame], [1], None, [self.bins], [0, 256])
-            hist_r = cv2.calcHist([frame], [2], None, [self.bins], [0, 256])
-            hist = np.concatenate([hist_b, hist_g, hist_r])
-        else:
-            # Grayscale image
-            hist = cv2.calcHist([frame], [0], None, [self.bins], [0, 256])
-
-        # Normalize histogram
-        hist = hist / (hist.sum() + 1e-10)
-        return hist.flatten()
-
-    def _scale_frame(self, frame: np.ndarray, scale: float) -> np.ndarray:
-        """Scale frame by given factor."""
-        new_width = int(frame.shape[1] * scale)
-        new_height = int(frame.shape[0] * scale)
-        return cv2.resize(frame, (new_width, new_height))
-
-    def _correlate_histograms(self, hist1: np.ndarray, hist2: np.ndarray) -> float:
-        """Calculate Pearson correlation between histograms."""
-        try:
-            correlation, _ = pearsonr(hist1, hist2)
-            return abs(correlation) if not np.isnan(correlation) else 0.0
-        except:
-            return 0.0
 
 
 class SubPixelRefinementAlgorithm:
@@ -861,9 +732,7 @@ class PhaseCorrelationAlgorithm:
     def __init__(self, verbose: bool = False):
         """Initialize the phase correlation algorithm."""
         self.verbose = verbose
-        self.performance_stats = {
-            "phase_correlation_time": 0.0,
-        }
+        self.performance_stats = PerformanceStats()
 
     def phase_correlation_matching(
         self, template: np.ndarray, image: np.ndarray, scale_estimate: float = 1.0
@@ -925,7 +794,7 @@ class PhaseCorrelationAlgorithm:
             )
 
             processing_time = time.time() - start_time
-            self.performance_stats["phase_correlation_time"] += processing_time
+            self.performance_stats.phase_correlation_time += processing_time
 
             # Convert shift to position
             y_shift, x_shift = shift
@@ -972,9 +841,7 @@ class HybridMatchingAlgorithm:
         self.feature_matcher = FeatureMatchingAlgorithm(verbose=verbose)
         self.phase_matcher = PhaseCorrelationAlgorithm(verbose)
 
-        self.performance_stats = {
-            "hybrid_matching_time": 0.0,
-        }
+        self.performance_stats = PerformanceStats()
 
     def hybrid_matching(
         self, template: np.ndarray, image: np.ndarray, method: str = "auto"

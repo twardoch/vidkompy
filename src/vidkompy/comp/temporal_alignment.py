@@ -12,9 +12,8 @@ preserving all foreground frames without retiming.
 import numpy as np
 from loguru import logger
 
-from vidkompy.comp.models import VideoInfo, FrameAlignment, TemporalAlignment
+from .domain_models import VideoInfo, FrameAlignment, TemporalAlignment
 from .video_processor import VideoProcessor
-from .spatial_alignment import SpatialAligner
 from .tunnel_aligner import TunnelFullAligner, TunnelMaskAligner, TunnelConfig
 
 
