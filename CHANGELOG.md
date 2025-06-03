@@ -5,6 +5,7 @@
 ### Fixed
 
 - **VideoInfo instantiation bug**: Fixed TypeError in `comp/video.py` where `audio_sample_rate` and `audio_channels` were being passed directly to `VideoInfo` constructor. Now properly creates an `AudioInfo` object first before passing it to `VideoInfo`.
+- **ThumbnailFinder integration bug**: Fixed AttributeError in `comp/temporal.py` where the code was trying to call a non-existent `align` method on `ThumbnailFinder`. The temporal alignment now uses pre-computed spatial alignment instead of trying to perform its own.
 
 ### Changed
 

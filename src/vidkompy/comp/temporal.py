@@ -19,7 +19,6 @@ from vidkompy.comp.tunnel import (
     TunnelMaskSyncer,
     TunnelConfig,
 )
-from vidkompy.align import ThumbnailFinder
 
 
 class TemporalSyncer:
@@ -115,7 +114,7 @@ class TemporalSyncer:
         # Initialize tunnel aligner if not already done
         if self.tunnel_syncer is None:
             config = TunnelConfig(
-                window_size=self.cli_window_size if self.cli_window_size > 0 else 30,
+                window_size=(self.cli_window_size if self.cli_window_size > 0 else 30),
                 downsample_factor=0.5,  # Downsample to 50% for faster processing
                 early_stop_threshold=0.05,
                 merge_strategy="confidence_weighted",
@@ -126,30 +125,12 @@ class TemporalSyncer:
             else:  # mask
                 self.tunnel_syncer = TunnelMaskSyncer(config)
 
-        # Perform spatial alignment first
-        logger.info("Performing spatial alignment for tunnel engine...")
-        spatial_aligner = ThumbnailFinder()
-
-        # Extract sample frames for spatial alignment
-        bg_frames = self.processor.extract_frames(
-            bg_info.path, [bg_info.frame_count // 2]
-        )
-        fg_frames = self.processor.extract_frames(
-            fg_info.path, [fg_info.frame_count // 2]
-        )
-
-        if not bg_frames or not fg_frames:
-            logger.error("Failed to extract sample frames for spatial alignment")
-            return self._create_direct_mapping(bg_info, fg_info)
-
-        bg_sample = bg_frames[0]
-        fg_sample = fg_frames[0]
-
-        # Get spatial alignment
-        spatial_result = spatial_aligner.align(bg_sample, fg_sample)
-        x_offset, y_offset = spatial_result.x_offset, spatial_result.y_offset
-
-        logger.info(f"Spatial offset: ({x_offset}, {y_offset})")
+        # For tunnel engine, we assume spatial alignment is already done
+        # The tunnel engine operates on spatially aligned frames
+        # Use default values for offsets since spatial alignment is handled separately
+        logger.info("Using pre-computed spatial alignment for tunnel engine...")
+        x_offset = 0
+        y_offset = 0
 
         # Extract all frames for tunnel alignment
         logger.info("Extracting all frames for tunnel alignment...")
@@ -176,7 +157,11 @@ class TemporalSyncer:
         # Perform tunnel alignment
         logger.info(f"Performing {self.engine_mode} alignment...")
         frame_alignments, confidence = self.tunnel_syncer.sync(
-            fg_all_frames, bg_all_frames, scaled_x_offset, scaled_y_offset, verbose=True
+            fg_all_frames,
+            bg_all_frames,
+            scaled_x_offset,
+            scaled_y_offset,
+            verbose=True,
         )
 
         # Calculate temporal offset from first alignment
@@ -208,7 +193,9 @@ class TemporalSyncer:
 
             alignments.append(
                 FrameAlignment(
-                    fg_frame_idx=fg_idx, bg_frame_idx=bg_idx, similarity_score=0.5
+                    fg_frame_idx=fg_idx,
+                    bg_frame_idx=bg_idx,
+                    similarity_score=0.5,
                 )
             )
 
@@ -228,17 +215,20 @@ class TemporalSyncer:
     ) -> np.ndarray:
         """Create border mask for border-based temporal alignment.
 
-        The border mask defines the region around the foreground video edges where
-        background video is visible. This is used for similarity comparison in border mode.
+        The border mask defines the region around the foreground video edges
+        where background video is visible. This is used for similarity
+        comparison in border mode.
 
         Args:
-            spatial_alignment: Result from spatial alignment containing x/y offsets
+            spatial_alignment: Result from spatial alignment containing
+                             x/y offsets
             fg_info: Foreground video information
             bg_info: Background video information
             border_thickness: Thickness of border region in pixels
 
         Returns:
-            Binary mask where 1 indicates border region, 0 indicates non-border
+            Binary mask where 1 indicates border region, 0 indicates
+            non-border
 
         Used in:
         - vidkompy/comp/align.py

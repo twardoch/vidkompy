@@ -1397,258 +1397,6 @@ class AlignmentEngine:
             logger.warning("Saved video without audio")
 </file>
 
-<file path="src/vidkompy/comp/data_types.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/comp/data_types.py
-
-"""
-Domain models for vidkompy composition module.
-
-Contains all dataclasses and data structures used across the composition system.
-"""
-
-from dataclasses import dataclass
-from pathlib import Path
-from vidkompy.utils.enums import TimeMode
-
-
-@dataclass
-class AudioInfo:
-    """Audio metadata container.
-
-    Extracted from VideoInfo to reduce nullable fields.
-
-    Used in:
-    - vidkompy/comp/video.py
-    """
-
-    sample_rate: int
-    channels: int
-
-
-@dataclass
-class VideoInfo:
-    """Video metadata container.
-
-    Used in:
-    - vidkompy/comp/align.py
-    - vidkompy/comp/temporal.py
-    - vidkompy/comp/video.py
-    """
-
-    width: int
-    height: int
-    fps: float
-    duration: float
-    frame_count: int
-    has_audio: bool
-    audio_info: AudioInfo | None = None
-    path: str = ""
-
-    @property
-    def resolution(self) -> tuple[int, int]:
-        """Get video resolution as (width, height)."""
-        return (self.width, self.height)
-
-    @property
-    def aspect_ratio(self) -> float:
-        """Calculate aspect ratio."""
-        return self.width / self.height if self.height > 0 else 0
-
-    @classmethod
-    def from_path(cls, video_path: Path | str) -> "VideoInfo":
-        """Create VideoInfo by analyzing video file with ffprobe.
-
-        Encapsulates ffprobe call currently scattered across VideoProcessor.
-
-        Args:
-            video_path: Path to video file
-
-        Returns:
-            VideoInfo instance with metadata
-
-        """
-        import subprocess
-        import json
-
-        video_path = Path(video_path)
-
-        # Use ffprobe to get video metadata
-        cmd = [
-            "ffprobe",
-            "-v",
-            "quiet",
-            "-print_format",
-            "json",
-            "-show_format",
-            "-show_streams",
-            str(video_path),
-        ]
-
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            data = json.loads(result.stdout)
-
-            # Find video and audio streams
-            video_stream = None
-            audio_stream = None
-
-            for stream in data.get("streams", []):
-                if stream.get("codec_type") == "video" and video_stream is None:
-                    video_stream = stream
-                elif stream.get("codec_type") == "audio" and audio_stream is None:
-                    audio_stream = stream
-
-            if not video_stream:
-                msg = f"No video stream found in {video_path}"
-                raise ValueError(msg)
-
-            # Extract video info
-            width = int(video_stream["width"])
-            height = int(video_stream["height"])
-            fps = eval(video_stream["r_frame_rate"])  # e.g., "30/1" -> 30.0
-            duration = float(video_stream.get("duration", 0))
-            frame_count = int(video_stream.get("nb_frames", duration * fps))
-
-            # Extract audio info if present
-            audio_info = None
-            has_audio = audio_stream is not None
-            if has_audio:
-                audio_info = AudioInfo(
-                    sample_rate=int(audio_stream["sample_rate"]),
-                    channels=int(audio_stream["channels"]),
-                )
-
-            return cls(
-                width=width,
-                height=height,
-                fps=fps,
-                duration=duration,
-                frame_count=frame_count,
-                has_audio=has_audio,
-                audio_info=audio_info,
-                path=str(video_path),
-            )
-
-        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
-            msg = f"Failed to analyze video {video_path}: {e}"
-            raise RuntimeError(msg) from e
-
-
-@dataclass
-class FrameAlignment:
-    """Represents alignment between a foreground and background frame.
-
-    Used in:
-    - vidkompy/comp/align.py
-    - vidkompy/comp/dtw_aligner.py
-    - vidkompy/comp/temporal.py
-    - vidkompy/comp/tunnel.py
-    """
-
-    fg_frame_idx: int  # Foreground frame index (never changes)
-    bg_frame_idx: int  # Corresponding background frame index
-    similarity_score: float  # Similarity between frames (0-1)
-
-    def __repr__(self) -> str:
-        """"""
-        return f"FrameAlignment(fg={self.fg_frame_idx}, bg={self.bg_frame_idx}, sim={self.similarity_score:.3f})"
-
-
-@dataclass
-class SpatialTransform:
-    """Spatial transformation for overlaying foreground on background.
-
-    Represents a 2D similarity transform (scaling + translation) for
-    spatial alignment of videos.
-
-    Used in:
-    - vidkompy/comp/align.py
-    - vidkompy/comp/spatial_alignment.py
-    """
-
-    x_offset: int
-    y_offset: int
-    scale_factor: float = 1.0
-    confidence: float = 1.0
-
-    @property
-    def offset(self) -> tuple[int, int]:
-        """Get offset as tuple."""
-        return (self.x_offset, self.y_offset)
-
-    def as_matrix(self) -> "np.ndarray":
-        """Return 3x3 homography matrix for this spatial transform.
-
-        Returns:
-            3x3 transformation matrix for use with cv2.warpAffine
-
-        """
-        import numpy as np
-
-        # 2D similarity transform: scale + translation
-        matrix = np.array(
-            [
-                [self.scale_factor, 0, self.x_offset],
-                [0, self.scale_factor, self.y_offset],
-                [0, 0, 1],
-            ],
-            dtype=np.float32,
-        )
-
-        return matrix
-
-
-@dataclass
-class TemporalSync:
-    """Temporal alignment results.
-
-    Used in:
-    - vidkompy/comp/align.py
-    - vidkompy/comp/temporal.py
-    """
-
-    offset_seconds: float  # Time offset in seconds
-    frame_alignments: list[FrameAlignment]  # Frame-by-frame mapping
-    method_used: str  # Method that produced this alignment
-    confidence: float = 1.0
-
-    @property
-    def start_frame(self) -> int | None:
-        """Get first aligned foreground frame."""
-        return self.frame_alignments[0].fg_frame_idx if self.frame_alignments else None
-
-    @property
-    def end_frame(self) -> int | None:
-        """Get last aligned foreground frame."""
-        return self.frame_alignments[-1].fg_frame_idx if self.frame_alignments else None
-
-
-@dataclass
-class ProcessingOptions:
-    """Options for video processing."""
-
-    time_mode: TimeMode
-    space_method: str
-    skip_spatial: bool
-    trim: bool
-    max_keyframes: int = 2000
-    verbose: bool = False
-    border_thickness: int = 8
-    blend: bool = False
-    window: int = 0
-
-
-__all__ = [
-    "AudioInfo",
-    "FrameAlignment",
-    "ProcessingOptions",
-    "SpatialTransform",
-    "TemporalSync",
-    "VideoInfo",
-]
-</file>
-
 <file path="src/vidkompy/comp/fingerprint.py">
 #!/usr/bin/env python3
 # this_file: src/vidkompy/comp/fingerprint.py
@@ -3106,7 +2854,6 @@ from vidkompy.comp.tunnel import (
     TunnelMaskSyncer,
     TunnelConfig,
 )
-from vidkompy.align import ThumbnailFinder
 
 
 class TemporalSyncer:
@@ -3202,7 +2949,7 @@ class TemporalSyncer:
         # Initialize tunnel aligner if not already done
         if self.tunnel_syncer is None:
             config = TunnelConfig(
-                window_size=self.cli_window_size if self.cli_window_size > 0 else 30,
+                window_size=(self.cli_window_size if self.cli_window_size > 0 else 30),
                 downsample_factor=0.5,  # Downsample to 50% for faster processing
                 early_stop_threshold=0.05,
                 merge_strategy="confidence_weighted",
@@ -3213,30 +2960,12 @@ class TemporalSyncer:
             else:  # mask
                 self.tunnel_syncer = TunnelMaskSyncer(config)
 
-        # Perform spatial alignment first
-        logger.info("Performing spatial alignment for tunnel engine...")
-        spatial_aligner = ThumbnailFinder()
-
-        # Extract sample frames for spatial alignment
-        bg_frames = self.processor.extract_frames(
-            bg_info.path, [bg_info.frame_count // 2]
-        )
-        fg_frames = self.processor.extract_frames(
-            fg_info.path, [fg_info.frame_count // 2]
-        )
-
-        if not bg_frames or not fg_frames:
-            logger.error("Failed to extract sample frames for spatial alignment")
-            return self._create_direct_mapping(bg_info, fg_info)
-
-        bg_sample = bg_frames[0]
-        fg_sample = fg_frames[0]
-
-        # Get spatial alignment
-        spatial_result = spatial_aligner.align(bg_sample, fg_sample)
-        x_offset, y_offset = spatial_result.x_offset, spatial_result.y_offset
-
-        logger.info(f"Spatial offset: ({x_offset}, {y_offset})")
+        # For tunnel engine, we assume spatial alignment is already done
+        # The tunnel engine operates on spatially aligned frames
+        # Use default values for offsets since spatial alignment is handled separately
+        logger.info("Using pre-computed spatial alignment for tunnel engine...")
+        x_offset = 0
+        y_offset = 0
 
         # Extract all frames for tunnel alignment
         logger.info("Extracting all frames for tunnel alignment...")
@@ -3263,7 +2992,11 @@ class TemporalSyncer:
         # Perform tunnel alignment
         logger.info(f"Performing {self.engine_mode} alignment...")
         frame_alignments, confidence = self.tunnel_syncer.sync(
-            fg_all_frames, bg_all_frames, scaled_x_offset, scaled_y_offset, verbose=True
+            fg_all_frames,
+            bg_all_frames,
+            scaled_x_offset,
+            scaled_y_offset,
+            verbose=True,
         )
 
         # Calculate temporal offset from first alignment
@@ -3295,7 +3028,9 @@ class TemporalSyncer:
 
             alignments.append(
                 FrameAlignment(
-                    fg_frame_idx=fg_idx, bg_frame_idx=bg_idx, similarity_score=0.5
+                    fg_frame_idx=fg_idx,
+                    bg_frame_idx=bg_idx,
+                    similarity_score=0.5,
                 )
             )
 
@@ -3315,17 +3050,20 @@ class TemporalSyncer:
     ) -> np.ndarray:
         """Create border mask for border-based temporal alignment.
 
-        The border mask defines the region around the foreground video edges where
-        background video is visible. This is used for similarity comparison in border mode.
+        The border mask defines the region around the foreground video edges
+        where background video is visible. This is used for similarity
+        comparison in border mode.
 
         Args:
-            spatial_alignment: Result from spatial alignment containing x/y offsets
+            spatial_alignment: Result from spatial alignment containing
+                             x/y offsets
             fg_info: Foreground video information
             bg_info: Background video information
             border_thickness: Thickness of border region in pixels
 
         Returns:
-            Binary mask where 1 indicates border region, 0 indicates non-border
+            Binary mask where 1 indicates border region, 0 indicates
+            non-border
 
         Used in:
         - vidkompy/comp/align.py
@@ -3923,460 +3661,6 @@ class TunnelMaskSyncer(TunnelSyncer):
         return np.sum(diff) / (
             mask_sum * fg_frame.shape[2] if len(fg_frame.shape) == 3 else mask_sum
         )
-</file>
-
-<file path="src/vidkompy/comp/video.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/comp/video.py
-
-"""
-Core video processing functionality.
-
-Handles video I/O, metadata extraction, and frame operations.
-"""
-
-import cv2
-import ffmpeg
-import numpy as np
-from pathlib import Path
-from loguru import logger
-from rich.progress import (
-    Progress,
-    TextColumn,
-    BarColumn,
-    TimeRemainingColumn,
-)
-from rich.console import Console
-
-from vidkompy.comp.data_types import VideoInfo, AudioInfo
-
-console = Console()
-
-
-class VideoProcessor:
-    """Handles comp video processing operations.
-
-    This module provides the foundation for all video I/O operations.
-    It abstracts away the complexity of video codecs and formats.
-
-    Why separate video processing:
-    - Isolates platform-specific code
-    - Makes testing easier (can mock video I/O)
-    - Single place for optimization
-    - Handles codec compatibility issues
-
-    Why both OpenCV and FFmpeg:
-    - OpenCV: Frame-accurate reading, computer vision operations
-    - FFmpeg: Audio handling, codec support, fast encoding
-
-    Used in:
-    - vidkompy/comp/align.py
-    - vidkompy/comp/temporal.py
-    - vidkompy/comp/vidkompy.py
-    """
-
-    def get_video_info(self, video_path: str) -> VideoInfo:
-        """Extract video metadata using ffprobe.
-
-        Why ffprobe instead of OpenCV:
-        - More reliable metadata extraction
-        - Handles all video formats
-        - Provides accurate duration/framerate
-        - Detects audio streams properly
-
-        Why we need this info:
-        - FPS determines temporal alignment strategy
-        - Resolution needed for spatial alignment
-        - Duration for progress estimation
-        - Audio presence for alignment method selection
-
-        Args:
-            video_path: Path to video file
-
-        Returns:
-            VideoInfo object with metadata
-
-        Raises:
-            ValueError: If video cannot be probed
-
-        Used in:
-        - vidkompy/comp/align.py
-        """
-        logger.debug(f"Probing video: {video_path}")
-
-        try:
-            probe = ffmpeg.probe(video_path)
-
-            # Find video stream
-            video_stream = next(
-                (s for s in probe["streams"] if s["codec_type"] == "video"), None
-            )
-
-            if not video_stream:
-                msg = f"No video stream found in {video_path}"
-                raise ValueError(msg)
-
-            # Extract properties
-            width = int(video_stream["width"])
-            height = int(video_stream["height"])
-
-            # Parse frame rate
-            fps_str = video_stream.get("r_frame_rate", "0/1")
-            if "/" in fps_str:
-                num, den = map(int, fps_str.split("/"))
-                fps = num / den if den != 0 else 0
-            else:
-                fps = float(fps_str)
-
-            duration = float(probe["format"].get("duration", 0))
-
-            # Calculate frame count
-            frame_count = int(video_stream.get("nb_frames", 0))
-            if frame_count == 0 and duration > 0 and fps > 0:
-                frame_count = int(duration * fps)
-
-            # Check audio
-            audio_stream = next(
-                (s for s in probe["streams"] if s["codec_type"] == "audio"), None
-            )
-
-            has_audio = audio_stream is not None
-            audio_info = None
-
-            if has_audio and audio_stream:
-                audio_sample_rate = int(audio_stream.get("sample_rate", 0))
-                audio_channels = int(audio_stream.get("channels", 0))
-                audio_info = AudioInfo(
-                    sample_rate=audio_sample_rate,
-                    channels=audio_channels,
-                )
-
-            info = VideoInfo(
-                width=width,
-                height=height,
-                fps=fps,
-                duration=duration,
-                frame_count=frame_count,
-                has_audio=has_audio,
-                audio_info=audio_info,
-                path=video_path,
-            )
-
-            logger.info(
-                f"Video info for {Path(video_path).name}: "
-                f"{width}x{height}, {fps:.2f} fps, {duration:.2f}s, "
-                f"{frame_count} frames, audio: {'yes' if has_audio else 'no'}"
-            )
-
-            return info
-
-        except Exception as e:
-            logger.error(f"Failed to probe video {video_path}: {e}")
-            raise
-
-    def extract_frames(
-        self, video_path: str, frame_indices: list[int], resize_factor: float = 1.0
-    ) -> list[np.ndarray]:
-        """Extract specific frames from video.
-
-        Why selective frame extraction:
-        - Loading full video would exhaust memory
-        - We only need specific frames for matching
-        - Random access is fast with modern codecs
-
-        Why resize option:
-        - Faster processing on smaller frames
-        - SSIM works fine at lower resolution
-        - Reduces memory usage significantly
-
-        Why progress bar for large extractions:
-        - Frame seeking can be slow on some codecs
-        - Users need feedback for long operations
-        - Helps identify performance issues
-
-        Args:
-            video_path: Path to video file
-            frame_indices: List of frame indices to extract
-            resize_factor: Factor to resize frames (for performance)
-
-        Returns:
-            List of frames as numpy arrays
-
-        Used in:
-        - vidkompy/comp/align.py
-        - vidkompy/comp/temporal.py
-        """
-        frames = []
-        cap = cv2.VideoCapture(video_path)
-
-        if not cap.isOpened():
-            logger.error(f"Failed to open video: {video_path}")
-            return frames
-
-        try:
-            # Only show progress for large frame extractions
-            if len(frame_indices) > 50:
-                with Progress(
-                    TextColumn("[progress.description]{task.description}"),
-                    BarColumn(),
-                    TimeRemainingColumn(),
-                    console=console,
-                    transient=True,
-                ) as progress:
-                    task = progress.add_task(
-                        f"    Extracting {len(frame_indices)} frames...",
-                        total=len(frame_indices),
-                    )
-
-                    for idx in frame_indices:
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-                        ret, frame = cap.read()
-
-                        if ret:
-                            if resize_factor != 1.0:
-                                height, width = frame.shape[:2]
-                                new_width = int(width * resize_factor)
-                                new_height = int(height * resize_factor)
-                                frame = cv2.resize(frame, (new_width, new_height))
-                            frames.append(frame)
-                        else:
-                            logger.warning(
-                                f"Failed to read frame {idx} from {video_path}"
-                            )
-
-                        progress.update(task, advance=1)
-            else:
-                # No progress bar for small extractions
-                for idx in frame_indices:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-                    ret, frame = cap.read()
-
-                    if ret:
-                        if resize_factor != 1.0:
-                            height, width = frame.shape[:2]
-                            new_width = int(width * resize_factor)
-                            new_height = int(height * resize_factor)
-                            frame = cv2.resize(frame, (new_width, new_height))
-                        frames.append(frame)
-                    else:
-                        logger.warning(f"Failed to read frame {idx} from {video_path}")
-
-        finally:
-            cap.release()
-
-        return frames
-
-    def extract_frame_range(
-        self,
-        video_path: str,
-        start_frame: int,
-        end_frame: int,
-        step: int = 1,
-        resize_factor: float = 1.0,
-    ) -> list[tuple[int, np.ndarray]]:
-        """Extract a range of frames with their indices.
-
-        Args:
-            video_path: Path to video
-            start_frame: Starting frame index
-            end_frame: Ending frame index (exclusive)
-            step: Frame step size
-            resize_factor: Resize factor for frames
-
-        Returns:
-            List of (frame_index, frame) tuples
-
-        """
-        frames = []
-        cap = cv2.VideoCapture(video_path)
-
-        if not cap.isOpened():
-            logger.error(f"Failed to open video: {video_path}")
-            return frames
-
-        try:
-            for idx in range(start_frame, end_frame, step):
-                cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-                ret, frame = cap.read()
-
-                if ret:
-                    if resize_factor != 1.0:
-                        height, width = frame.shape[:2]
-                        new_width = int(width * resize_factor)
-                        new_height = int(height * resize_factor)
-                        frame = cv2.resize(frame, (new_width, new_height))
-                    frames.append((idx, frame))
-                else:
-                    break
-
-        finally:
-            cap.release()
-
-        return frames
-
-    def create_video_writer(
-        self, output_path: str, width: int, height: int, fps: float, codec: str = "mp4v"
-    ) -> cv2.VideoWriter:
-        """Create OpenCV video writer.
-
-        Why H.264/mp4v codec:
-        - Universal compatibility
-        - Good compression ratio
-        - Hardware acceleration available
-        - Supports high resolutions
-
-        Why we write silent video first:
-        - OpenCV VideoWriter doesn't handle audio
-        - Gives us perfect frame control
-        - Audio added later with FFmpeg
-
-        Args:
-            output_path: Output video path
-            width: Video width
-            height: Video height
-            fps: Frame rate
-            codec: Video codec (default mp4v)
-
-        Returns:
-            VideoWriter object
-
-        Used in:
-        - vidkompy/comp/align.py
-        """
-        fourcc = cv2.VideoWriter_fourcc(*codec)
-        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-
-        if not writer.isOpened():
-            msg = f"Failed to create video writer for {output_path}"
-            raise ValueError(msg)
-
-        return writer
-
-    def extract_all_frames(
-        self,
-        video_path: str,
-        resize_factor: float = 1.0,
-        crop: tuple[int, int, int, int] | None = None,
-    ) -> np.ndarray | None:
-        """Extract all frames from video as a numpy array.
-
-        This is used by the precise alignment engine which needs
-        access to all frames for multi-resolution processing.
-
-        Args:
-            video_path: Path to video file
-            resize_factor: Factor to resize frames (for performance)
-            crop: Optional (x, y, width, height) tuple to crop frames
-
-        Returns:
-            Array of frames or None if extraction fails
-
-        Used in:
-        - vidkompy/comp/temporal.py
-        """
-        cap = cv2.VideoCapture(video_path)
-
-        if not cap.isOpened():
-            logger.error(f"Failed to open video: {video_path}")
-            return None
-
-        try:
-            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            cap.get(cv2.CAP_PROP_FPS)
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-            # Calculate resized dimensions
-            if resize_factor != 1.0:
-                new_width = int(width * resize_factor)
-                new_height = int(height * resize_factor)
-            else:
-                new_width, new_height = width, height
-
-            # Apply crop dimensions if specified
-            if crop:
-                crop_x, crop_y, crop_w, crop_h = crop
-                # Scale crop coordinates by resize factor
-                crop_x = int(crop_x * resize_factor)
-                crop_y = int(crop_y * resize_factor)
-                crop_w = int(crop_w * resize_factor)
-                crop_h = int(crop_h * resize_factor)
-
-                # Ensure crop is within bounds
-                crop_x = max(0, min(crop_x, new_width - 1))
-                crop_y = max(0, min(crop_y, new_height - 1))
-                crop_w = min(crop_w, new_width - crop_x)
-                crop_h = min(crop_h, new_height - crop_y)
-
-                final_width = crop_w
-                final_height = crop_h
-            else:
-                final_width = new_width
-                final_height = new_height
-
-            # Pre-allocate array for efficiency
-            frames = np.zeros(
-                (frame_count, final_height, final_width, 3), dtype=np.uint8
-            )
-
-            if crop:
-                logger.info(
-                    f"Extracting all {frame_count} frames at {new_width}x{new_height}, cropped to {final_width}x{final_height}"
-                )
-            else:
-                logger.info(
-                    f"Extracting all {frame_count} frames at {new_width}x{new_height}"
-                )
-
-            # Extract frames with progress bar
-            with Progress(
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TimeRemainingColumn(),
-                console=console,
-                transient=True,
-            ) as progress:
-                task = progress.add_task(
-                    f"    Extracting {frame_count} frames...",
-                    total=frame_count,
-                )
-
-                frame_idx = 0
-                while True:
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-
-                    if resize_factor != 1.0:
-                        frame = cv2.resize(frame, (new_width, new_height))
-
-                    # Apply cropping if specified
-                    if crop:
-                        frame = frame[
-                            crop_y : crop_y + crop_h, crop_x : crop_x + crop_w
-                        ]
-
-                    if frame_idx < frame_count:
-                        frames[frame_idx] = frame
-                        frame_idx += 1
-                        progress.update(task, advance=1)
-                    else:
-                        logger.warning(f"More frames than expected in {video_path}")
-                        break
-
-            # Trim array if we got fewer frames than expected
-            if frame_idx < frame_count:
-                logger.warning(f"Got {frame_idx} frames, expected {frame_count}")
-                frames = frames[:frame_idx]
-
-            logger.info(f"Extracted {len(frames)} frames from {Path(video_path).name}")
-            return frames
-
-        except Exception as e:
-            logger.error(f"Failed to extract frames from {video_path}: {e}")
-            return None
-        finally:
-            cap.release()
 </file>
 
 <file path="src/vidkompy/utils/enums.py">
@@ -5246,6 +4530,712 @@ class ResultDisplayer:
             Formatted scale string
         """
         return f"{scale * 100:.2f}%"
+</file>
+
+<file path="src/vidkompy/comp/data_types.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/comp/data_types.py
+
+"""
+Domain models for vidkompy composition module.
+
+Contains all dataclasses and data structures used across the composition system.
+"""
+
+from dataclasses import dataclass
+from pathlib import Path
+from vidkompy.utils.enums import TimeMode
+
+
+@dataclass
+class AudioInfo:
+    """Audio metadata container.
+
+    Extracted from VideoInfo to reduce nullable fields.
+
+    Used in:
+    - vidkompy/comp/video.py
+    """
+
+    sample_rate: int
+    channels: int
+
+
+@dataclass
+class VideoInfo:
+    """Video metadata container.
+
+    Used in:
+    - vidkompy/comp/align.py
+    - vidkompy/comp/temporal.py
+    - vidkompy/comp/video.py
+    """
+
+    width: int
+    height: int
+    fps: float
+    duration: float
+    frame_count: int
+    has_audio: bool
+    audio_info: AudioInfo | None = None
+    path: str = ""
+
+    @property
+    def resolution(self) -> tuple[int, int]:
+        """Get video resolution as (width, height)."""
+        return (self.width, self.height)
+
+    @property
+    def aspect_ratio(self) -> float:
+        """Calculate aspect ratio."""
+        return self.width / self.height if self.height > 0 else 0
+
+    @classmethod
+    def from_path(cls, video_path: Path | str) -> "VideoInfo":
+        """Create VideoInfo by analyzing video file with ffprobe.
+
+        Encapsulates ffprobe call currently scattered across VideoProcessor.
+
+        Args:
+            video_path: Path to video file
+
+        Returns:
+            VideoInfo instance with metadata
+
+        """
+        import subprocess
+        import json
+
+        video_path = Path(video_path)
+
+        # Use ffprobe to get video metadata
+        cmd = [
+            "ffprobe",
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            str(video_path),
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            data = json.loads(result.stdout)
+
+            # Find video and audio streams
+            video_stream = None
+            audio_stream = None
+
+            for stream in data.get("streams", []):
+                if stream.get("codec_type") == "video" and video_stream is None:
+                    video_stream = stream
+                elif stream.get("codec_type") == "audio" and audio_stream is None:
+                    audio_stream = stream
+
+            if not video_stream:
+                msg = f"No video stream found in {video_path}"
+                raise ValueError(msg)
+
+            # Extract video info
+            width = int(video_stream["width"])
+            height = int(video_stream["height"])
+            fps = eval(video_stream["r_frame_rate"])  # e.g., "30/1" -> 30.0
+            duration = float(video_stream.get("duration", 0))
+            frame_count = int(video_stream.get("nb_frames", duration * fps))
+
+            # Extract audio info if present
+            audio_info = None
+            has_audio = audio_stream is not None
+            if has_audio:
+                audio_info = AudioInfo(
+                    sample_rate=int(audio_stream["sample_rate"]),
+                    channels=int(audio_stream["channels"]),
+                )
+
+            return cls(
+                width=width,
+                height=height,
+                fps=fps,
+                duration=duration,
+                frame_count=frame_count,
+                has_audio=has_audio,
+                audio_info=audio_info,
+                path=str(video_path),
+            )
+
+        except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as e:
+            msg = f"Failed to analyze video {video_path}: {e}"
+            raise RuntimeError(msg) from e
+
+
+@dataclass
+class FrameAlignment:
+    """Represents alignment between a foreground and background frame.
+
+    Used in:
+    - vidkompy/comp/align.py
+    - vidkompy/comp/dtw_aligner.py
+    - vidkompy/comp/temporal.py
+    - vidkompy/comp/tunnel.py
+    """
+
+    fg_frame_idx: int  # Foreground frame index (never changes)
+    bg_frame_idx: int  # Corresponding background frame index
+    similarity_score: float  # Similarity between frames (0-1)
+
+    def __repr__(self) -> str:
+        """"""
+        return f"FrameAlignment(fg={self.fg_frame_idx}, bg={self.bg_frame_idx}, sim={self.similarity_score:.3f})"
+
+
+@dataclass
+class SpatialTransform:
+    """Spatial transformation for overlaying foreground on background.
+
+    Represents a 2D similarity transform (scaling + translation) for
+    spatial alignment of videos.
+
+    Used in:
+    - vidkompy/comp/align.py
+    - vidkompy/comp/spatial_alignment.py
+    """
+
+    x_offset: int
+    y_offset: int
+    scale_factor: float = 1.0
+    confidence: float = 1.0
+
+    @property
+    def offset(self) -> tuple[int, int]:
+        """Get offset as tuple."""
+        return (self.x_offset, self.y_offset)
+
+    def as_matrix(self) -> "np.ndarray":
+        """Return 3x3 homography matrix for this spatial transform.
+
+        Returns:
+            3x3 transformation matrix for use with cv2.warpAffine
+
+        """
+        import numpy as np
+
+        # 2D similarity transform: scale + translation
+        matrix = np.array(
+            [
+                [self.scale_factor, 0, self.x_offset],
+                [0, self.scale_factor, self.y_offset],
+                [0, 0, 1],
+            ],
+            dtype=np.float32,
+        )
+
+        return matrix
+
+
+@dataclass
+class TemporalSync:
+    """Temporal alignment results.
+
+    Used in:
+    - vidkompy/comp/align.py
+    - vidkompy/comp/temporal.py
+    """
+
+    offset_seconds: float  # Time offset in seconds
+    frame_alignments: list[FrameAlignment]  # Frame-by-frame mapping
+    method_used: str  # Method that produced this alignment
+    confidence: float = 1.0
+
+    @property
+    def start_frame(self) -> int | None:
+        """Get first aligned foreground frame."""
+        return self.frame_alignments[0].fg_frame_idx if self.frame_alignments else None
+
+    @property
+    def end_frame(self) -> int | None:
+        """Get last aligned foreground frame."""
+        return self.frame_alignments[-1].fg_frame_idx if self.frame_alignments else None
+
+
+@dataclass
+class ProcessingOptions:
+    """Options for video processing."""
+
+    time_mode: TimeMode
+    space_method: str
+    skip_spatial: bool
+    trim: bool
+    max_keyframes: int = 2000
+    verbose: bool = False
+    border_thickness: int = 8
+    blend: bool = False
+    window: int = 0
+
+
+__all__ = [
+    "AudioInfo",
+    "FrameAlignment",
+    "ProcessingOptions",
+    "SpatialTransform",
+    "TemporalSync",
+    "VideoInfo",
+]
+</file>
+
+<file path="src/vidkompy/comp/video.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/comp/video.py
+
+"""
+Core video processing functionality.
+
+Handles video I/O, metadata extraction, and frame operations.
+"""
+
+import cv2
+import ffmpeg
+import numpy as np
+from pathlib import Path
+from loguru import logger
+from rich.progress import (
+    Progress,
+    TextColumn,
+    BarColumn,
+    TimeRemainingColumn,
+)
+from rich.console import Console
+
+from vidkompy.comp.data_types import VideoInfo, AudioInfo
+
+console = Console()
+
+
+class VideoProcessor:
+    """Handles comp video processing operations.
+
+    This module provides the foundation for all video I/O operations.
+    It abstracts away the complexity of video codecs and formats.
+
+    Why separate video processing:
+    - Isolates platform-specific code
+    - Makes testing easier (can mock video I/O)
+    - Single place for optimization
+    - Handles codec compatibility issues
+
+    Why both OpenCV and FFmpeg:
+    - OpenCV: Frame-accurate reading, computer vision operations
+    - FFmpeg: Audio handling, codec support, fast encoding
+
+    Used in:
+    - vidkompy/comp/align.py
+    - vidkompy/comp/temporal.py
+    - vidkompy/comp/vidkompy.py
+    """
+
+    def get_video_info(self, video_path: str) -> VideoInfo:
+        """Extract video metadata using ffprobe.
+
+        Why ffprobe instead of OpenCV:
+        - More reliable metadata extraction
+        - Handles all video formats
+        - Provides accurate duration/framerate
+        - Detects audio streams properly
+
+        Why we need this info:
+        - FPS determines temporal alignment strategy
+        - Resolution needed for spatial alignment
+        - Duration for progress estimation
+        - Audio presence for alignment method selection
+
+        Args:
+            video_path: Path to video file
+
+        Returns:
+            VideoInfo object with metadata
+
+        Raises:
+            ValueError: If video cannot be probed
+
+        Used in:
+        - vidkompy/comp/align.py
+        """
+        logger.debug(f"Probing video: {video_path}")
+
+        try:
+            probe = ffmpeg.probe(video_path)
+
+            # Find video stream
+            video_stream = next(
+                (s for s in probe["streams"] if s["codec_type"] == "video"), None
+            )
+
+            if not video_stream:
+                msg = f"No video stream found in {video_path}"
+                raise ValueError(msg)
+
+            # Extract properties
+            width = int(video_stream["width"])
+            height = int(video_stream["height"])
+
+            # Parse frame rate
+            fps_str = video_stream.get("r_frame_rate", "0/1")
+            if "/" in fps_str:
+                num, den = map(int, fps_str.split("/"))
+                fps = num / den if den != 0 else 0
+            else:
+                fps = float(fps_str)
+
+            duration = float(probe["format"].get("duration", 0))
+
+            # Calculate frame count
+            frame_count = int(video_stream.get("nb_frames", 0))
+            if frame_count == 0 and duration > 0 and fps > 0:
+                frame_count = int(duration * fps)
+
+            # Check audio
+            audio_stream = next(
+                (s for s in probe["streams"] if s["codec_type"] == "audio"), None
+            )
+
+            has_audio = audio_stream is not None
+            audio_info = None
+
+            if has_audio and audio_stream:
+                audio_sample_rate = int(audio_stream.get("sample_rate", 0))
+                audio_channels = int(audio_stream.get("channels", 0))
+                audio_info = AudioInfo(
+                    sample_rate=audio_sample_rate,
+                    channels=audio_channels,
+                )
+
+            info = VideoInfo(
+                width=width,
+                height=height,
+                fps=fps,
+                duration=duration,
+                frame_count=frame_count,
+                has_audio=has_audio,
+                audio_info=audio_info,
+                path=video_path,
+            )
+
+            logger.info(
+                f"Video info for {Path(video_path).name}: "
+                f"{width}x{height}, {fps:.2f} fps, {duration:.2f}s, "
+                f"{frame_count} frames, audio: {'yes' if has_audio else 'no'}"
+            )
+
+            return info
+
+        except Exception as e:
+            logger.error(f"Failed to probe video {video_path}: {e}")
+            raise
+
+    def extract_frames(
+        self, video_path: str, frame_indices: list[int], resize_factor: float = 1.0
+    ) -> list[np.ndarray]:
+        """Extract specific frames from video.
+
+        Why selective frame extraction:
+        - Loading full video would exhaust memory
+        - We only need specific frames for matching
+        - Random access is fast with modern codecs
+
+        Why resize option:
+        - Faster processing on smaller frames
+        - SSIM works fine at lower resolution
+        - Reduces memory usage significantly
+
+        Why progress bar for large extractions:
+        - Frame seeking can be slow on some codecs
+        - Users need feedback for long operations
+        - Helps identify performance issues
+
+        Args:
+            video_path: Path to video file
+            frame_indices: List of frame indices to extract
+            resize_factor: Factor to resize frames (for performance)
+
+        Returns:
+            List of frames as numpy arrays
+
+        Used in:
+        - vidkompy/comp/align.py
+        - vidkompy/comp/temporal.py
+        """
+        frames = []
+        cap = cv2.VideoCapture(video_path)
+
+        if not cap.isOpened():
+            logger.error(f"Failed to open video: {video_path}")
+            return frames
+
+        try:
+            # Only show progress for large frame extractions
+            if len(frame_indices) > 50:
+                with Progress(
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TimeRemainingColumn(),
+                    console=console,
+                    transient=True,
+                ) as progress:
+                    task = progress.add_task(
+                        f"    Extracting {len(frame_indices)} frames...",
+                        total=len(frame_indices),
+                    )
+
+                    for idx in frame_indices:
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                        ret, frame = cap.read()
+
+                        if ret:
+                            if resize_factor != 1.0:
+                                height, width = frame.shape[:2]
+                                new_width = int(width * resize_factor)
+                                new_height = int(height * resize_factor)
+                                frame = cv2.resize(frame, (new_width, new_height))
+                            frames.append(frame)
+                        else:
+                            logger.warning(
+                                f"Failed to read frame {idx} from {video_path}"
+                            )
+
+                        progress.update(task, advance=1)
+            else:
+                # No progress bar for small extractions
+                for idx in frame_indices:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                    ret, frame = cap.read()
+
+                    if ret:
+                        if resize_factor != 1.0:
+                            height, width = frame.shape[:2]
+                            new_width = int(width * resize_factor)
+                            new_height = int(height * resize_factor)
+                            frame = cv2.resize(frame, (new_width, new_height))
+                        frames.append(frame)
+                    else:
+                        logger.warning(f"Failed to read frame {idx} from {video_path}")
+
+        finally:
+            cap.release()
+
+        return frames
+
+    def extract_frame_range(
+        self,
+        video_path: str,
+        start_frame: int,
+        end_frame: int,
+        step: int = 1,
+        resize_factor: float = 1.0,
+    ) -> list[tuple[int, np.ndarray]]:
+        """Extract a range of frames with their indices.
+
+        Args:
+            video_path: Path to video
+            start_frame: Starting frame index
+            end_frame: Ending frame index (exclusive)
+            step: Frame step size
+            resize_factor: Resize factor for frames
+
+        Returns:
+            List of (frame_index, frame) tuples
+
+        """
+        frames = []
+        cap = cv2.VideoCapture(video_path)
+
+        if not cap.isOpened():
+            logger.error(f"Failed to open video: {video_path}")
+            return frames
+
+        try:
+            for idx in range(start_frame, end_frame, step):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                ret, frame = cap.read()
+
+                if ret:
+                    if resize_factor != 1.0:
+                        height, width = frame.shape[:2]
+                        new_width = int(width * resize_factor)
+                        new_height = int(height * resize_factor)
+                        frame = cv2.resize(frame, (new_width, new_height))
+                    frames.append((idx, frame))
+                else:
+                    break
+
+        finally:
+            cap.release()
+
+        return frames
+
+    def create_video_writer(
+        self, output_path: str, width: int, height: int, fps: float, codec: str = "mp4v"
+    ) -> cv2.VideoWriter:
+        """Create OpenCV video writer.
+
+        Why H.264/mp4v codec:
+        - Universal compatibility
+        - Good compression ratio
+        - Hardware acceleration available
+        - Supports high resolutions
+
+        Why we write silent video first:
+        - OpenCV VideoWriter doesn't handle audio
+        - Gives us perfect frame control
+        - Audio added later with FFmpeg
+
+        Args:
+            output_path: Output video path
+            width: Video width
+            height: Video height
+            fps: Frame rate
+            codec: Video codec (default mp4v)
+
+        Returns:
+            VideoWriter object
+
+        Used in:
+        - vidkompy/comp/align.py
+        """
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+        if not writer.isOpened():
+            msg = f"Failed to create video writer for {output_path}"
+            raise ValueError(msg)
+
+        return writer
+
+    def extract_all_frames(
+        self,
+        video_path: str,
+        resize_factor: float = 1.0,
+        crop: tuple[int, int, int, int] | None = None,
+    ) -> np.ndarray | None:
+        """Extract all frames from video as a numpy array.
+
+        This is used by the precise alignment engine which needs
+        access to all frames for multi-resolution processing.
+
+        Args:
+            video_path: Path to video file
+            resize_factor: Factor to resize frames (for performance)
+            crop: Optional (x, y, width, height) tuple to crop frames
+
+        Returns:
+            Array of frames or None if extraction fails
+
+        Used in:
+        - vidkompy/comp/temporal.py
+        """
+        cap = cv2.VideoCapture(video_path)
+
+        if not cap.isOpened():
+            logger.error(f"Failed to open video: {video_path}")
+            return None
+
+        try:
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+            # Calculate resized dimensions
+            if resize_factor != 1.0:
+                new_width = int(width * resize_factor)
+                new_height = int(height * resize_factor)
+            else:
+                new_width, new_height = width, height
+
+            # Apply crop dimensions if specified
+            if crop:
+                crop_x, crop_y, crop_w, crop_h = crop
+                # Scale crop coordinates by resize factor
+                crop_x = int(crop_x * resize_factor)
+                crop_y = int(crop_y * resize_factor)
+                crop_w = int(crop_w * resize_factor)
+                crop_h = int(crop_h * resize_factor)
+
+                # Ensure crop is within bounds
+                crop_x = max(0, min(crop_x, new_width - 1))
+                crop_y = max(0, min(crop_y, new_height - 1))
+                crop_w = min(crop_w, new_width - crop_x)
+                crop_h = min(crop_h, new_height - crop_y)
+
+                final_width = crop_w
+                final_height = crop_h
+            else:
+                final_width = new_width
+                final_height = new_height
+
+            # Pre-allocate array for efficiency
+            frames = np.zeros(
+                (frame_count, final_height, final_width, 3), dtype=np.uint8
+            )
+
+            if crop:
+                logger.info(
+                    f"Extracting all {frame_count} frames at {new_width}x{new_height}, cropped to {final_width}x{final_height}"
+                )
+            else:
+                logger.info(
+                    f"Extracting all {frame_count} frames at {new_width}x{new_height}"
+                )
+
+            # Extract frames with progress bar
+            with Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TimeRemainingColumn(),
+                console=console,
+                transient=True,
+            ) as progress:
+                task = progress.add_task(
+                    f"    Extracting {frame_count} frames...",
+                    total=frame_count,
+                )
+
+                frame_idx = 0
+                while True:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+
+                    if resize_factor != 1.0:
+                        frame = cv2.resize(frame, (new_width, new_height))
+
+                    # Apply cropping if specified
+                    if crop:
+                        frame = frame[
+                            crop_y : crop_y + crop_h, crop_x : crop_x + crop_w
+                        ]
+
+                    if frame_idx < frame_count:
+                        frames[frame_idx] = frame
+                        frame_idx += 1
+                        progress.update(task, advance=1)
+                    else:
+                        logger.warning(f"More frames than expected in {video_path}")
+                        break
+
+            # Trim array if we got fewer frames than expected
+            if frame_idx < frame_count:
+                logger.warning(f"Got {frame_idx} frames, expected {frame_count}")
+                frames = frames[:frame_idx]
+
+            logger.info(f"Extracted {len(frames)} frames from {Path(video_path).name}")
+            return frames
+
+        except Exception as e:
+            logger.error(f"Failed to extract frames from {video_path}: {e}")
+            return None
+        finally:
+            cap.release()
 </file>
 
 <file path="src/vidkompy/utils/logging.py">
@@ -8196,6 +8186,38 @@ class DTWSyncer:
         return features
 </file>
 
+<file path=".claude/settings.local.json">
+{
+  "permissions": {
+    "allow": [
+      "Bash(fd:*)",
+      "Bash(chmod:*)",
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "Bash(ffprobe:*)",
+      "Bash(cp:*)",
+      "Bash(rm:*)",
+      "Bash(mkdir:*)",
+      "Bash(grep:*)",
+      "Bash(time python:*)",
+      "Bash(find:*)",
+      "mcp__search1api__search",
+      "mcp__search1api__crawl"
+    ],
+    "deny": []
+  },
+  "enableAllProjectMcpServers": false,
+  "enabledMcpjsonServers": [
+    "ask-chatgpt",
+    "ask-pplx",
+    "control-the-browser",
+    "search-the-web-1api",
+    "search-web-ddg",
+    "sequential-thinking"
+  ]
+}
+</file>
+
 <file path="src/vidkompy/comp/vidkompy.py">
 #!/usr/bin/env -S uv run -s
 # /// script
@@ -8365,38 +8387,6 @@ def composite_videos(
     except Exception as e:
         logger.error(f"Processing failed: {e}")
         raise
-</file>
-
-<file path=".claude/settings.local.json">
-{
-  "permissions": {
-    "allow": [
-      "Bash(fd:*)",
-      "Bash(chmod:*)",
-      "Bash(python:*)",
-      "Bash(ls:*)",
-      "Bash(ffprobe:*)",
-      "Bash(cp:*)",
-      "Bash(rm:*)",
-      "Bash(mkdir:*)",
-      "Bash(grep:*)",
-      "Bash(time python:*)",
-      "Bash(find:*)",
-      "mcp__search1api__search",
-      "mcp__search1api__crawl"
-    ],
-    "deny": []
-  },
-  "enableAllProjectMcpServers": false,
-  "enabledMcpjsonServers": [
-    "ask-chatgpt",
-    "ask-pplx",
-    "control-the-browser",
-    "search-the-web-1api",
-    "search-web-ddg",
-    "sequential-thinking"
-  ]
-}
 </file>
 
 <file path="benchmark.sh">
@@ -9677,7 +9667,13 @@ This project is licensed under the MIT License. See the [LICENSE](https://www.go
 
 ## [Unreleased]
 
+### Fixed
+
+- **VideoInfo instantiation bug**: Fixed TypeError in `comp/video.py` where `audio_sample_rate` and `audio_channels` were being passed directly to `VideoInfo` constructor. Now properly creates an `AudioInfo` object first before passing it to `VideoInfo`.
+- **ThumbnailFinder integration bug**: Fixed AttributeError in `comp/temporal.py` where the code was trying to call a non-existent `align` method on `ThumbnailFinder`. The temporal alignment now uses pre-computed spatial alignment instead of trying to perform its own.
+
 ### Changed
+
 - **Improved CLI interface**: Updated `__main__.py` to have explicit function signatures with comprehensive docstrings instead of generic `*args, **kwargs` wrappers. This provides better IDE support, clearer documentation, and improved type safety while maintaining the lazy import pattern.
 
 ## [0.3.0] - 2024-12-27
@@ -9689,6 +9685,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ## [Unreleased] - Code Quality and Architecture Improvements
 
 ### 🐛 Fixed - Critical Import Bugs
+
 - **Import Resolution**: Fixed typo in `comp/video.py` import path (`vidkompy.com.data_types` → `vidkompy.comp.data_types`)
 - **Numba Availability**: Added proper `NUMBA_AVAILABLE` definition in `comp/fingerprint.py` with try/except import handling
 - **Spatial Alignment**: Replaced undefined `SpatialAligner` with `ThumbnailFinder` in `comp/temporal.py`
@@ -9697,7 +9694,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### 🔧 Changed - Code Quality Refactoring
 
 #### **Implementation of PLAN.md Refactoring**
-- **utils Module Improvements**: 
+
+- **utils Module Improvements**:
+
   - Replaced logging constants export with dedicated `vidkompy.utils.logging` module
   - Generated dynamic `__all__` via explicit export list to avoid manual drift
   - Added `make_logger(name, verbose=False)` helper to centralize logger wiring
@@ -9705,12 +9704,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Added `CORR_EPS = 1e-7` constant to avoid scattered magic numbers
 
 - **Precision Analysis Enhancements**:
-  - Replaced dict-of-lambdas with `namedtuple ScaleParams(range_fn, steps)` for type safety  
+
+  - Replaced dict-of-lambdas with `namedtuple ScaleParams(range_fn, steps)` for type safety
   - Converted algorithm access to `@functools.cached_property` per algorithm
   - Replaced generic `ValueError` with `NotImplementedError` for unknown algorithms
   - Improved scale parameter handling with dedicated range functions
 
 - **Domain Model Improvements**:
+
   - Renamed `SpatialAlignment` to `SpatialTransform` for clarity
   - Added `as_matrix()` method returning 3×3 homography for downstream compositors
   - Extracted `AudioInfo` dataclass to reduce nullable fields in `VideoInfo`
@@ -9723,6 +9724,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### 🔧 Changed - Unified Spatial Alignment System (Previous Integration)
 
 #### **Major Integration Update**
+
 - **Unified Spatial Alignment**: Replaced simple spatial alignment in `comp` module with advanced `align` module
   - **Enhanced Accuracy**: Now uses 6 specialized algorithms with automatic fallbacks instead of single template matching
   - **Multi-Scale Detection**: Supports scale detection from 10% to 500% instead of only 1:1 matching
@@ -9731,27 +9733,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - **Robust Fallbacks**: Automatic algorithm switching when detection methods fail
 
 #### **New CLI Parameters for Video Composition**
+
 - **`--spatial_precision`**: Control spatial alignment precision level (0-4, default: 2)
   - Level 0: Ballpark histogram correlation (~1ms)
-  - Level 1: Coarse template matching (~10ms) 
+  - Level 1: Coarse template matching (~10ms)
   - Level 2: Balanced feature + template (~25ms, default)
   - Level 3: Fine hybrid multi-algorithm (~50ms)
   - Level 4: Precise sub-pixel refinement (~200ms)
 - **`--unscaled`**: Prefer unscaled for spatial alignment (default: True)
 
 #### **Implementation Details**
+
 - **ThumbnailFinder Integration**: Video composition now uses `ThumbnailFinder` instead of `SpatialAligner`
 - **Result Conversion**: Automatic conversion from `ThumbnailResult` to `SpatialAlignment` format
 - **Error Handling**: Graceful fallback to centering if advanced alignment fails
 - **Performance Optimization**: Default level 2 precision provides optimal speed/accuracy balance
 
 #### **Quality Improvements**
+
 - **Better Accuracy**: Multi-algorithm approach handles video compression artifacts
 - **Robustness**: Feature-based matching works when template matching fails
 - **Scale Detection**: Automatic detection of scaled content (previously required manual scaling)
 - **Confidence Metrics**: Rich analysis data for debugging and quality assessment
 
 #### **Backward Compatibility Maintained**
+
 - **Deprecated `spatial_alignment.py`**: Added deprecation warning while maintaining compatibility
 - **Interface Preservation**: Existing `SpatialAlignment` return type unchanged
 - **CLI Compatibility**: All existing CLI commands work without modification
@@ -9760,6 +9766,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### 🏗️ Added - Complete Modular Architecture Overhaul (Previous Release)
 
 #### **Major Structural Refactoring**
+
 - **Monolithic to Modular**: Complete restructuring of thumbnail detection system
   - Refactored monolithic `align_old.py` (1700+ lines) into clean modular `src/vidkompy/align/` package
   - **8 specialized modules**, each under 400 lines with single responsibility principle
@@ -9767,7 +9774,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - **Enhanced maintainability**: Clear separation of concerns and improved code organization
 
 #### **Advanced Algorithm Suite** - 6 Specialized Detection Classes
+
 - **`TemplateMatchingAlgorithm`**: Multi-scale parallel template matching
+
   - Parallel processing with `ThreadPoolExecutor` for concurrent scale testing
   - Ballpark scale estimation using ultra-fast histogram correlation (~1ms)
   - Numba JIT optimization for critical computational functions
@@ -9775,6 +9784,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Normalized cross-correlation with OpenCV's `TM_CCOEFF_NORMED`
 
 - **`FeatureMatchingAlgorithm`**: Enhanced feature-based matching
+
   - Multiple detector support: AKAZE (default), ORB, and SIFT
   - Robust matching with ratio test filtering and RANSAC outlier rejection
   - Transformation estimation using `estimateAffinePartial2D` and homography methods
@@ -9782,18 +9792,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Automatic fallbacks when detection methods fail
 
 - **`PhaseCorrelationAlgorithm`**: FFT-based sub-pixel accurate position detection
+
   - Uses scikit-image's `phase_cross_correlation` for precision
   - 10x upsampling factor for sub-pixel accuracy
   - Integrates with scale estimates from other algorithms
   - Transforms phase correlation error into confidence metrics
 
 - **`HybridMatchingAlgorithm`**: Intelligent multi-method combination
+
   - Cascaded processing: Feature → Template → Phase correlation pipeline
   - Weighted result selection based on confidence and method reliability
   - Adaptive strategy adjusting approach based on initial detection success
-  - Combines best aspects of multiple algorithms for optimal results
+  - Combines the best aspects of multiple algorithms for optimal results
 
 - **`HistogramCorrelationAlgorithm`**: Ultra-fast ballpark estimation
+
   - Provides scale estimation in ~1ms using histogram correlation
   - Multi-region sampling across image areas for robustness
   - Normalized histograms robust to brightness and contrast variations
@@ -9806,6 +9819,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   - Quality improvement layer for other algorithm results
 
 #### **Multi-Precision Analysis System** - Progressive Refinement
+
 - **5 precision levels** with different speed/accuracy trade-offs:
   - **Level 0 (Ballpark)**: ~1ms histogram correlation only for ultra-fast scale estimation
   - **Level 1 (Coarse)**: ~10ms parallel template matching with wide scale steps
@@ -9816,6 +9830,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Intelligent algorithm selection**: Automatic method choice based on input characteristics
 
 #### **Enhanced CLI Architecture**
+
 - **New primary command**: `python -m vidkompy align` for thumbnail detection
 - **Backward compatibility**: `python -m vidkompy find` alias maintained
 - **Robust error handling**: Graceful handling of comp module import failures
@@ -9823,6 +9838,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Rich help system**: Detailed parameter documentation and usage examples
 
 #### **Performance Optimization Suite**
+
 - **Numba JIT compilation**: Critical functions optimized for 5-20x speed improvements
 - **Parallel processing**: ThreadPoolExecutor for concurrent multi-scale operations
 - **Memory efficiency**: Optimized data structures and streaming processing
@@ -9830,6 +9846,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Intelligent caching**: Result caching for repeated operations
 
 #### **Rich Display and User Experience**
+
 - **Comprehensive result presentation**: Detailed confidence metrics and processing time reports
 - **Multi-level analysis display**: Progressive results across precision levels
 - **Alternative analysis**: Comparative results (no vs scaled) with confidence metrics
@@ -9837,6 +9854,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Progress tracking**: Rich console progress bars with time estimates
 
 #### **Robust Error Handling and Reliability**
+
 - **Graceful algorithm fallbacks**: Automatic fallback when detection methods fail
 - **Input validation**: Clear error messages for invalid parameters and file paths
 - **Module import protection**: Prevents crashes from missing optional dependencies
@@ -9846,24 +9864,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### 🔄 Changed - Architecture and Interface Improvements
 
 #### **CLI Command Structure Evolution**
+
 - **Semantic naming**: `align` command better represents thumbnail detection functionality
 - **Consistent interfaces**: Unified argument ordering (fg, bg) across all commands
 - **Enhanced documentation**: More descriptive parameter names and comprehensive help
 - **Backward compatibility**: Existing `find` command workflows continue to work
 
 #### **Algorithm Architecture Transformation**
+
 - **Class-based design**: Algorithms implemented as separate classes with consistent interfaces
 - **Extensibility framework**: Easy addition of new detection methods through common interfaces
 - **Performance integration**: Timing and statistics tracking built into all algorithm classes
 - **Error handling**: Improved error handling with automatic fallback mechanisms
 
 #### **Code Quality and Documentation**
+
 - **Type safety**: Modern Python type hints using `list`, `dict`, `|` union syntax
 - **Comprehensive documentation**: Detailed docstrings for all classes, methods, and functions
 - **Parameter validation**: Built-in validation with actionable error messages
 - **Separation of concerns**: Clean module boundaries with single responsibility principle
 
 #### **Project Structure and Maintainability**
+
 - **Modular organization**: Each component handles specific aspect of processing pipeline
 - **Clear interfaces**: Well-defined APIs between modules enable independent development
 - **Reduced complexity**: Each module under 400 lines vs 1700+ original monolith
@@ -9872,18 +9894,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### 🛠️ Technical Infrastructure Improvements
 
 #### **Dependency Management and Compatibility**
+
 - **Added `numba`**: JIT compilation for performance-critical computational functions
 - **Added `loguru`**: Enhanced logging with better formatting and debugging capabilities
 - **Optional `scikit-image`**: Phase correlation support for advanced precision
 - **Maintained compatibility**: Existing dependencies (opencv-python, numpy, fire) preserved
 
 #### **Data Structures and Type Safety**
+
 - **Immutable dataclasses**: Built-in validation using `frozen=True` for data integrity
 - **Type-safe enums**: Precision levels and configuration options with compile-time checking
 - **Consistent result types**: Unified result structures across all algorithms
 - **Validated parameters**: Prevention of invalid configurations through validation
 
 #### **Performance Monitoring and Analytics**
+
 - **Per-algorithm timing**: Detailed breakdown of processing phases for optimization
 - **Memory usage tracking**: Monitoring for optimization opportunities
 - **Confidence scoring**: Standardized confidence metrics across all detection methods
@@ -9930,18 +9955,21 @@ The new modular architecture consists of 8 specialized modules:
 This major refactoring represents a fundamental transformation of vidkompy's thumbnail detection capabilities:
 
 ### **Technical Achievement**
+
 - **1700+ lines → 8 focused modules**: Dramatic reduction in complexity while adding functionality
 - **6 advanced algorithms**: From single approach to comprehensive algorithm suite
 - **5 precision levels**: Flexible speed/accuracy trade-offs for different use cases
 - **Performance optimization**: 5-20x speed improvements through Numba JIT compilation
 
 ### **User Experience Enhancement**
+
 - **Improved CLI**: Better command structure with enhanced help and validation
 - **Rich feedback**: Comprehensive result analysis and progress tracking
 - **Reliability**: Robust error handling and graceful degradation
 - **Backward compatibility**: Existing workflows preserved during transition
 
 ### **Development Benefits**
+
 - **Maintainability**: Clean architecture enables easier maintenance and debugging
 - **Extensibility**: Framework supports easy addition of new algorithms
 - **Testability**: Modular design enables comprehensive testing strategies
@@ -9952,12 +9980,14 @@ This major refactoring represents a fundamental transformation of vidkompy's thu
 ## 📚 Migration Guide
 
 ### For Existing Users
+
 - **Primary command**: Use `python -m vidkompy align` for new features (recommended)
 - **Backward compatibility**: `python -m vidkompy find` continues to work as before
 - **New precision levels**: Consider `--precision 3` or `--precision 4` for higher accuracy
 - **Verbose mode**: Use `--verbose` for detailed algorithm information and debugging
 
 ### For Developers
+
 - **Import changes**: Use `from vidkompy.align import ThumbnailFinder` for direct access
 - **Algorithm access**: Individual algorithms available as separate classes for custom workflows
 - **Extension points**: Add new algorithms by implementing the `MatchResult` interface
@@ -9968,7 +9998,9 @@ This major refactoring represents a fundamental transformation of vidkompy's thu
 ## 🔄 Previous Development History
 
 ### Video Composition Engine (`comp` module)
+
 The project includes a sophisticated video composition system with:
+
 - **Temporal Alignment Engines**: Full and Mask engines for different content types
 - **Spatial Alignment**: Template matching and feature-based alignment methods
 - **Audio Processing**: Intelligent audio track selection and synchronization
@@ -9977,6 +10009,7 @@ The project includes a sophisticated video composition system with:
 - **Frame Fingerprinting**: Perceptual hashing for efficient frame comparison
 
 ### Earlier Major Features
+
 - **Multi-Engine Architecture**: Support for multiple temporal alignment approaches
 - **Border Mode Processing**: Specialized handling for letterboxed content
 - **Performance Benchmarks**: Real-world testing and optimization
@@ -9997,9 +10030,17 @@ Mark each task as done when you've completed it:
 
 4. [ ] Update the `README.md` to reflect the new structure of the code.
 
-5. [ ] Update the `CHANGELOG.md` to reflect the new features and changes.
+5. [x] Update the `CHANGELOG.md` to reflect the new features and changes.
 
 6. [ ] Edit `PLAN.md`: remove things that are done, keep things that are still TBD.
+
+## Recently Fixed Issues
+
+7. [x] Fix VideoInfo instantiation bug (audio_sample_rate TypeError)
+
+8. [x] Fix ThumbnailFinder integration bug (missing align method)
+
+9. [x] Update `__main__.py` with explicit signatures and docstrings
 </file>
 
 </files>

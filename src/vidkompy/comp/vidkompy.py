@@ -39,6 +39,9 @@ def composite_videos(
     window: int = 10,
     align_precision: int = 2,
     unscaled: bool = True,
+    x_shift: int | None = None,
+    y_shift: int | None = None,
+    zero_shift: bool = False,
     verbose: bool = False,
 ):
     """Overlay foreground video onto background video with intelligent
@@ -56,6 +59,9 @@ def composite_videos(
         window: DTW window size for temporal alignment (default: 10)
         align_precision: Spatial alignment precision level 0-4 (default: 2)
         unscaled: Prefer unscaled for spatial alignment (default: True)
+        x_shift: Explicit x position of foreground onto background (disables auto-alignment)
+        y_shift: Explicit y position of foreground onto background (disables auto-alignment)
+        zero_shift: Force position to 0,0 and disable scaling/auto-alignment
         verbose: Enable verbose logging
 
     Used in:
@@ -90,6 +96,9 @@ def composite_videos(
         logger.info(f"  GPU acceleration: {gpu}")
         logger.info(f"  Spatial precision: {align_precision}")
         logger.info(f"  unscaled: {unscaled}")
+        logger.info(f"  X shift: {x_shift}")
+        logger.info(f"  Y shift: {y_shift}")
+        logger.info(f"  Zero shift: {zero_shift}")
         logger.info(f"  Verbose logging: {verbose}")
 
     # Validate inputs
