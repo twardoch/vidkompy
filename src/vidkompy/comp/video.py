@@ -20,7 +20,7 @@ from rich.progress import (
 )
 from rich.console import Console
 
-from vidkompy.comp.data_types import VideoInfo
+from vidkompy.comp.data_types import VideoInfo, AudioInfo
 
 console = Console()
 
@@ -113,12 +113,15 @@ class VideoProcessor:
             )
 
             has_audio = audio_stream is not None
-            audio_sample_rate = None
-            audio_channels = None
+            audio_info = None
 
-            if audio_stream:
+            if has_audio and audio_stream:
                 audio_sample_rate = int(audio_stream.get("sample_rate", 0))
                 audio_channels = int(audio_stream.get("channels", 0))
+                audio_info = AudioInfo(
+                    sample_rate=audio_sample_rate,
+                    channels=audio_channels,
+                )
 
             info = VideoInfo(
                 width=width,
@@ -127,8 +130,7 @@ class VideoProcessor:
                 duration=duration,
                 frame_count=frame_count,
                 has_audio=has_audio,
-                audio_sample_rate=audio_sample_rate,
-                audio_channels=audio_channels,
+                audio_info=audio_info,
                 path=video_path,
             )
 

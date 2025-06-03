@@ -102,6 +102,386 @@ TODO.md
 <files>
 This section contains the contents of the repository's files.
 
+<file path=".giga/specifications.json">
+[
+  {
+    "fileName": "main-overview.mdc",
+    "description": "Complete system overview covering the video overlay architecture, key components, and processing pipeline flow"
+  },
+  {
+    "fileName": "alignment-algorithms.mdc",
+    "description": "Detailed documentation of the spatial and temporal alignment algorithms, including template matching, feature matching, and frame/audio synchronization techniques"
+  },
+  {
+    "fileName": "video-processing-flow.mdc",
+    "description": "End-to-end data flow documentation covering video ingestion, frame processing, alignment calculations, overlay composition, and output generation"
+  },
+  {
+    "fileName": "frame-matching-models.mdc",
+    "description": "Technical specifications for frame matching and mapping models, including similarity scoring, keyframe selection, and frame rate handling logic"
+  },
+  {
+    "fileName": "video-composition-rules.mdc",
+    "description": "Documentation of the business rules and constraints for video composition, including foreground preservation, audio handling, and quality thresholds"
+  }
+]
+</file>
+
+<file path=".github/workflows/push.yml">
+name: Build & Test
+
+on:
+  push:
+    branches: [main]
+    tags-ignore: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Ruff lint
+        uses: astral-sh/ruff-action@v3
+        with:
+          version: "latest"
+          args: "check --output-format=github"
+
+      - name: Run Ruff Format
+        uses: astral-sh/ruff-action@v3
+        with:
+          version: "latest"
+          args: "format --check --respect-gitignore"
+
+  test:
+    name: Run Tests
+    needs: quality
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+        os: [ubuntu-latest]
+      fail-fast: true
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-suffix: ${{ matrix.os }}-${{ matrix.python-version }}
+
+      - name: Install test dependencies
+        run: |
+          uv pip install --system --upgrade pip
+          uv pip install --system ".[test]"
+
+      - name: Run tests with Pytest
+        run: uv run pytest -n auto --maxfail=1 --disable-warnings --cov-report=xml --cov-config=pyproject.toml --cov=src/vidkompo --cov=tests tests/
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}-${{ matrix.os }}
+          path: coverage.xml
+
+  build:
+    name: Build Distribution
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install build tools
+        run: uv pip install build hatchling hatch-vcs
+
+      - name: Build distributions
+        run: uv run python -m build --outdir dist
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-files
+          path: dist/
+          retention-days: 5
+</file>
+
+<file path=".github/workflows/release.yml">
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Release to PyPI
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/vidkompo
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install UV
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install build tools
+        run: uv pip install build hatchling hatch-vcs
+
+      - name: Build distributions
+        run: uv run python -m build --outdir dist
+
+      - name: Verify distribution files
+        run: |
+          ls -la dist/
+          test -n "$(find dist -name '*.whl')" || (echo "Wheel file missing" && exit 1)
+          test -n "$(find dist -name '*.tar.gz')" || (echo "Source distribution missing" && exit 1)
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+</file>
+
+<file path="src/vidkompy/utils/image.py">
+#!/usr/bin/env python3
+# this_file: src/vidkompy/utils/image.py
+
+"""
+Image processing utilities for vidkompy.
+
+This module provides common image processing functions used across
+algorithms and extractors, focusing on grayscale conversion and
+frame resizing operations.
+
+Used in:
+- vidkompy/align/algorithms.py
+- vidkompy/align/frame_extractor.py
+- vidkompy/comp/* (various modules)
+"""
+
+import cv2
+import numpy as np
+
+__all__ = ["ensure_gray", "resize_frame"]
+
+
+def ensure_gray(frame: np.ndarray) -> np.ndarray:
+    """
+    Convert frame to grayscale if needed.
+
+    Args:
+        frame: Input frame (grayscale or color)
+
+    Returns:
+        Grayscale frame as 2D numpy array
+
+    Note:
+        If frame is already grayscale (2D), returns as-is.
+        If frame is color (3D), converts using BGR2GRAY.
+
+    Used in:
+    - vidkompy/align/algorithms.py
+    - vidkompy/align/core.py
+    - vidkompy/align/frame_extractor.py
+    - vidkompy/utils/__init__.py
+    """
+    if len(frame.shape) == 3:
+        return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    return frame
+
+
+def resize_frame(
+    frame: np.ndarray, scale: float | None = None, size: tuple[int, int] | None = None
+) -> np.ndarray:
+    """
+    Resize frame by scale factor or to specific size.
+
+    Args:
+        frame: Input frame to resize
+        scale: Scale factor (e.g., 0.5 for half size, 2.0 for double)
+        size: Target size as (width, height) tuple
+
+    Returns:
+        Resized frame
+
+    Raises:
+        ValueError: If neither scale nor size is provided, or both are provided
+
+    Note:
+        If both scale and size are provided, size takes precedence.
+        Uses INTER_AREA for downscaling, INTER_CUBIC for upscaling.
+
+    Used in:
+    - vidkompy/align/algorithms.py
+    - vidkompy/align/frame_extractor.py
+    - vidkompy/utils/__init__.py
+    """
+    if scale is None and size is None:
+        msg = "Either scale or size must be provided"
+        raise ValueError(msg)
+
+    if size is not None:
+        # Direct resize to specific size
+        return cv2.resize(frame, size)
+
+    if scale is not None:
+        # Resize by scale factor
+        if scale <= 0:
+            msg = "Scale factor must be positive"
+            raise ValueError(msg)
+
+        height, width = frame.shape[:2]
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+
+        # Choose interpolation method based on scale
+        if scale < 1.0:
+            # Downscaling - use INTER_AREA for better quality
+            interpolation = cv2.INTER_AREA
+        else:
+            # Upscaling - use INTER_CUBIC for smoother results
+            interpolation = cv2.INTER_CUBIC
+
+        return cv2.resize(frame, (new_width, new_height), interpolation=interpolation)
+
+    # This shouldn't be reached, but just in case
+    return frame
+</file>
+
+<file path=".pre-commit-config.yaml">
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.3.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+        args: [--respect-gitignore]
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+      - id: debug-statements
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+</file>
+
+<file path="cleanup.sh">
+#!/usr/bin/env bash
+
+python -m uzpy run -e src
+fd -e py -x autoflake {}
+fd -e py -x pyupgrade --py312-plus {}
+fd -e py -x ruff check --output-format=github --fix --unsafe-fixes {}
+fd -e py -x ruff format --respect-gitignore --target-version py312 {}
+repomix -i varia,.specstory,AGENT.md,CLAUDE.md,PLAN.md,llms.txt,.cursorrules -o llms.txt .
+python -m pytest
+</file>
+
+<file path="LICENSE">
+MIT License
+
+Copyright (c) 2025 Adam Twardoch
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+</file>
+
+<file path="package.toml">
+# Package configuration
+[package]
+include_cli = true        # Include CLI boilerplate
+include_logging = true    # Include logging setup
+use_pydantic = true      # Use Pydantic for data validation
+use_rich = true          # Use Rich for terminal output
+
+[features]
+mkdocs = false           # Enable MkDocs documentation
+vcs = true              # Initialize Git repository
+github_actions = true   # Add GitHub Actions workflows
+</file>
+
 <file path="src/vidkompy/align/data_types.py">
 #!/usr/bin/env python3
 # this_file: src/vidkompy/align/data_types.py
@@ -406,6 +786,10 @@ FrameArray = np.ndarray
 ScaleRange = tuple[float, float]
 Position = tuple[int, int]
 Size = tuple[int, int]
+</file>
+
+<file path="src/vidkompy/comp/__init__.py">
+# this_file: src/vidkompy/comp/__init__.py
 </file>
 
 <file path="src/vidkompy/comp/align.py">
@@ -1034,6 +1418,8 @@ class AudioInfo:
 
     Extracted from VideoInfo to reduce nullable fields.
 
+    Used in:
+    - vidkompy/comp/video.py
     """
 
     sample_rate: int
@@ -3562,7 +3948,7 @@ from rich.progress import (
 )
 from rich.console import Console
 
-from vidkompy.comp.data_types import VideoInfo
+from vidkompy.comp.data_types import VideoInfo, AudioInfo
 
 console = Console()
 
@@ -3655,12 +4041,15 @@ class VideoProcessor:
             )
 
             has_audio = audio_stream is not None
-            audio_sample_rate = None
-            audio_channels = None
+            audio_info = None
 
-            if audio_stream:
+            if has_audio and audio_stream:
                 audio_sample_rate = int(audio_stream.get("sample_rate", 0))
                 audio_channels = int(audio_stream.get("channels", 0))
+                audio_info = AudioInfo(
+                    sample_rate=audio_sample_rate,
+                    channels=audio_channels,
+                )
 
             info = VideoInfo(
                 width=width,
@@ -3669,8 +4058,7 @@ class VideoProcessor:
                 duration=duration,
                 frame_count=frame_count,
                 has_audio=has_audio,
-                audio_sample_rate=audio_sample_rate,
-                audio_channels=audio_channels,
+                audio_info=audio_info,
                 path=video_path,
             )
 
@@ -4464,384 +4852,12 @@ def log_numba_compilation():
     logger.info("Subsequent runs will be significantly faster")
 </file>
 
-<file path=".giga/specifications.json">
-[
-  {
-    "fileName": "main-overview.mdc",
-    "description": "Complete system overview covering the video overlay architecture, key components, and processing pipeline flow"
-  },
-  {
-    "fileName": "alignment-algorithms.mdc",
-    "description": "Detailed documentation of the spatial and temporal alignment algorithms, including template matching, feature matching, and frame/audio synchronization techniques"
-  },
-  {
-    "fileName": "video-processing-flow.mdc",
-    "description": "End-to-end data flow documentation covering video ingestion, frame processing, alignment calculations, overlay composition, and output generation"
-  },
-  {
-    "fileName": "frame-matching-models.mdc",
-    "description": "Technical specifications for frame matching and mapping models, including similarity scoring, keyframe selection, and frame rate handling logic"
-  },
-  {
-    "fileName": "video-composition-rules.mdc",
-    "description": "Documentation of the business rules and constraints for video composition, including foreground preservation, audio handling, and quality thresholds"
-  }
-]
-</file>
+<file path="src/vidkompy/__init__.py">
+# this_file: src/vidkompy/__init__.py
 
-<file path=".github/workflows/push.yml">
-name: Build & Test
+from .__version__ import __version__
 
-on:
-  push:
-    branches: [main]
-    tags-ignore: ["v*"]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
-
-permissions:
-  contents: write
-  id-token: write
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  quality:
-    name: Code Quality
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Run Ruff lint
-        uses: astral-sh/ruff-action@v3
-        with:
-          version: "latest"
-          args: "check --output-format=github"
-
-      - name: Run Ruff Format
-        uses: astral-sh/ruff-action@v3
-        with:
-          version: "latest"
-          args: "format --check --respect-gitignore"
-
-  test:
-    name: Run Tests
-    needs: quality
-    strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-        os: [ubuntu-latest]
-      fail-fast: true
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install UV
-        uses: astral-sh/setup-uv@v5
-        with:
-          version: "latest"
-          python-version: ${{ matrix.python-version }}
-          enable-cache: true
-          cache-suffix: ${{ matrix.os }}-${{ matrix.python-version }}
-
-      - name: Install test dependencies
-        run: |
-          uv pip install --system --upgrade pip
-          uv pip install --system ".[test]"
-
-      - name: Run tests with Pytest
-        run: uv run pytest -n auto --maxfail=1 --disable-warnings --cov-report=xml --cov-config=pyproject.toml --cov=src/vidkompo --cov=tests tests/
-
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix.python-version }}-${{ matrix.os }}
-          path: coverage.xml
-
-  build:
-    name: Build Distribution
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install UV
-        uses: astral-sh/setup-uv@v5
-        with:
-          version: "latest"
-          python-version: "3.12"
-          enable-cache: true
-
-      - name: Install build tools
-        run: uv pip install build hatchling hatch-vcs
-
-      - name: Build distributions
-        run: uv run python -m build --outdir dist
-
-      - name: Upload distribution artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-files
-          path: dist/
-          retention-days: 5
-</file>
-
-<file path=".github/workflows/release.yml">
-name: Release
-
-on:
-  push:
-    tags: ["v*"]
-
-permissions:
-  contents: write
-  id-token: write
-
-jobs:
-  release:
-    name: Release to PyPI
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/vidkompo
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install UV
-        uses: astral-sh/setup-uv@v5
-        with:
-          version: "latest"
-          python-version: "3.12"
-          enable-cache: true
-
-      - name: Install build tools
-        run: uv pip install build hatchling hatch-vcs
-
-      - name: Build distributions
-        run: uv run python -m build --outdir dist
-
-      - name: Verify distribution files
-        run: |
-          ls -la dist/
-          test -n "$(find dist -name '*.whl')" || (echo "Wheel file missing" && exit 1)
-          test -n "$(find dist -name '*.tar.gz')" || (echo "Source distribution missing" && exit 1)
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_TOKEN }}
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: dist/*
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-</file>
-
-<file path="src/vidkompy/utils/image.py">
-#!/usr/bin/env python3
-# this_file: src/vidkompy/utils/image.py
-
-"""
-Image processing utilities for vidkompy.
-
-This module provides common image processing functions used across
-algorithms and extractors, focusing on grayscale conversion and
-frame resizing operations.
-
-Used in:
-- vidkompy/align/algorithms.py
-- vidkompy/align/frame_extractor.py
-- vidkompy/comp/* (various modules)
-"""
-
-import cv2
-import numpy as np
-
-__all__ = ["ensure_gray", "resize_frame"]
-
-
-def ensure_gray(frame: np.ndarray) -> np.ndarray:
-    """
-    Convert frame to grayscale if needed.
-
-    Args:
-        frame: Input frame (grayscale or color)
-
-    Returns:
-        Grayscale frame as 2D numpy array
-
-    Note:
-        If frame is already grayscale (2D), returns as-is.
-        If frame is color (3D), converts using BGR2GRAY.
-
-    Used in:
-    - vidkompy/align/algorithms.py
-    - vidkompy/align/core.py
-    - vidkompy/align/frame_extractor.py
-    - vidkompy/utils/__init__.py
-    """
-    if len(frame.shape) == 3:
-        return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    return frame
-
-
-def resize_frame(
-    frame: np.ndarray, scale: float | None = None, size: tuple[int, int] | None = None
-) -> np.ndarray:
-    """
-    Resize frame by scale factor or to specific size.
-
-    Args:
-        frame: Input frame to resize
-        scale: Scale factor (e.g., 0.5 for half size, 2.0 for double)
-        size: Target size as (width, height) tuple
-
-    Returns:
-        Resized frame
-
-    Raises:
-        ValueError: If neither scale nor size is provided, or both are provided
-
-    Note:
-        If both scale and size are provided, size takes precedence.
-        Uses INTER_AREA for downscaling, INTER_CUBIC for upscaling.
-
-    Used in:
-    - vidkompy/align/algorithms.py
-    - vidkompy/align/frame_extractor.py
-    - vidkompy/utils/__init__.py
-    """
-    if scale is None and size is None:
-        msg = "Either scale or size must be provided"
-        raise ValueError(msg)
-
-    if size is not None:
-        # Direct resize to specific size
-        return cv2.resize(frame, size)
-
-    if scale is not None:
-        # Resize by scale factor
-        if scale <= 0:
-            msg = "Scale factor must be positive"
-            raise ValueError(msg)
-
-        height, width = frame.shape[:2]
-        new_width = int(width * scale)
-        new_height = int(height * scale)
-
-        # Choose interpolation method based on scale
-        if scale < 1.0:
-            # Downscaling - use INTER_AREA for better quality
-            interpolation = cv2.INTER_AREA
-        else:
-            # Upscaling - use INTER_CUBIC for smoother results
-            interpolation = cv2.INTER_CUBIC
-
-        return cv2.resize(frame, (new_width, new_height), interpolation=interpolation)
-
-    # This shouldn't be reached, but just in case
-    return frame
-</file>
-
-<file path=".pre-commit-config.yaml">
-repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.3.4
-    hooks:
-      - id: ruff
-        args: [--fix]
-      - id: ruff-format
-        args: [--respect-gitignore]
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
-    hooks:
-      - id: trailing-whitespace
-      - id: check-yaml
-      - id: check-toml
-      - id: check-added-large-files
-      - id: debug-statements
-      - id: check-case-conflict
-      - id: mixed-line-ending
-        args: [--fix=lf]
-</file>
-
-<file path="cleanup.sh">
-#!/usr/bin/env bash
-
-python -m uzpy run -e src
-fd -e py -x autoflake {}
-fd -e py -x pyupgrade --py312-plus {}
-fd -e py -x ruff check --output-format=github --fix --unsafe-fixes {}
-fd -e py -x ruff format --respect-gitignore --target-version py312 {}
-repomix -i varia,.specstory,AGENT.md,CLAUDE.md,PLAN.md,llms.txt,.cursorrules -o llms.txt .
-python -m pytest
-</file>
-
-<file path="LICENSE">
-MIT License
-
-Copyright (c) 2025 Adam Twardoch
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-</file>
-
-<file path="package.toml">
-# Package configuration
-[package]
-include_cli = true        # Include CLI boilerplate
-include_logging = true    # Include logging setup
-use_pydantic = true      # Use Pydantic for data validation
-use_rich = true          # Use Rich for terminal output
-
-[features]
-mkdocs = false           # Enable MkDocs documentation
-vcs = true              # Initialize Git repository
-github_actions = true   # Add GitHub Actions workflows
+__all__ = ["__version__"]
 </file>
 
 <file path="src/vidkompy/align/display.py">
@@ -5232,10 +5248,6 @@ class ResultDisplayer:
         return f"{scale * 100:.2f}%"
 </file>
 
-<file path="src/vidkompy/comp/__init__.py">
-# this_file: src/vidkompy/comp/__init__.py
-</file>
-
 <file path="src/vidkompy/utils/logging.py">
 #!/usr/bin/env python3
 # this_file: src/vidkompy/utils/logging.py
@@ -5294,12 +5306,102 @@ def make_logger(name: str, verbose: bool = False) -> "Logger":
 __all__ = ["FORMAT_COMPACT", "FORMAT_VERBOSE", "make_logger"]
 </file>
 
-<file path="src/vidkompy/__init__.py">
-# this_file: src/vidkompy/__init__.py
-
-from .__version__ import __version__
-
-__all__ = ["__version__"]
+<file path=".gitignore">
+tests/
+__pycache__/
+__pypackages__/
+._*
+.cache
+.coverage
+.coverage.*
+.cursorignore
+.cursorindexingignore
+.dmypy.json
+.DS_Store
+.eggs/
+.env
+.hypothesis/
+.installed.cfg
+.ipynb_checkpoints
+.mypy_cache/
+.nox/
+.pdm-build/
+.pdm-python
+.pdm.toml
+.pybuilder/
+.pypirc
+.pyre/
+.pytest_cache/
+.Python
+.pytype/
+.ropeproject
+.ruff_cache/
+.sass-cache
+.scrapy
+.specstory/.what-is-this.md
+.Spotlight-V100
+.spyderproject
+.spyproject
+.tox/
+.Trashes
+.venv
+.webassets-cache
+*.cover
+*.egg
+*.egg-info/
+*.log
+*.manifest
+*.mo
+*.out
+*.pot
+*.py,cover
+*.py[cod]
+*.pyc
+*.sage.py
+*.so
+*.spec
+*$py.class
+/site
+build/
+celerybeat-schedule
+celerybeat.pid
+cover/
+coverage.xml
+cython_debug/
+db.sqlite3
+db.sqlite3-journal
+Desktop.ini
+develop-eggs/
+dist/
+dmypy.json
+docs/_build/
+downloads/
+eggs/
+env.bak/
+env/
+ENV/
+htmlcov/
+instance/
+ipython_config.py
+lib/
+lib64/
+local_settings.py
+MANIFEST
+node_modules
+nosetests.xml
+parts/
+pip-delete-this-directory.txt
+pip-log.txt
+profile_default/
+sdist/
+share/python-wheels/
+target/
+Thumbs.db
+var/
+venv
+venv.bak/
+venv/
+wheels/
 </file>
 
 <file path="src/vidkompy/align/__init__.py">
@@ -7105,104 +7207,6 @@ __all__ = [
 ]
 </file>
 
-<file path=".gitignore">
-tests/
-__pycache__/
-__pypackages__/
-._*
-.cache
-.coverage
-.coverage.*
-.cursorignore
-.cursorindexingignore
-.dmypy.json
-.DS_Store
-.eggs/
-.env
-.hypothesis/
-.installed.cfg
-.ipynb_checkpoints
-.mypy_cache/
-.nox/
-.pdm-build/
-.pdm-python
-.pdm.toml
-.pybuilder/
-.pypirc
-.pyre/
-.pytest_cache/
-.Python
-.pytype/
-.ropeproject
-.ruff_cache/
-.sass-cache
-.scrapy
-.specstory/.what-is-this.md
-.Spotlight-V100
-.spyderproject
-.spyproject
-.tox/
-.Trashes
-.venv
-.webassets-cache
-*.cover
-*.egg
-*.egg-info/
-*.log
-*.manifest
-*.mo
-*.out
-*.pot
-*.py,cover
-*.py[cod]
-*.pyc
-*.sage.py
-*.so
-*.spec
-*$py.class
-/site
-build/
-celerybeat-schedule
-celerybeat.pid
-cover/
-coverage.xml
-cython_debug/
-db.sqlite3
-db.sqlite3-journal
-Desktop.ini
-develop-eggs/
-dist/
-dmypy.json
-docs/_build/
-downloads/
-eggs/
-env.bak/
-env/
-ENV/
-htmlcov/
-instance/
-ipython_config.py
-lib/
-lib64/
-local_settings.py
-MANIFEST
-node_modules
-nosetests.xml
-parts/
-pip-delete-this-directory.txt
-pip-log.txt
-profile_default/
-sdist/
-share/python-wheels/
-target/
-Thumbs.db
-var/
-venv
-venv.bak/
-venv/
-wheels/
-</file>
-
 <file path="src/vidkompy/align/precision.py">
 #!/usr/bin/env python3
 # this_file: src/vidkompy/align/precision.py
@@ -8205,7 +8209,8 @@ class DTWSyncer:
 """
 Intelligent video overlay tool with automatic spatial and temporal alignment.
 
-This tool overlays foreground videos onto background videos with smart alignment:
+This tool overlays foreground videos onto background videos with smart
+alignment:
 - Preserves all foreground frames without retiming
 - Finds optimal background frames for each foreground frame
 - Supports audio-based and frame-based temporal alignment
@@ -8235,7 +8240,8 @@ def composite_videos(
     unscaled: bool = True,
     verbose: bool = False,
 ):
-    """Overlay foreground video onto background video with intelligent alignment.
+    """Overlay foreground video onto background video with intelligent
+    alignment.
 
     Args:
         bg: Background video path
@@ -8748,62 +8754,6 @@ src/vidkompy/core/temporal_alignment.py
 $END$
 </file>
 
-<file path=".cursor/rules/frame-matching-models.mdc">
----
-description: Core frame matching and modeling logic for video alignment and synchronization
-globs: src/vidkompy/core/frame_fingerprint.py,src/vidkompy/core/temporal_alignment.py,src/vidkompy/core/dtw_aligner.py,src/vidkompy/core/multi_resolution_aligner.py
-alwaysApply: false
----
-
-
-# frame-matching-models
-
-## Frame Fingerprinting System (Importance: 95)
-- Multi-algorithm perceptual hash fusion combining:
-  - pHash for frequency domain analysis
-  - AverageHash for intensity patterns  
-  - ColorMomentHash for color distribution
-  - MarrHildrethHash for edge structure
-- Weighted fingerprint scoring based on algorithm reliability
-- Custom distance metrics for frame similarity
-
-## Temporal Alignment Engines (Importance: 98)
-
-### Full Engine
-- Bidirectional frame matching with sliding windows
-- Monotonic progression enforcement
-- Direct pixel comparison with no confidence scoring
-- Zero temporal drift by design
-
-### Mask Engine
-- Content-aware region detection
-- Black border masking for letterboxed content
-- Maintains temporal monotonicity
-- Region-weighted frame comparison
-
-## Dynamic Time Warping Customization (Importance: 92)
-- Windowed search space optimization
-- Foreground-driven synchronization points
-- Adaptive keyframe anchoring
-- Confidence-based path selection
-
-## Multi-Resolution Frame Mapping (Importance: 90)
-- Progressive refinement through resolution levels
-- Coarse-to-fine alignment strategy
-- Keyframe-based temporal anchoring
-- Frame sequence integrity validation
-
-File Paths:
-```
-src/vidkompy/core/frame_fingerprint.py
-src/vidkompy/core/temporal_alignment.py
-src/vidkompy/core/dtw_aligner.py
-src/vidkompy/core/multi_resolution_aligner.py
-```
-
-$END$
-</file>
-
 <file path=".cursor/rules/video-composition-rules.mdc">
 ---
 description: Technical specification for video composition business rules including foreground preservation, frame alignment, and quality thresholds
@@ -8938,27 +8888,191 @@ src/vidkompy/core/
 $END$
 </file>
 
+<file path=".cursor/rules/frame-matching-models.mdc">
+---
+description: Core frame matching and modeling logic for video alignment and synchronization
+globs: src/vidkompy/core/frame_fingerprint.py,src/vidkompy/core/temporal_alignment.py,src/vidkompy/core/dtw_aligner.py,src/vidkompy/core/multi_resolution_aligner.py
+alwaysApply: false
+---
+
+
+# frame-matching-models
+
+## Frame Fingerprinting System (Importance: 95)
+- Multi-algorithm perceptual hash fusion combining:
+  - pHash for frequency domain analysis
+  - AverageHash for intensity patterns  
+  - ColorMomentHash for color distribution
+  - MarrHildrethHash for edge structure
+- Weighted fingerprint scoring based on algorithm reliability
+- Custom distance metrics for frame similarity
+
+## Temporal Alignment Engines (Importance: 98)
+
+### Full Engine
+- Bidirectional frame matching with sliding windows
+- Monotonic progression enforcement
+- Direct pixel comparison with no confidence scoring
+- Zero temporal drift by design
+
+### Mask Engine
+- Content-aware region detection
+- Black border masking for letterboxed content
+- Maintains temporal monotonicity
+- Region-weighted frame comparison
+
+## Dynamic Time Warping Customization (Importance: 92)
+- Windowed search space optimization
+- Foreground-driven synchronization points
+- Adaptive keyframe anchoring
+- Confidence-based path selection
+
+## Multi-Resolution Frame Mapping (Importance: 90)
+- Progressive refinement through resolution levels
+- Coarse-to-fine alignment strategy
+- Keyframe-based temporal anchoring
+- Frame sequence integrity validation
+
+File Paths:
+```
+src/vidkompy/core/frame_fingerprint.py
+src/vidkompy/core/temporal_alignment.py
+src/vidkompy/core/dtw_aligner.py
+src/vidkompy/core/multi_resolution_aligner.py
+```
+
+$END$
+</file>
+
 <file path="src/vidkompy/__main__.py">
 #!/usr/bin/env python
 # this_file: src/vidkompy/__main__.py
 
 """Enable running vidkompy as a module with python -m vidkompy."""
 
+from pathlib import Path
+
 import fire
 
 
-def _lazy_find_thumbnail(*args, **kwargs):
-    """Lazy wrapper for thumbnail finding to avoid heavy imports at startup."""
+def _lazy_find_thumbnail(
+    fg: str | Path,
+    bg: str | Path,
+    num_frames: int = 7,
+    verbose: bool = False,
+    precision: int = 2,
+    unscaled: bool = True,
+):
+    """
+    Find thumbnail location in background image/video.
+
+    This function performs advanced thumbnail detection with multi-precision
+    analysis to locate a foreground image within a background image or video.
+
+    Args:
+        fg: Path to foreground image or video (the thumbnail to find)
+        bg: Path to background image or video (where to search)
+        num_frames: Maximum number of frames to process for videos (default: 7)
+        verbose: Enable verbose logging with detailed debug information
+                (default: False)
+        precision: Precision level 0-4 controlling speed/accuracy tradeoff
+                  (default: 2)
+            - 0: Ballpark (~1ms) - Ultra-fast histogram correlation only
+            - 1: Coarse (~10ms) - Quick template matching
+            - 2: Balanced (~25ms) - Feature + template matching combination
+            - 3: Fine (~50ms) - High-quality hybrid multi-algorithm detection
+            - 4: Precise (~200ms) - Maximum accuracy with sub-pixel refinement
+        unscaled: If True (default), search only at 100% scale (translation
+                 only). If False, perform both 100% scale and multi-scale
+                 searches.
+
+    Returns:
+        None (results are displayed to console)
+
+    Raises:
+        ValueError: If precision is not between 0-4 or num_frames < 1
+        Exception: If thumbnail detection fails
+
+    """
     from .align.cli import find_thumbnail
 
-    return find_thumbnail(*args, **kwargs)
+    return find_thumbnail(fg, bg, num_frames, verbose, precision, unscaled)
 
 
-def _lazy_composite_videos(*args, **kwargs):
-    """Lazy wrapper for video composition to avoid heavy imports at startup."""
+def _lazy_composite_videos(
+    bg: str | Path,
+    fg: str | Path,
+    output: str | Path | None = None,
+    engine: str = "full",
+    drift_interval: int = 10,
+    margin: int = 8,
+    smooth: bool = False,
+    gpu: bool = False,
+    window: int = 10,
+    align_precision: int = 2,
+    unscaled: bool = True,
+    verbose: bool = False,
+):
+    """
+    Overlay foreground video onto background with intelligent alignment.
+
+    This function performs video composition with automatic spatial and
+    temporal alignment, preserving all foreground frames without retiming
+    and finding optimal background frames for each foreground frame.
+
+    Args:
+        bg: Path to background video file
+        fg: Path to foreground video file to overlay
+        output: Output video path (auto-generated if not provided)
+        engine: Temporal alignment engine (default: 'full')
+            - 'full': Direct pixel comparison with zero drift
+            - 'mask': Content-focused comparison for letterboxed content
+        drift_interval: Frame interval for drift correction (default: 10)
+        margin: Border thickness for border matching mode in pixels
+               (default: 8)
+        smooth: Enable smooth blending at frame edges (default: False)
+        gpu: Enable GPU acceleration - future feature (default: False)
+        window: DTW window size for temporal alignment (default: 10)
+        align_precision: Spatial alignment precision level 0-4 (default: 2)
+            - 0: Ballpark (~1ms), 1: Coarse (~10ms), 2: Balanced (~25ms)
+            - 3: Fine (~50ms), 4: Precise (~200ms)
+        unscaled: Prefer unscaled for spatial alignment (default: True)
+        verbose: Enable verbose logging with detailed processing info
+                (default: False)
+
+    Returns:
+        None (video is saved to output path)
+
+    Raises:
+        FileNotFoundError: If input video files don't exist
+        ValueError: If engine is not 'full' or 'mask'
+        Exception: If video processing fails
+
+    Notes:
+        - The Full engine is fastest with perfect confidence for standard
+          videos
+        - The Mask engine is ideal for letterboxed/pillarboxed content
+        - Both engines achieve zero temporal drift through monotonic
+          constraints
+        - Processing speed is typically 5x real-time or better
+
+    """
     from .comp.vidkompy import composite_videos
 
-    return composite_videos(*args, **kwargs)
+    return composite_videos(
+        bg,
+        fg,
+        output,
+        engine,
+        drift_interval,
+        margin,
+        smooth,
+        gpu,
+        window,
+        align_precision,
+        unscaled,
+        verbose,
+    )
 
 
 def cli():
@@ -8967,8 +9081,6 @@ def cli():
     fire.Fire(
         {
             "align": _lazy_find_thumbnail,
-            "compose": _lazy_composite_videos,  # Renamed from "comp" to avoid clash
-            # Backward compatibility alias
             "comp": _lazy_composite_videos,
         }
     )
@@ -8995,8 +9107,8 @@ __version__: str
 __version_tuple__: VERSION_TUPLE
 version_tuple: VERSION_TUPLE
 
-__version__ = version = "1.2.5.post11+gd47d260.d20250528"
-__version_tuple__ = version_tuple = (1, 2, 5, "post11", "gd47d260.d20250528")
+__version__ = version = "1.2.5.post14+g0597c40.d20250603"
+__version_tuple__ = version_tuple = (1, 2, 5, "post14", "g0597c40.d20250603")
 </file>
 
 <file path="README.md">
@@ -9563,11 +9675,24 @@ This project is licensed under the MIT License. See the [LICENSE](https://www.go
 <file path="CHANGELOG.md">
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- **Improved CLI interface**: Updated `__main__.py` to have explicit function signatures with comprehensive docstrings instead of generic `*args, **kwargs` wrappers. This provides better IDE support, clearer documentation, and improved type safety while maintaining the lazy import pattern.
+
+## [0.3.0] - 2024-12-27
+
 All notable changes to vidkompy will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased] - Code Quality and Architecture Improvements
+
+### 🐛 Fixed - Critical Import Bugs
+- **Import Resolution**: Fixed typo in `comp/video.py` import path (`vidkompy.com.data_types` → `vidkompy.comp.data_types`)
+- **Numba Availability**: Added proper `NUMBA_AVAILABLE` definition in `comp/fingerprint.py` with try/except import handling
+- **Spatial Alignment**: Replaced undefined `SpatialAligner` with `ThumbnailFinder` in `comp/temporal.py`
+- **Code Quality**: All imports now resolve correctly, improving code reliability and preventing runtime errors
 
 ### 🔧 Changed - Code Quality Refactoring
 

@@ -10,7 +10,8 @@
 """
 Intelligent video overlay tool with automatic spatial and temporal alignment.
 
-This tool overlays foreground videos onto background videos with smart alignment:
+This tool overlays foreground videos onto background videos with smart
+alignment:
 - Preserves all foreground frames without retiming
 - Finds optimal background frames for each foreground frame
 - Supports audio-based and frame-based temporal alignment
@@ -40,7 +41,8 @@ def composite_videos(
     unscaled: bool = True,
     verbose: bool = False,
 ):
-    """Overlay foreground video onto background video with intelligent alignment.
+    """Overlay foreground video onto background video with intelligent
+    alignment.
 
     Args:
         bg: Background video path

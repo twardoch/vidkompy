@@ -18,6 +18,8 @@ class AudioInfo:
 
     Extracted from VideoInfo to reduce nullable fields.
 
+    Used in:
+    - vidkompy/comp/video.py
     """
 
     sample_rate: int
