@@ -66,6 +66,9 @@ class AlignmentEngine:
         window: int = 100,
         spatial_precision: int = 2,
         unscaled: bool = True,
+        x_shift: int | None = None,
+        y_shift: int | None = None,
+        zero_shift: bool = False,
     ):
         """Initialize alignment engine.
 
@@ -78,12 +81,18 @@ class AlignmentEngine:
             window: DTW window size
             spatial_precision: Spatial alignment precision level (0-4, default: 2)
             unscaled: Prefer unscaled for spatial alignment (default: True)
+            x_shift: Explicit x position for foreground (disables auto-alignment)
+            y_shift: Explicit y position for foreground (disables auto-alignment)
+            zero_shift: Force position to 0,0 and disable scaling
 
         """
         self.processor = processor
         self.thumbnail_finder = ThumbnailFinder()
         self.spatial_precision = spatial_precision
         self.unscaled = unscaled
+        self.x_shift = x_shift
+        self.y_shift = y_shift
+        self.zero_shift = zero_shift
         self.temporal_aligner = TemporalSyncer(
             processor=processor,
             max_keyframes=max_keyframes,
@@ -238,6 +247,21 @@ class AlignmentEngine:
         - Useful for testing temporal alignment independently
         - Speeds up processing when spatial alignment isn't needed
         """
+        # Handle explicit positioning
+        if self.x_shift is not None or self.y_shift is not None or self.zero_shift:
+            x = self.x_shift if self.x_shift is not None else 0
+            y = self.y_shift if self.y_shift is not None else 0
+            scale = 1.0  # No scaling for explicit positioning
+
+            if self.zero_shift:
+                x = 0
+                y = 0
+                logger.info("Using zero_shift: position (0,0), scale 1.0")
+            else:
+                logger.info(f"Using explicit position: ({x}, {y}), scale 1.0")
+
+            return SpatialTransform(x, y, scale, 1.0)
+
         if skip:
             logger.info("Skipping spatial alignment - centering foreground")
             x_offset = (bg_info.width - fg_info.width) // 2

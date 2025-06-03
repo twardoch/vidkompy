@@ -137,6 +137,19 @@ def composite_videos(
         logger.error(err_msg)
         return
 
+    # Validate shift parameters
+    if zero_shift and (x_shift is not None or y_shift is not None):
+        logger.warning("zero_shift overrides x_shift and y_shift - setting both to 0")
+        x_shift = 0
+        y_shift = 0
+    elif zero_shift:
+        x_shift = 0
+        y_shift = 0
+        logger.info("Using zero_shift mode: position (0,0), no scaling")
+
+    # Determine if we're using explicit positioning
+    explicit_position = x_shift is not None or y_shift is not None or zero_shift
+
     # Initialize config variables with defaults
     time_mode: TimeMode = TimeMode.PRECISE
     space_method: str = "template"
@@ -156,6 +169,9 @@ def composite_videos(
         window=window,
         spatial_precision=align_precision,
         unscaled=unscaled,
+        x_shift=x_shift,
+        y_shift=y_shift,
+        zero_shift=zero_shift,
     )
 
     # Process the videos
@@ -166,7 +182,7 @@ def composite_videos(
             output_path=output_str,
             time_mode=time_mode,
             space_method=space_method,
-            skip_spatial=False,
+            skip_spatial=explicit_position,  # Skip auto-alignment if explicit position
             trim=True,
             border_thickness=margin,
             blend=smooth,

@@ -64,6 +64,9 @@ def _lazy_composite_videos(
     window: int = 10,
     align_precision: int = 2,
     unscaled: bool = True,
+    x_shift: int | None = None,
+    y_shift: int | None = None,
+    zero_shift: bool = False,
     verbose: bool = False,
 ):
     """
@@ -90,6 +93,12 @@ def _lazy_composite_videos(
             - 0: Ballpark (~1ms), 1: Coarse (~10ms), 2: Balanced (~25ms)
             - 3: Fine (~50ms), 4: Precise (~200ms)
         unscaled: Prefer unscaled for spatial alignment (default: True)
+        x_shift: Explicit x position of foreground onto background (disables
+                auto-alignment)
+        y_shift: Explicit y position of foreground onto background (disables
+                auto-alignment)
+        zero_shift: Force position to 0,0 and disable scaling/auto-alignment
+                   (default: False)
         verbose: Enable verbose logging with detailed processing info
                 (default: False)
 
@@ -124,6 +133,9 @@ def _lazy_composite_videos(
         window,
         align_precision,
         unscaled,
+        x_shift,
+        y_shift,
+        zero_shift,
         verbose,
     )
 

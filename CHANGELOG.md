@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Explicit positioning support**: New CLI arguments for manual spatial alignment control:
+  - `--x_shift`: Set explicit x position of foreground video (disables auto-alignment)
+  - `--y_shift`: Set explicit y position of foreground video (disables auto-alignment)  
+  - `--zero_shift`: Force position to (0,0) and disable all scaling/auto-alignment
+
 ### Fixed
 
 - **VideoInfo instantiation bug**: Fixed TypeError in `comp/video.py` where `audio_sample_rate` and `audio_channels` were being passed directly to `VideoInfo` constructor. Now properly creates an `AudioInfo` object first before passing it to `VideoInfo`.
@@ -10,6 +17,7 @@
 ### Changed
 
 - **Improved CLI interface**: Updated `__main__.py` to have explicit function signatures with comprehensive docstrings instead of generic `*args, **kwargs` wrappers. This provides better IDE support, clearer documentation, and improved type safety while maintaining the lazy import pattern.
+- **Spatial alignment logic**: Modified to support explicit positioning when shift arguments are provided, bypassing automatic alignment exploration
 
 ## [0.3.0] - 2024-12-27
 
