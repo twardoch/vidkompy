@@ -9,6 +9,11 @@ used across the application.
 """
 
 import sys
+from typing import TYPE_CHECKING
+from loguru import logger # Moved to top
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 # Standard logging formats
 FORMAT_VERBOSE = (
@@ -42,7 +47,6 @@ def make_logger(name: str, verbose: bool = False) -> "Logger":
     Used in:
     - vidkompy/align/cli.py
     """
-    from loguru import logger
 
     # Remove default handler and add our custom one
     logger.remove()
