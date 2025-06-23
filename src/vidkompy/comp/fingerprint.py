@@ -287,9 +287,9 @@ class FrameFingerprinter:
                 hash_dist_array = np.array(hash_distances, dtype=np.float64)
 
                 return compute_weighted_similarity(hash_dist_array, hist_score, weights)
-            except Exception:
+            except Exception as e:
                 # Fallback to standard implementation
-                pass
+                logger.warning(f"Numba weighted similarity computation failed, falling back: {e}")
 
         # Standard implementation
         total_weight = 0

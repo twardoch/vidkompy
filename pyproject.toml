@@ -44,6 +44,7 @@ dev = [
 test = [
     'pytest>=8.3.5',
     'pytest-cov>=6.1.1',
+    'pytest-xdist',
 ]
 all = [
     'ffmpeg-python',
@@ -153,11 +154,13 @@ all = [
 ]
 
 [tool.hatch.envs.test]
-dependencies = []
+dependencies = [
+  "vidkompy[test]",
+]
 
 [tool.hatch.envs.test.scripts]
-test = 'python -m pytest -n auto -p no:briefcase {args:tests}'
-test-cov = 'python -m pytest -n auto -p no:briefcase --cov-report=term-missing --cov-config=pyproject.toml --cov=src/vidkompy --cov=tests {args:tests}'
+test = 'python -m pytest {args:tests}'
+test-cov = 'python -m pytest --cov-report=term-missing --cov-config=pyproject.toml --cov=src/vidkompy --cov=tests {args:tests}'
 bench = 'python -m pytest -v -p no:briefcase tests/test_benchmark.py --benchmark-only'
 bench-save = 'python -m pytest -v -p no:briefcase tests/test_benchmark.py --benchmark-only --benchmark-json=benchmark/results.json'
 
@@ -214,17 +217,21 @@ extend-select = [
     'YTT',
 ]
 ignore = [
-    'ARG001',
-    'E501',
-    'I001',
-    'RUF001',
-    'PLR2004',
-    'EXE003',
-    'ISC001',
+    'ARG001', # Unused function argument
+    'E501',   # Line too long (handled by formatter)
+    'I001',   # Import block is un-sorted (handled by formatter)
+    'RUF001', # String contains ambiguous an Unicode character (Handled manually if necessary)
+    'PLR2004',# Magic value used in comparison
+    'EXE003', # Shebang is present but file is not executable
+    'ISC001', # Implicitly concatenated string on one line
 ]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "tests/*" = ['S101']
+"tests/test_comp.py" = ["S603"] # Allow subprocess in test helper
+"src/vidkompy/comp/data_types.py" = ['S307', 'S603']
+"src/vidkompy/__main__.py" = ['PLC0415']
+
 [tool.pytest.ini_options]
 addopts = '-v --durations=10 -p no:briefcase'
 asyncio_mode = 'auto'

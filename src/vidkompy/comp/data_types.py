@@ -9,6 +9,9 @@ Contains all dataclasses and data structures used across the composition system.
 
 from dataclasses import dataclass
 from pathlib import Path
+import subprocess # Moved to top
+import json # Moved to top
+import numpy as np # Added for np.ndarray
 from vidkompy.utils.enums import TimeMode
 
 
@@ -68,8 +71,6 @@ class VideoInfo:
             VideoInfo instance with metadata
 
         """
-        import subprocess
-        import json
 
         video_path = Path(video_path)
 

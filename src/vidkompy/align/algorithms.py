@@ -714,7 +714,7 @@ class SubPixelRefinementAlgorithm:
 
             return float(correlation)
 
-        except:
+        except Exception: # Fixed bare except
             return 0.0
 
 
