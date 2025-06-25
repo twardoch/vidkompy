@@ -21,5 +21,5 @@ class TimeMode(Enum):
     - vidkompy/comp/vidkompy.py
     """
 
-    BORDER = "border"  # Border-based matching (default)
-    PRECISE = "precise"  # Use frame-based matching
+    # BORDER = "border"  # Deferred post-MVP
+    PRECISE = "precise"  # Use frame-based matching (Tunnel Syncer based for MVP)

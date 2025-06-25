@@ -120,10 +120,16 @@ class TemporalSyncer:
                 merge_strategy="confidence_weighted",
             )
 
-            if self.engine_mode == "full":
-                self.tunnel_syncer = TunnelFullSyncer(config)
-            else:  # mask
-                self.tunnel_syncer = TunnelMaskSyncer(config)
+            # For MVP, default to TunnelFullSyncer. TunnelMaskSyncer is deferred.
+            logger.info("MVP: Using TunnelFullSyncer as the default temporal alignment engine.")
+            self.tunnel_syncer = TunnelFullSyncer(config)
+            # if self.engine_mode == "full":
+            #     self.tunnel_syncer = TunnelFullSyncer(config)
+            # else:  # mask , deferred post-MVP
+            #     logger.info(f"Mask engine selected, but deferring to TunnelFullSyncer for MVP.")
+            #     self.tunnel_syncer = TunnelFullSyncer(config) # Fallback to Full for MVP
+                # self.tunnel_syncer = TunnelMaskSyncer(config)
+
 
         # For tunnel engine, we assume spatial alignment is already done
         # The tunnel engine operates on spatially aligned frames
@@ -206,102 +212,102 @@ class TemporalSyncer:
             confidence=0.3,
         )
 
-    def create_border_mask(
-        self,
-        spatial_alignment,
-        fg_info: VideoInfo,
-        bg_info: VideoInfo,
-        border_thickness: int = 8,
-    ) -> np.ndarray:
-        """Create border mask for border-based temporal alignment.
-
-        The border mask defines the region around the foreground video edges
-        where background video is visible. This is used for similarity
-        comparison in border mode.
-
-        Args:
-            spatial_alignment: Result from spatial alignment containing
-                             x/y offsets
-            fg_info: Foreground video information
-            bg_info: Background video information
-            border_thickness: Thickness of border region in pixels
-
-        Returns:
-            Binary mask where 1 indicates border region, 0 indicates
-            non-border
-
-        Used in:
-        - vidkompy/comp/align.py
-        """
-        # Get foreground position on background canvas
-        x_offset = spatial_alignment.x_offset
-        y_offset = spatial_alignment.y_offset
-        fg_width = fg_info.width
-        fg_height = fg_info.height
-        bg_width = bg_info.width
-        bg_height = bg_info.height
-
-        # Create mask same size as background
-        mask = np.zeros((bg_height, bg_width), dtype=np.uint8)
-
-        # Define foreground rectangle bounds
-        fg_left = x_offset
-        fg_right = x_offset + fg_width
-        fg_top = y_offset
-        fg_bottom = y_offset + fg_height
-
-        # Ensure bounds are within background
-        fg_left = max(0, fg_left)
-        fg_right = min(bg_width, fg_right)
-        fg_top = max(0, fg_top)
-        fg_bottom = min(bg_height, fg_bottom)
-
-        # Define border regions based on which edges have visible background
-
-        # Top border (if fg doesn't touch top edge)
-        if fg_top > 0:
-            border_top = max(0, fg_top - border_thickness)
-            mask[border_top:fg_top, fg_left:fg_right] = 1
-
-        # Bottom border (if fg doesn't touch bottom edge)
-        if fg_bottom < bg_height:
-            border_bottom = min(bg_height, fg_bottom + border_thickness)
-            mask[fg_bottom:border_bottom, fg_left:fg_right] = 1
-
-        # Left border (if fg doesn't touch left edge)
-        if fg_left > 0:
-            border_left = max(0, fg_left - border_thickness)
-            mask[fg_top:fg_bottom, border_left:fg_left] = 1
-
-        # Right border (if fg doesn't touch right edge)
-        if fg_right < bg_width:
-            border_right = min(bg_width, fg_right + border_thickness)
-            mask[fg_top:fg_bottom, fg_right:border_right] = 1
-
-        logger.debug(f"Created border mask: {np.sum(mask)} pixels in border region")
-        return mask
-
-    def _apply_mask_to_frame(self, frame: np.ndarray, mask: np.ndarray) -> np.ndarray:
-        """Apply binary mask to frame, setting non-masked areas to black.
-
-        Args:
-            frame: Input frame (H, W, C) or (H, W)
-            mask: Binary mask (H, W) where 1 = keep, 0 = zero out
-
-        Returns:
-            Masked frame with same dimensions as input
-
-        """
-        if len(frame.shape) == 3:
-            # Color frame - apply mask to all channels
-            masked = frame.copy()
-            for c in range(frame.shape[2]):
-                masked[:, :, c] = frame[:, :, c] * mask
-        else:
-            # Grayscale frame
-            masked = frame * mask
-
-        return masked
+    # def create_border_mask( # Deferred post-MVP as TimeMode.BORDER is not used
+    #     self,
+    #     spatial_alignment,
+    #     fg_info: VideoInfo,
+    #     bg_info: VideoInfo,
+    #     border_thickness: int = 8,
+    # ) -> np.ndarray:
+    #     """Create border mask for border-based temporal alignment.
+    #
+    #     The border mask defines the region around the foreground video edges
+    #     where background video is visible. This is used for similarity
+    #     comparison in border mode.
+    #
+    #     Args:
+    #         spatial_alignment: Result from spatial alignment containing
+    #                          x/y offsets
+    #         fg_info: Foreground video information
+    #         bg_info: Background video information
+    #         border_thickness: Thickness of border region in pixels
+    #
+    #     Returns:
+    #         Binary mask where 1 indicates border region, 0 indicates
+    #         non-border
+    #
+    #     Used in:
+    #     - vidkompy/comp/align.py (formerly)
+    #     """
+    #     # Get foreground position on background canvas
+    #     x_offset = spatial_alignment.x_offset
+    #     y_offset = spatial_alignment.y_offset
+    #     fg_width = fg_info.width
+    #     fg_height = fg_info.height
+    #     bg_width = bg_info.width
+    #     bg_height = bg_info.height
+    #
+    #     # Create mask same size as background
+    #     mask = np.zeros((bg_height, bg_width), dtype=np.uint8)
+    #
+    #     # Define foreground rectangle bounds
+    #     fg_left = x_offset
+    #     fg_right = x_offset + fg_width
+    #     fg_top = y_offset
+    #     fg_bottom = y_offset + fg_height
+    #
+    #     # Ensure bounds are within background
+    #     fg_left = max(0, fg_left)
+    #     fg_right = min(bg_width, fg_right)
+    #     fg_top = max(0, fg_top)
+    #     fg_bottom = min(bg_height, fg_bottom)
+    #
+    #     # Define border regions based on which edges have visible background
+    #
+    #     # Top border (if fg doesn't touch top edge)
+    #     if fg_top > 0:
+    #         border_top = max(0, fg_top - border_thickness)
+    #         mask[border_top:fg_top, fg_left:fg_right] = 1
+    #
+    #     # Bottom border (if fg doesn't touch bottom edge)
+    #     if fg_bottom < bg_height:
+    #         border_bottom = min(bg_height, fg_bottom + border_thickness)
+    #         mask[fg_bottom:border_bottom, fg_left:fg_right] = 1
+    #
+    #     # Left border (if fg doesn't touch left edge)
+    #     if fg_left > 0:
+    #         border_left = max(0, fg_left - border_thickness)
+    #         mask[fg_top:fg_bottom, border_left:fg_left] = 1
+    #
+    #     # Right border (if fg doesn't touch right edge)
+    #     if fg_right < bg_width:
+    #         border_right = min(bg_width, fg_right + border_thickness)
+    #         mask[fg_top:fg_bottom, fg_right:border_right] = 1
+    #
+    #     logger.debug(f"Created border mask: {np.sum(mask)} pixels in border region")
+    #     return mask
+    #
+    # def _apply_mask_to_frame(self, frame: np.ndarray, mask: np.ndarray) -> np.ndarray: # Deferred post-MVP
+    #     """Apply binary mask to frame, setting non-masked areas to black.
+    #
+    #     Args:
+    #         frame: Input frame (H, W, C) or (H, W)
+    #         mask: Binary mask (H, W) where 1 = keep, 0 = zero out
+    #
+    #     Returns:
+    #         Masked frame with same dimensions as input
+    #
+    #     """
+    #     if len(frame.shape) == 3:
+    #         # Color frame - apply mask to all channels
+    #         masked = frame.copy()
+    #         for c in range(frame.shape[2]):
+    #             masked[:, :, c] = frame[:, :, c] * mask
+    #     else:
+    #         # Grayscale frame
+    #         masked = frame * mask
+    #
+    #     return masked
 
     def create_blend_mask(
         self,

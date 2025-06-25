@@ -25,9 +25,9 @@ dependencies = [
     'opencv-contrib-python',
     'opencv-python',
     'rich',
-    'scikit-image',
+    # 'scikit-image', # Deferred for MVP
     'scipy',
-    'soundfile',
+    # 'soundfile', # Deferred for MVP (appears unused)
 ]
 
 [[project.authors]]

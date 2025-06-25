@@ -91,8 +91,9 @@ class PrecisionAnalyzer:
             PrecisionLevel.BALLPARK: self._analyze_ballpark,
             PrecisionLevel.COARSE: self._analyze_coarse,
             PrecisionLevel.BALANCED: self._analyze_balanced,
-            PrecisionLevel.FINE: self._analyze_fine,
-            PrecisionLevel.PRECISE: self._analyze_precise,
+            # For MVP, FINE and PRECISE will reuse BALANCED analysis
+            PrecisionLevel.FINE: self._analyze_balanced, # self._analyze_fine, # Deferred post-MVP
+            PrecisionLevel.PRECISE: self._analyze_balanced, # self._analyze_precise, # Deferred post-MVP
         }
 
     @cached_property
@@ -202,10 +203,29 @@ class PrecisionAnalyzer:
         - vidkompy/align/core.py
         """
         results = []
+        # For MVP, we effectively cap detailed analysis at level 2 (BALANCED).
+        # Higher requested levels will reuse level 2's results.
+        mvp_max_precision_stages = min(max_precision, PrecisionLevel.BALANCED.value)
 
-        for level in range(max_precision + 1):
-            result = self.analyze_at_precision(fg_frame, bg_frame, level, results)
+        for level_val in range(mvp_max_precision_stages + 1):
+            result = self.analyze_at_precision(fg_frame, bg_frame, level_val, results)
             results.append(result)
+
+        # If higher precision was requested, fill with results from the best MVP stage
+        if max_precision > mvp_max_precision_stages and results:
+            best_mvp_result = results[-1] # Last computed result is from BALANCED or lower
+            for level_val in range(mvp_max_precision_stages + 1, max_precision + 1):
+                # Create a new result object indicating it's a carry-over
+                carried_over_result = PrecisionAnalysisResult(
+                    level=PrecisionLevel(level_val),
+                    scale=best_mvp_result.scale,
+                    x=best_mvp_result.x,
+                    y=best_mvp_result.y,
+                    confidence=best_mvp_result.confidence,
+                    processing_time=0.0, # No additional processing time
+                    method=f"{best_mvp_result.method}_mvp_carry_over"
+                )
+                results.append(carried_over_result)
 
         return results
 
@@ -280,8 +300,9 @@ class PrecisionAnalyzer:
 
         """
         # Try enhanced feature matching first
+        # For MVP, enhanced_feature_matching defaults to ORB.
         feature_result = self.feature_matcher.enhanced_feature_matching(
-            fg_frame, bg_frame, detector_type="auto"
+            fg_frame, bg_frame
         )
 
         # Get coarse template result for comparison and use ballpark estimate if available
@@ -337,8 +358,9 @@ class PrecisionAnalyzer:
             return hybrid_result
 
         # Fallback to enhanced feature matching
+        # For MVP, enhanced_feature_matching defaults to ORB.
         feature_result = self.feature_matcher.enhanced_feature_matching(
-            fg_frame, bg_frame, detector_type="auto"
+            fg_frame, bg_frame
         )
 
         if feature_result:

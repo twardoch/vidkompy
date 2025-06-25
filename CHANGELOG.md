@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Changed
+- **MVP Streamlining: `align` module simplification:**
+    - `FeatureMatchingAlgorithm` now uses only ORB detector for MVP (AKAZE, SIFT deferred).
+    - Advanced algorithms (`SubPixelRefinement`, `PhaseCorrelation`, `Hybrid`) effectively deferred by simplifying `PrecisionAnalyzer`.
+    - `PrecisionAnalyzer` now focuses on Levels 0-2 (Ballpark, Coarse, Balanced) for MVP; higher levels reuse Level 2 results.
+- **MVP Streamlining: `comp` module simplification:**
+    - Temporal alignment strategy consolidated: `TemporalSyncer` with `TunnelFullSyncer` is now the sole MVP path for `vidkompy comp`.
+        - `PreciseTemporalAlignment` and `MultiResolutionAligner` (DTW-based) are deferred.
+        - `TimeMode.BORDER` and related `create_border_mask` logic deferred. `TimeMode` enum simplified.
+    - `TemporalSyncer` engine choice simplified: Defaults to `TunnelFullSyncer`. `TunnelMaskSyncer` and the `engine` CLI parameter for `vidkompy comp` are deferred for MVP.
+    - `FrameFingerprinter` simplified: Uses only PHash and color histogram for MVP. Other hashes (Average, ColorMoment, MarrHildreth) deferred.
+- **CI Fix:** Corrected typo in `.github/workflows/push.yml` (`vidkompo` to `vidkompy`).
+
 ### Added
 
 - **Explicit positioning support**: New CLI arguments for manual spatial alignment control:

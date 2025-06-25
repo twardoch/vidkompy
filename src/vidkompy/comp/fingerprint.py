@@ -76,30 +76,31 @@ class FrameFingerprinter:
         try:
             self.hashers["phash"] = cv2.img_hash.PHash_create()
             if log_init:
-                logger.debug("✓ PHash initialized")
+                logger.debug("✓ PHash initialized (MVP)")
         except AttributeError:
             logger.warning("PHash not available")
 
-        try:
-            self.hashers["ahash"] = cv2.img_hash.AverageHash_create()
-            if log_init:
-                logger.debug("✓ AverageHash initialized")
-        except AttributeError:
-            logger.warning("AverageHash not available")
-
-        try:
-            self.hashers["dhash"] = cv2.img_hash.ColorMomentHash_create()
-            if log_init:
-                logger.debug("✓ ColorMomentHash initialized")
-        except AttributeError:
-            logger.warning("ColorMomentHash not available")
-
-        try:
-            self.hashers["mhash"] = cv2.img_hash.MarrHildrethHash_create()
-            if log_init:
-                logger.debug("✓ MarrHildrethHash initialized")
-        except AttributeError:
-            logger.warning("MarrHildrethHash not available")
+        # Deferred post-MVP:
+        # try:
+        #     self.hashers["ahash"] = cv2.img_hash.AverageHash_create()
+        #     if log_init:
+        #         logger.debug("✓ AverageHash initialized")
+        # except AttributeError:
+        #     logger.warning("AverageHash not available")
+        #
+        # try:
+        #     self.hashers["dhash"] = cv2.img_hash.ColorMomentHash_create() # ColorMomentHash is dhash
+        #     if log_init:
+        #         logger.debug("✓ ColorMomentHash initialized")
+        # except AttributeError:
+        #     logger.warning("ColorMomentHash not available")
+        #
+        # try:
+        #     self.hashers["mhash"] = cv2.img_hash.MarrHildrethHash_create()
+        #     if log_init:
+        #         logger.debug("✓ MarrHildrethHash initialized")
+        # except AttributeError:
+        #     logger.warning("MarrHildrethHash not available")
 
         if not self.hashers:
             msg = (
@@ -137,23 +138,20 @@ class FrameFingerprinter:
 
         fingerprint = {}
 
-        # Compute each available hash
-        for name, hasher in self.hashers.items():
+        # Compute PHash (MVP)
+        if "phash" in self.hashers:
             try:
-                if name in ["phash", "ahash", "mhash"]:
-                    # These work on grayscale
-                    hash_value = hasher.compute(gray_frame)
-                else:
-                    # ColorMomentHash needs color
-                    hash_value = hasher.compute(std_frame)
-
-                fingerprint[name] = hash_value
+                hash_value = self.hashers["phash"].compute(gray_frame)
+                fingerprint["phash"] = hash_value
             except Exception as e:
-                logger.warning(f"Failed to compute {name}: {e}")
+                logger.warning(f"Failed to compute phash: {e}")
 
-        # Add color histogram as additional feature
-        if len(frame.shape) == 3:
+        # Add color histogram as additional feature (MVP)
+        if len(frame.shape) == 3: # Ensure it's a color frame before computing color histogram
             fingerprint["histogram"] = self._compute_color_histogram(std_frame)
+        elif len(std_frame.shape) == 3: # Fallback for already standardized color frames
+             fingerprint["histogram"] = self._compute_color_histogram(std_frame)
+
 
         return fingerprint
 
@@ -267,48 +265,57 @@ class FrameFingerprinter:
         if not hash_distances and hist_score == 0:
             return 0.0
 
-        # Define weights
-        weight_map = {
-            "phash": 0.4,  # Most reliable
-            "ahash": 0.2,  # Good for brightness
-            "dhash": 0.2,  # Good for color
-            "mhash": 0.1,  # Good for edges
-            "histogram": 0.1,  # Global color
+        # Define weights for MVP (PHash and Histogram)
+        # PHash is given higher importance for structural similarity.
+        # Histogram provides color distribution information.
+        mvp_weight_map = {
+            "phash": 0.7,
+            "histogram": 0.3,
         }
 
         # Use numba optimization if available
-        if self.use_numba and hash_distances:
+        # For MVP, this path is taken if phash is present.
+        # hist_score is passed along to compute_weighted_similarity.
+        if self.use_numba and "phash" in fp1 and "phash" in fp2 and hash_distances:
             try:
-                # Prepare weights array
-                weights = np.array([weight_map.get(name, 0.1) for name in hash_names])
-                weights = np.append(weights, weight_map.get("histogram", 0.1))
+                # hash_distances should contain only phash's normalized distance for MVP
+                phash_norm_dist_array = np.array([hash_distances[0]], dtype=np.float64)
 
-                # Convert to numpy arrays
-                hash_dist_array = np.array(hash_distances, dtype=np.float64)
+                # Construct weights array for Numba: phash weight, then histogram weight
+                # The Numba function compute_weighted_similarity expects weights for hashes first, then for histogram.
+                numba_weights = np.array([mvp_weight_map["phash"]], dtype=np.float64)
+                if hist_score > 0: # Add histogram weight only if histogram is being considered
+                    numba_weights = np.append(numba_weights, mvp_weight_map["histogram"])
 
-                return compute_weighted_similarity(hash_dist_array, hist_score, weights)
+                return compute_weighted_similarity(phash_norm_dist_array, hist_score, numba_weights)
             except Exception as e:
-                # Fallback to standard implementation
-                logger.warning(f"Numba weighted similarity computation failed, falling back: {e}")
+                logger.warning(f"Numba weighted similarity computation failed for phash/hist: {e}. Falling back.")
+                # Fallback to standard Python implementation below
+        elif self.use_numba and hist_score > 0 and not hash_distances: # Only histogram available
+            # If only histogram, and Numba is on, we can simplify, but compute_weighted_similarity expects hash distances.
+            # So, pass empty hash distances and let it handle it or fall through to Python.
+            # For simplicity, let's fall through to Python part for hist-only case.
+            pass
 
-        # Standard implementation
-        total_weight = 0
-        total_score = 0
 
-        # Add hash similarities
-        for i, name in enumerate(hash_names):
-            weight = weight_map.get(name, 0.1)
-            similarity = 1.0 - hash_distances[i]
-            total_score += similarity * weight
+        # Standard Python implementation for MVP
+        total_score = 0.0
+        total_weight = 0.0
+
+        # Add PHash similarity if present
+        if "phash" in fp1 and "phash" in fp2 and hash_distances:
+            phash_similarity = 1.0 - hash_distances[0] # phash is the only hash, so it's at index 0
+            weight = mvp_weight_map.get("phash", 0.7)
+            total_score += phash_similarity * weight
             total_weight += weight
 
-        # Add histogram score
-        if hist_score > 0:
-            weight = weight_map.get("histogram", 0.1)
+        # Add histogram score if present
+        if hist_score > 0.0: # Check if hist_score is valid and positive
+            weight = mvp_weight_map.get("histogram", 0.3)
             total_score += hist_score * weight
             total_weight += weight
 
-        return total_score / total_weight if total_weight > 0 else 0.0
+        return total_score / total_weight if total_weight > 0.0 else 0.0
 
     def precompute_video_fingerprints(
         self,
@@ -421,47 +428,44 @@ class FrameFingerprinter:
 
         if self.use_numba and n1 > 5 and n2 > 5:
             try:
-                # Extract hash types from first fingerprint
-                hash_types = [k for k in fps1[0].keys() if k != "histogram"]
+                # For MVP, only "phash" is expected if hashes are present.
+                # Histogram is handled separately.
+                mvp_weight_map = {
+                    "phash": 0.7,
+                    "histogram": 0.3,
+                }
+                total_similarity_weight = 0.0
 
-                # Prepare batch arrays for each hash type
-                for hash_type in hash_types:
-                    if all(hash_type in fp for fp in fps1 + fps2):
-                        # Extract hashes for this type
-                        hashes1 = np.array([fp[hash_type].flatten() for fp in fps1])
-                        hashes2 = np.array([fp[hash_type].flatten() for fp in fps2])
+                if "phash" in fps1[0] and all("phash" in fp for fp in fps1 + fps2):
+                    hashes1 = np.array([fp["phash"].flatten() for fp in fps1])
+                    hashes2 = np.array([fp["phash"].flatten() for fp in fps2])
 
-                        # Compute batch distances
-                        distances = compute_hamming_distances_batch(
-                            hashes1.astype(np.uint8), hashes2.astype(np.uint8)
-                        )
+                    distances = compute_hamming_distances_batch(
+                        hashes1.astype(np.uint8), hashes2.astype(np.uint8)
+                    )
+                    max_bits = hashes1.shape[1] * 8
+                    hash_similarities = 1.0 - (distances / max_bits)
 
-                        # Convert to similarities and accumulate
-                        max_bits = hashes1.shape[1] * 8
-                        hash_similarities = 1.0 - (distances / max_bits)
-
-                        # Apply weight for this hash type
-                        weight_map = {
-                            "phash": 0.4,
-                            "ahash": 0.2,
-                            "dhash": 0.2,
-                            "mhash": 0.1,
-                        }
-                        weight = weight_map.get(hash_type, 0.1)
-                        similarities += hash_similarities * weight
+                    weight = mvp_weight_map.get("phash", 0.7)
+                    similarities += hash_similarities * weight
+                    total_similarity_weight += weight
 
                 # Add histogram correlations if available
-                if all("histogram" in fp for fp in fps1 + fps2):
+                if "histogram" in fps1[0] and all("histogram" in fp for fp in fps1 + fps2):
+                    hist_weight = mvp_weight_map.get("histogram", 0.3)
                     for i in range(n1):
                         for j in range(n2):
                             hist_corr = compute_histogram_correlation(
                                 fps1[i]["histogram"], fps2[j]["histogram"]
                             )
-                            similarities[i, j] += max(0, hist_corr) * 0.1
+                            similarities[i, j] += max(0, hist_corr) * hist_weight
+                    total_similarity_weight += hist_weight
 
-                # Normalize by total weight
-                total_weight = sum(weight_map.values()) + 0.1  # +0.1 for histogram
-                similarities /= total_weight
+                if total_similarity_weight > 0:
+                    similarities /= total_similarity_weight
+                else: # Should not happen if there's at least phash or histogram
+                    similarities = np.zeros((n1, n2), dtype=np.float32)
+
 
                 return similarities
 
@@ -529,10 +533,9 @@ class FrameFingerprinter:
         """
         features = []
 
-        # Extract hash values in consistent order
-        for hash_name in ["phash", "ahash", "dhash", "mhash"]:
-            if hash_name in fingerprint:
-                features.append(fingerprint[hash_name].flatten())
+        # For MVP, only "phash" is expected.
+        if "phash" in fingerprint:
+            features.append(fingerprint["phash"].flatten())
 
         # Add histogram if present
         if "histogram" in fingerprint:
@@ -542,22 +545,21 @@ class FrameFingerprinter:
         if features:
             return np.concatenate(features)
         else:
+            # Return a zero vector of the expected MVP size if no features were generated
             return np.zeros(self._get_fingerprint_size())
 
     def _get_fingerprint_size(self) -> int:
-        """Get the size of the fingerprint feature vector.
+        """Get the size of the fingerprint feature vector for MVP.
 
         Returns:
-            Size of feature vector
+            Size of feature vector (phash + histogram)
         """
-        # Compute size based on available hashers
-        # Most hashes produce 8-byte (64-bit) values
         size = 0
-        for name in ["phash", "ahash", "dhash", "mhash"]:
-            if name in self.hashers:
-                size += 8  # 8 bytes per hash
+        # PHash size (typically 8 bytes for 64-bit hash)
+        if "phash" in self.hashers : # Check if phash is available
+             size += 8
 
-        # Add histogram size (32 bins * 3 channels)
+        # Add histogram size (32 bins * 3 channels = 96 floats)
         size += 32 * 3
 
         return size

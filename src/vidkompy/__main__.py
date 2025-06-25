@@ -56,9 +56,9 @@ def _lazy_composite_videos(
     bg: str | Path,
     fg: str | Path,
     output: str | Path | None = None,
-    engine: str = "full",
+    # engine: str = "full", # MVP: Fixed to "full"
     drift_interval: int = 10,
-    margin: int = 8,
+    margin: int = 8, # Note: Related to deferred TimeMode.BORDER
     smooth: bool = False,
     gpu: bool = False,
     window: int = 10,
@@ -80,15 +80,14 @@ def _lazy_composite_videos(
         bg: Path to background video file
         fg: Path to foreground video file to overlay
         output: Output video path (auto-generated if not provided)
-        engine: Temporal alignment engine (default: 'full')
-            - 'full': Direct pixel comparison with zero drift
-            - 'mask': Content-focused comparison for letterboxed content
+        # engine: Temporal alignment engine (MVP: 'full')
+        #     - 'full': Direct pixel comparison with zero drift
+        #     - 'mask': Content-focused comparison for letterboxed content (Deferred post-MVP)
         drift_interval: Frame interval for drift correction (default: 10)
-        margin: Border thickness for border matching mode in pixels
-               (default: 8)
+        margin: Border thickness for (deferred) border matching mode in pixels (default: 8)
         smooth: Enable smooth blending at frame edges (default: False)
         gpu: Enable GPU acceleration - future feature (default: False)
-        window: DTW window size for temporal alignment (default: 10)
+        window: DTW window size for temporal alignment (default: 10) # Note: Review if this window is used by TunnelSyncer effectively
         align_precision: Spatial alignment precision level 0-4 (default: 2)
             - 0: Ballpark (~1ms), 1: Coarse (~10ms), 2: Balanced (~25ms)
             - 3: Fine (~50ms), 4: Precise (~200ms)
@@ -121,11 +120,12 @@ def _lazy_composite_videos(
     """
     from .comp.vidkompy import composite_videos
 
+    # For MVP, engine is hardcoded to "full" in the actual composite_videos call
     return composite_videos(
         bg,
         fg,
         output,
-        engine,
+        # engine, # Removed from call signature for MVP
         drift_interval,
         margin,
         smooth,
