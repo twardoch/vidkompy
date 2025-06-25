@@ -2,7 +2,7 @@
 # /// script
 # dependencies = [
 # "fire", "rich", "loguru", "opencv-python", "numpy", "scipy",
-# "ffmpeg-python", "soundfile", "scikit-image"
+# "ffmpeg-python" # soundfile and scikit-image removed for MVP
 # ]
 # ///
 # this_file: src/vidkompy/vidkompy.py
@@ -31,9 +31,9 @@ def composite_videos(
     bg: str | Path,
     fg: str | Path,
     output: str | Path | None = None,
-    engine: str = "full",
+    # engine: str = "full", # MVP: Fixed to "full" (TunnelFullSyncer)
     drift_interval: int = 10,
-    margin: int = 8,
+    margin: int = 8, # Note: Related to deferred TimeMode.BORDER
     smooth: bool = False,
     gpu: bool = False,  # Future GPU acceleration support
     window: int = 10,
@@ -45,15 +45,15 @@ def composite_videos(
     verbose: bool = False,
 ):
     """Overlay foreground video onto background video with intelligent
-    alignment.
+    alignment. For MVP, temporal alignment engine is fixed to 'full'.
 
     Args:
         bg: Background video path
         fg: Foreground video path
         output: Output video path (auto-generated if not provided)
-        engine: Temporal alignment engine - 'full' or 'mask' (default: 'full')
+        # engine: Temporal alignment engine - 'full' or 'mask' (MVP: 'full')
         drift_interval: Frame interval for drift correction (default: 10)
-        margin: Border thickness for border matching mode (default: 8)
+        margin: Border thickness for (deferred) border matching mode (default: 8)
         smooth: Enable smooth blending at frame edges
         gpu: Enable GPU acceleration (future feature)
         window: DTW window size for temporal alignment (default: 10)
@@ -88,7 +88,7 @@ def composite_videos(
         logger.info(f"  Background video: {bg}")
         logger.info(f"  Foreground video: {fg}")
         logger.info(f"  Output path: {output}")
-        logger.info(f"  Engine: {engine}")
+        logger.info(f"  Engine: full (MVP default)")
         logger.info(f"  Drift interval: {drift_interval}")
         logger.info(f"  Window: {window}")
         logger.info(f"  Margin: {margin}")
@@ -131,11 +131,8 @@ def composite_videos(
     # Ensure output directory exists
     output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-    # Validate engine parameter
-    if engine not in ["full", "mask"]:
-        err_msg = f"Invalid engine: {engine}. Must be 'full' or 'mask'."
-        logger.error(err_msg)
-        return
+    # MVP: Engine is fixed to "full"
+    engine_mode_mvp = "full"
 
     # Validate shift parameters
     if zero_shift and (x_shift is not None or y_shift is not None):
@@ -164,7 +161,7 @@ def composite_videos(
         processor=processor,
         verbose=verbose,
         max_keyframes=max_keyframes,
-        engine_mode=engine,
+        engine_mode=engine_mode_mvp, # MVP: Use fixed engine mode
         drift_interval=drift_interval,
         window=window,
         spatial_precision=align_precision,

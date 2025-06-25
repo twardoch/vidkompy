@@ -24,12 +24,13 @@ from vidkompy.utils.image import ensure_gray, resize_frame
 
 logger = logging.getLogger(__name__)
 
-try:
-    from skimage.registration import phase_cross_correlation
-
-    PHASE_CORRELATION_AVAILABLE = True
-except ImportError:
-    PHASE_CORRELATION_AVAILABLE = False
+# skimage.registration.phase_cross_correlation was used by PhaseCorrelationAlgorithm, which is deferred for MVP.
+# try:
+#     from skimage.registration import phase_cross_correlation
+#     PHASE_CORRELATION_AVAILABLE = True
+# except ImportError:
+#     PHASE_CORRELATION_AVAILABLE = False
+PHASE_CORRELATION_AVAILABLE = False # Hardcode to False for MVP as the algorithm is deferred
 
 
 @dataclass
@@ -48,9 +49,9 @@ class PerformanceStats:
 class FeatureDetector(Enum):
     """Enumeration of available feature detectors."""
 
-    AKAZE = "akaze"
     ORB = "orb"
-    SIFT = "sift"
+    # AKAZE = "akaze" # Deferred post-MVP
+    # SIFT = "sift"   # Deferred post-MVP
     NONE = "none"
 
 
@@ -381,41 +382,33 @@ class FeatureMatchingAlgorithm:
         self.available_detectors = set()
         self.detectors = {}
 
+        # For MVP, ORB is the primary detector.
+        # AKAZE and SIFT are deferred post-MVP.
         try:
-            # AKAZE - Best balance of speed and accuracy
-            self.detectors[FeatureDetector.AKAZE] = cv2.AKAZE_create()
-            self.available_detectors.add(FeatureDetector.AKAZE)
-        except AttributeError:
-            pass
-
-        try:
-            # ORB - Fastest option
+            # ORB - Fast and effective
             self.detectors[FeatureDetector.ORB] = cv2.ORB_create(nfeatures=max_features)
             self.available_detectors.add(FeatureDetector.ORB)
+            if self.verbose:
+                logger.debug("ORB feature detector initialized.")
         except AttributeError:
-            pass
-
-        try:
-            # SIFT - Most accurate but slower
-            self.detectors[FeatureDetector.SIFT] = cv2.SIFT_create()
-            self.available_detectors.add(FeatureDetector.SIFT)
-        except AttributeError:
-            pass
+            logger.error("ORB feature detector not available. Feature matching will fail.")
+            # No need to add to self.available_detectors if it fails
 
         if self.verbose:
             available_names = [d.value for d in self.available_detectors]
-            logger.debug(f"Available detectors: {available_names}")
+            logger.debug(f"Available MVP detectors: {available_names}")
 
     def enhanced_feature_matching(
-        self, template: np.ndarray, image: np.ndarray, detector_type: str = "auto"
+        self, template: np.ndarray, image: np.ndarray, detector_type: str = "orb" # Added detector_type for future flexibility, defaults to ORB for MVP
     ) -> MatchResult | None:
         """
-        Enhanced feature-based matching with multiple detector options.
+        Enhanced feature-based matching using ORB detector for MVP.
+        The detector_type argument is kept for potential future expansion but defaults to ORB.
 
         Args:
             template: Foreground frame to match
             image: Background frame to search in
-            detector_type: "auto", "akaze", "orb", or "sift"
+            detector_type: Specifies the detector to use, defaults to "orb". Currently only "orb" is supported for MVP.
 
         Returns:
             MatchResult or None if matching failed
@@ -425,37 +418,19 @@ class FeatureMatchingAlgorithm:
         """
         start_time = time.time()
 
-        # Choose detector
-        if detector_type == "auto":
-            if FeatureDetector.AKAZE in self.available_detectors:
-                detector = self.detectors[FeatureDetector.AKAZE]
-                detector_name = "AKAZE"
-            elif FeatureDetector.ORB in self.available_detectors:
-                detector = self.detectors[FeatureDetector.ORB]
-                detector_name = "ORB"
-            elif FeatureDetector.SIFT in self.available_detectors:
-                detector = self.detectors[FeatureDetector.SIFT]
-                detector_name = "SIFT"
-            else:
-                logger.error("No feature detectors available")
+        if detector_type.lower() != "orb" or FeatureDetector.ORB not in self.available_detectors:
+            logger.error(f"{detector_type.upper()} detector not available or not supported for MVP. Defaulting to ORB if available, else failing.")
+            if FeatureDetector.ORB not in self.available_detectors:
+                logger.error("ORB detector is not available. Cannot perform feature matching.")
                 return None
-        elif (
-            detector_type == "akaze"
-            and FeatureDetector.AKAZE in self.available_detectors
-        ):
-            detector = self.detectors[FeatureDetector.AKAZE]
-            detector_name = "AKAZE"
-        elif detector_type == "orb" and FeatureDetector.ORB in self.available_detectors:
-            detector = self.detectors[FeatureDetector.ORB]
+            # If ORB is available but a different one was requested, we log and proceed with ORB.
+            # This maintains the MVP constraint of using only ORB for now.
             detector_name = "ORB"
-        elif (
-            detector_type == "sift" and FeatureDetector.SIFT in self.available_detectors
-        ):
-            detector = self.detectors[FeatureDetector.SIFT]
-            detector_name = "SIFT"
+            detector = self.detectors[FeatureDetector.ORB]
         else:
-            logger.error(f"Detector {detector_type} not available")
-            return None
+            detector_name = "ORB"
+            detector = self.detectors[FeatureDetector.ORB]
+
 
         # Convert to grayscale
         template_gray = ensure_gray(template)
@@ -471,10 +446,8 @@ class FeatureMatchingAlgorithm:
             return None
 
         # Match features
-        if detector_name in ["ORB", "AKAZE"]:
-            matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
-        else:  # SIFT
-            matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck=False)
+        # For ORB (MVP detector), NORM_HAMMING is used.
+        matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
         try:
             matches = matcher.knnMatch(des1, des2, k=2)

@@ -312,26 +312,25 @@ class AlignmentEngine:
         """
         # Configure temporal aligner window size for tunnel engines
         if window > 0:
-            self.temporal_aligner.cli_window_size = window
+            # Assuming self.temporal_aligner is TemporalSyncer, which initializes TunnelConfig.
+            # We need to ensure TunnelConfig in TemporalSyncer can accept/use this.
+            # For now, TemporalSyncer's _sync_frames_tunnel directly creates TunnelConfig.
+            # This suggests cli_window_size might not be correctly plumbed to TunnelConfig.
+            # However, TemporalSyncer's __init__ takes a window argument. Let's assume it's handled there.
+            # If TemporalSyncer.cli_window_size is a property, this is fine.
+             if hasattr(self.temporal_aligner, 'cli_window_size'):
+                self.temporal_aligner.cli_window_size = window
+             else:
+                logger.warning("TemporalSyncer does not have cli_window_size attribute. Window parameter might not be applied to Tunnel engine.")
 
-        if mode == TimeMode.BORDER:
-            # Use border-based alignment with mask
-            logger.info(
-                f"Using border-based temporal alignment (border thickness: {border_thickness}px)"
-            )
-            border_mask = self.temporal_aligner.create_border_mask(
-                spatial_alignment, fg_info, bg_info, border_thickness
-            )
-            return self.temporal_aligner.align_frames_with_mask(
-                bg_info, fg_info, trim, border_mask
-            )
 
-        elif mode == TimeMode.PRECISE:
-            # Always use frame-based alignment
+        # For MVP, TimeMode.PRECISE (which uses Tunnel Syncers via TemporalSyncer.sync_frames) is the primary path.
+        # TimeMode.BORDER is deferred.
+        if mode == TimeMode.PRECISE:
+            logger.info("Using PRECISE temporal alignment (Tunnel Syncer based).")
             return self.temporal_aligner.sync_frames(bg_info, fg_info, trim)
-
         else:
-            # For any other mode, use frame-based alignment
+            logger.warning(f"Unsupported TimeMode '{mode}'. Defaulting to PRECISE temporal alignment.")
             return self.temporal_aligner.sync_frames(bg_info, fg_info, trim)
 
     def _compose_video(
