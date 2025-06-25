@@ -38,7 +38,9 @@ class ThumbnailFinder:
     """
 
     def __init__(self, logger: logging.Logger | None = None):
-        """Initialize the thumbnail finder with component instances."""
+        """Initialize the thumbnail finder with component instances.
+
+"""
         self.frame_extractor = FrameExtractor()
         self.precision_analyzer = PrecisionAnalyzer()
         self.template_matcher = TemplateMatchingAlgorithm()
@@ -204,14 +206,18 @@ class ThumbnailFinder:
     def _calculate_thumbnail_size(
         self, fg_size: tuple[int, int], scale_percent: float
     ) -> tuple[int, int]:
-        """Calculate thumbnail size from foreground size and scale."""
+        """Calculate thumbnail size from foreground size and scale.
+
+"""
         scale_factor = scale_percent / 100.0
         return (int(fg_size[0] * scale_factor), int(fg_size[1] * scale_factor))
 
     def _calculate_upscaled_bg_size(
         self, bg_size: tuple[int, int], scale_percent: float
     ) -> tuple[int, int]:
-        """Calculate upscaled background size."""
+        """Calculate upscaled background size.
+
+"""
         scale_factor = scale_percent / 100.0
         return (int(bg_size[0] * scale_factor), int(bg_size[1] * scale_factor))
 

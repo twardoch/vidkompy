@@ -50,12 +50,16 @@ class VideoInfo:
 
     @property
     def resolution(self) -> tuple[int, int]:
-        """Get video resolution as (width, height)."""
+        """Get video resolution as (width, height).
+
+"""
         return (self.width, self.height)
 
     @property
     def aspect_ratio(self) -> float:
-        """Calculate aspect ratio."""
+        """Calculate aspect ratio.
+
+"""
         return self.width / self.height if self.height > 0 else 0
 
     @classmethod
@@ -175,7 +179,9 @@ class SpatialTransform:
 
     @property
     def offset(self) -> tuple[int, int]:
-        """Get offset as tuple."""
+        """Get offset as tuple.
+
+"""
         return (self.x_offset, self.y_offset)
 
     def as_matrix(self) -> "np.ndarray":
@@ -216,18 +222,24 @@ class TemporalSync:
 
     @property
     def start_frame(self) -> int | None:
-        """Get first aligned foreground frame."""
+        """Get first aligned foreground frame.
+
+"""
         return self.frame_alignments[0].fg_frame_idx if self.frame_alignments else None
 
     @property
     def end_frame(self) -> int | None:
-        """Get last aligned foreground frame."""
+        """Get last aligned foreground frame.
+
+"""
         return self.frame_alignments[-1].fg_frame_idx if self.frame_alignments else None
 
 
 @dataclass
 class ProcessingOptions:
-    """Options for video processing."""
+    """Options for video processing.
+
+"""
 
     time_mode: TimeMode
     space_method: str

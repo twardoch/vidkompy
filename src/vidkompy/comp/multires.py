@@ -282,7 +282,9 @@ class MultiResolutionAligner:
     def apply_drift_correction(
         self, mapping: np.ndarray, interval: int | None = None
     ) -> np.ndarray:
-        """Apply periodic drift correction to prevent accumulation."""
+        """Apply periodic drift correction to prevent accumulation.
+
+"""
         if interval is None:
             interval = self.config.drift_correction_interval
 
@@ -367,7 +369,9 @@ class MultiResolutionAligner:
     def interpolate_full_mapping(
         self, sparse_mapping: np.ndarray, target_length: int, source_resolution: int
     ) -> np.ndarray:
-        """Interpolate sparse mapping to full frame resolution."""
+        """Interpolate sparse mapping to full frame resolution.
+
+"""
         full_mapping = np.zeros(target_length, dtype=int)
         if len(sparse_mapping) == 0:
             if target_length > 0:

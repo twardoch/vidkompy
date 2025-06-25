@@ -189,7 +189,9 @@ class TemporalSyncer:
     def _create_direct_mapping(
         self, bg_info: VideoInfo, fg_info: VideoInfo
     ) -> TemporalSync:
-        """Create simple direct frame mapping as fallback."""
+        """Create simple direct frame mapping as fallback.
+
+"""
         fps_ratio = bg_info.fps / fg_info.fps if fg_info.fps > 0 else 1.0
 
         alignments = []

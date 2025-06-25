@@ -93,7 +93,9 @@ class MatchResult:
     processing_time: float = 0.0
 
     def __post_init__(self):
-        """Validate the match result data."""
+        """Validate the match result data.
+
+"""
         if not 0.0 <= self.confidence <= 1.0:
             msg = f"Confidence must be between 0.0 and 1.0, got {self.confidence}"
             raise ValueError(msg)
@@ -160,7 +162,9 @@ class AnalysisData:
     precision_analysis: list[PrecisionAnalysisResult] | None = None
 
     def __post_init__(self):
-        """Initialize precision_analysis if not provided."""
+        """Initialize precision_analysis if not provided.
+
+"""
         if self.precision_analysis is None:
             self.precision_analysis = []
 
@@ -287,12 +291,16 @@ class FrameExtractionResult:
 
     @property
     def width(self) -> int:
-        """Get frame width."""
+        """Get frame width.
+
+"""
         return self.original_size[0]
 
     @property
     def height(self) -> int:
-        """Get frame height."""
+        """Get frame height.
+
+"""
         return self.original_size[1]
 
 

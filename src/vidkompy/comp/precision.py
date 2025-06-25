@@ -22,7 +22,9 @@ from vidkompy.comp.dtw_aligner import DTWSyncer
 
 
 class PreciseTemporalAlignment:
-    """Precise temporal alignment with drift elimination."""
+    """Precise temporal alignment with drift elimination.
+
+"""
 
     def __init__(
         self,

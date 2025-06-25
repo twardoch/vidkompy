@@ -35,27 +35,37 @@ ScaleParams = namedtuple("ScaleParams", ["range_fn", "steps"])
 
 
 def _ballpark_range(prev_scale: float = 1.0) -> tuple[float, float]:
-    """Wide search range for ballpark estimation."""
+    """Wide search range for ballpark estimation.
+
+"""
     return (0.3, 1.5)
 
 
 def _coarse_range(prev_scale: float = 1.0) -> tuple[float, float]:
-    """Narrow around previous estimate."""
+    """Narrow around previous estimate.
+
+"""
     return (max(0.3, prev_scale * 0.8), min(1.5, prev_scale * 1.2))
 
 
 def _balanced_range(prev_scale: float = 1.0) -> tuple[float, float]:
-    """Balanced refinement around previous estimate."""
+    """Balanced refinement around previous estimate.
+
+"""
     return (max(0.3, prev_scale * 0.9), min(1.5, prev_scale * 1.1))
 
 
 def _fine_range(prev_scale: float = 1.0) -> tuple[float, float]:
-    """Fine-grained search around previous estimate."""
+    """Fine-grained search around previous estimate.
+
+"""
     return (max(0.3, prev_scale * 0.95), min(1.5, prev_scale * 1.05))
 
 
 def _precise_range(prev_scale: float = 1.0) -> tuple[float, float]:
-    """Very precise search around previous estimate."""
+    """Very precise search around previous estimate.
+
+"""
     return (max(0.3, prev_scale * 0.98), min(1.5, prev_scale * 1.02))
 
 
@@ -82,7 +92,9 @@ class PrecisionAnalyzer:
     """
 
     def __init__(self, verbose: bool = False):
-        """Initialize the precision analyzer with lazy algorithm loading."""
+        """Initialize the precision analyzer with lazy algorithm loading.
+
+"""
         self.verbose = verbose
         self._algorithms: dict[str, any] = {}  # Lazy loading cache
 
@@ -98,31 +110,43 @@ class PrecisionAnalyzer:
 
     @cached_property
     def template_matcher(self) -> TemplateMatchingAlgorithm:
-        """Template matching algorithm instance."""
+        """Template matching algorithm instance.
+
+"""
         return TemplateMatchingAlgorithm(self.verbose)
 
     @cached_property
     def feature_matcher(self) -> FeatureMatchingAlgorithm:
-        """Feature matching algorithm instance."""
+        """Feature matching algorithm instance.
+
+"""
         return FeatureMatchingAlgorithm(verbose=self.verbose)
 
     @cached_property
     def subpixel_refiner(self) -> SubPixelRefinementAlgorithm:
-        """Sub-pixel refinement algorithm instance."""
+        """Sub-pixel refinement algorithm instance.
+
+"""
         return SubPixelRefinementAlgorithm()
 
     @cached_property
     def phase_matcher(self) -> PhaseCorrelationAlgorithm:
-        """Phase correlation algorithm instance."""
+        """Phase correlation algorithm instance.
+
+"""
         return PhaseCorrelationAlgorithm(self.verbose)
 
     @cached_property
     def hybrid_matcher(self) -> HybridMatchingAlgorithm:
-        """Hybrid matching algorithm instance."""
+        """Hybrid matching algorithm instance.
+
+"""
         return HybridMatchingAlgorithm(self.verbose)
 
     def _get_algorithm(self, name: str):
-        """Legacy method for backward compatibility."""
+        """Legacy method for backward compatibility.
+
+"""
         if name == "template_matcher":
             return self.template_matcher
         elif name == "feature_matcher":

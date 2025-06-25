@@ -1,3 +1,7 @@
+---
+this_file: CLAUDE.md
+---
+
 ## 1. Coding style
 
 <guidelines>

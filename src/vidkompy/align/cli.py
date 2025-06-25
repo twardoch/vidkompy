@@ -78,7 +78,9 @@ def find_thumbnail(
 
 
 def main():
-    """Main entry point for Fire CLI."""
+    """Main entry point for Fire CLI.
+
+"""
     fire.Fire(find_thumbnail)
 
 

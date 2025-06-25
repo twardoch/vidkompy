@@ -35,7 +35,9 @@ PHASE_CORRELATION_AVAILABLE = False # Hardcode to False for MVP as the algorithm
 
 @dataclass
 class PerformanceStats:
-    """Container for performance timing statistics."""
+    """Container for performance timing statistics.
+
+"""
 
     template_matching_time: float = 0.0
     parallel_matching_time: float = 0.0
@@ -47,7 +49,9 @@ class PerformanceStats:
 
 
 class FeatureDetector(Enum):
-    """Enumeration of available feature detectors."""
+    """Enumeration of available feature detectors.
+
+"""
 
     ORB = "orb"
     # AKAZE = "akaze" # Deferred post-MVP
@@ -70,7 +74,9 @@ class TemplateMatchingAlgorithm:
     """
 
     def __init__(self, verbose: bool = False):
-        """Initialize the template matching algorithm."""
+        """Initialize the template matching algorithm.
+
+"""
         self.method = cv2.TM_CCOEFF_NORMED
         self.verbose = verbose
         self.performance_stats = PerformanceStats()
@@ -294,7 +300,9 @@ class TemplateMatchingAlgorithm:
         scales = np.linspace(scale_range[0], scale_range[1], scale_steps)
 
         def process_scale(scale):
-            """Process a single scale factor."""
+            """Process a single scale factor.
+
+"""
             # Use the extracted _match_at_scale method
             result = self._match_at_scale(
                 template_gray, image_gray, scale, "parallel_template"
@@ -378,7 +386,9 @@ class FeatureMatchingAlgorithm:
         self._init_feature_detectors(max_features)
 
     def _init_feature_detectors(self, max_features: int):
-        """Initialize various feature detectors for robust matching."""
+        """Initialize various feature detectors for robust matching.
+
+"""
         self.available_detectors = set()
         self.detectors = {}
 
@@ -703,7 +713,9 @@ class PhaseCorrelationAlgorithm:
     """
 
     def __init__(self, verbose: bool = False):
-        """Initialize the phase correlation algorithm."""
+        """Initialize the phase correlation algorithm.
+
+"""
         self.verbose = verbose
         self.performance_stats = PerformanceStats()
 
@@ -808,7 +820,9 @@ class HybridMatchingAlgorithm:
     """
 
     def __init__(self, verbose: bool = False):
-        """Initialize the hybrid matching algorithm."""
+        """Initialize the hybrid matching algorithm.
+
+"""
         self.verbose = verbose
         self.template_matcher = TemplateMatchingAlgorithm(verbose)
         self.feature_matcher = FeatureMatchingAlgorithm(verbose=verbose)

@@ -78,12 +78,16 @@ __all__ = [
 
 
 def get_version() -> str:
-    """Get package version."""
+    """Get package version.
+
+"""
     return __version__
 
 
 def get_info() -> dict:
-    """Get package information."""
+    """Get package information.
+
+"""
     return {
         "name": "vidkompy.align",
         "version": __version__,

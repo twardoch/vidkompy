@@ -141,7 +141,9 @@ def _lazy_composite_videos(
 
 
 def cli():
-    """Main CLI entry point with subcommands."""
+    """Main CLI entry point with subcommands.
+
+"""
 
     fire.Fire(
         {

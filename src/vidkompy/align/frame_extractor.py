@@ -60,7 +60,9 @@ class FrameExtractor:
     """
 
     def __init__(self):
-        """Initialize the frame extractor."""
+        """Initialize the frame extractor.
+
+"""
 
     def extract_frames(
         self, media_path: str | Path, max_frames: int = 7, verbose: bool = False

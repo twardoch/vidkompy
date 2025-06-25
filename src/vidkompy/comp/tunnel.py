@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # this_file: src/vidkompy/comp/tunnel.py
-"""Tunnel-based temporal alignment using direct frame comparison with sliding windows."""
+"""Tunnel-based temporal alignment using direct frame comparison with sliding windows.
+
+"""
 
 from __future__ import annotations
 
@@ -35,10 +37,14 @@ class TunnelConfig:
 
 
 class TunnelSyncer(ABC):
-    """Base class for tunnel-based temporal alignment."""
+    """Base class for tunnel-based temporal alignment.
+
+"""
 
     def __init__(self, config: TunnelConfig | None = None):
-        """Initialize tunnel aligner with configuration."""
+        """Initialize tunnel aligner with configuration.
+
+"""
         self.config = config or TunnelConfig()
         self._frame_cache: dict[tuple[str, int], np.ndarray] = {}
         self._cache_hits = 0
@@ -135,7 +141,9 @@ class TunnelSyncer(ABC):
         return alignments, confidence
 
     def _downsample_frames(self, frames: np.ndarray) -> np.ndarray:
-        """Downsample frames by the configured factor."""
+        """Downsample frames by the configured factor.
+
+"""
         if self.config.downsample_factor >= 1.0:
             return frames
 
@@ -160,7 +168,9 @@ class TunnelSyncer(ABC):
         task: int,
         verbose: bool,
     ) -> list[int]:
-        """Perform forward pass from start to end."""
+        """Perform forward pass from start to end.
+
+"""
         mapping = []
         last_bg_idx = 0
 
@@ -204,7 +214,9 @@ class TunnelSyncer(ABC):
         task: int,
         verbose: bool,
     ) -> list[int]:
-        """Perform backward pass from end to start."""
+        """Perform backward pass from end to start.
+
+"""
         mapping = [0] * len(fg_frames)
         last_bg_idx = len(bg_frames) - 1
 
@@ -246,7 +258,9 @@ class TunnelSyncer(ABC):
         y_offset: int,
         window_offset: int,
     ) -> tuple[int, float]:
-        """Find best matching BG frame in window for given FG frame."""
+        """Find best matching BG frame in window for given FG frame.
+
+"""
         best_idx = 0
         best_diff = float("inf")
 
@@ -266,7 +280,9 @@ class TunnelSyncer(ABC):
     def _merge_mappings(
         self, forward: list[int], backward: list[int], num_frames: int, verbose: bool
     ) -> tuple[list[int], float]:
-        """Merge forward and backward mappings."""
+        """Merge forward and backward mappings.
+
+"""
         merged = []
         total_diff = 0.0
 
@@ -326,7 +342,9 @@ class TunnelFullSyncer(TunnelSyncer):
     def compute_frame_difference(
         self, fg_frame: np.ndarray, bg_frame: np.ndarray, x_offset: int, y_offset: int
     ) -> float:
-        """Compute pixel-wise difference between frames."""
+        """Compute pixel-wise difference between frames.
+
+"""
         fg_h, fg_w = fg_frame.shape[:2]
 
         # Crop BG frame to FG region
@@ -351,7 +369,9 @@ class TunnelMaskSyncer(TunnelSyncer):
     """
 
     def __init__(self, config: TunnelConfig | None = None):
-        """Initialize with mask generation."""
+        """Initialize with mask generation.
+
+"""
         super().__init__(config)
         self._mask_cache: dict[tuple[int, int], np.ndarray] = {}
 
@@ -379,7 +399,9 @@ class TunnelMaskSyncer(TunnelSyncer):
         return super().sync(fg_frames, bg_frames, x_offset, y_offset, verbose)
 
     def _generate_mask(self, sample_frames: np.ndarray):
-        """Generate content mask from sample frames."""
+        """Generate content mask from sample frames.
+
+"""
         if len(sample_frames) == 0:
             return
 
@@ -413,7 +435,9 @@ class TunnelMaskSyncer(TunnelSyncer):
     def compute_frame_difference(
         self, fg_frame: np.ndarray, bg_frame: np.ndarray, x_offset: int, y_offset: int
     ) -> float:
-        """Compute masked pixel difference between frames."""
+        """Compute masked pixel difference between frames.
+
+"""
         fg_h, fg_w = fg_frame.shape[:2]
 
         # Crop BG frame to FG region
