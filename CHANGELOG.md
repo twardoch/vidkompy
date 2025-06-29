@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Changed
+- **Documentation:** Rewrote `README.md` to be a comprehensive one-page documentation.
+    - Divided into an "Accessible Overview" (what, who, why, install, CLI & programmatic usage) and a "Technical Deep-Dive" (how it works, architecture, algorithms, performance, development & contribution guidelines).
+    - Incorporated information from `AGENT.md` and `CLAUDE.md` guidelines.
+    - Added detailed examples for programmatic usage of `composite_videos` and `ThumbnailFinder.find_thumbnail`.
 - **MVP Streamlining: `align` module simplification:**
     - `FeatureMatchingAlgorithm` now uses only ORB detector for MVP (AKAZE, SIFT deferred).
     - Advanced algorithms (`SubPixelRefinement`, `PhaseCorrelation`, `Hybrid`) effectively deferred by simplifying `PrecisionAnalyzer`.
