@@ -1,558 +1,453 @@
 # `vidkompy`
 
-[![PyPI](https://img.shields.io/pypi/v/vidkompy.svg)](https://pypi.org/project/vidkompy/) [![License](https://img.shields.io/github/license/twardoch/vidkompy.svg)](
+[![PyPI](https://img.shields.io/pypi/v/vidkompy.svg)](https://pypi.org/project/vidkompy/) [![License](https://img.shields.io/github/license/twardoch/vidkompy.svg)](LICENSE)
 
 **Intelligent Video Overlay and Synchronization**
 
-`vidkompy` is a powerful command-line tool engineered to overlay a foreground video onto a background video with exceptional precision and automatic alignment. The system intelligently handles discrepancies in resolution, frame rate, duration, and audio, prioritizing content integrity and synchronization accuracy over raw processing speed.
+`vidkompy` is a powerful Python-based tool designed for intelligently overlaying a foreground video onto a background video with exceptional precision and automatic alignment. It expertly handles common discrepancies such as differences in resolution, frame rate, duration, and audio, prioritizing content integrity and synchronization accuracy.
 
 The core philosophy of `vidkompy` is to treat the **foreground video as the definitive source of quality and timing**. All its frames are preserved without modification or re-timing. The background video is dynamically adapted—stretched, retimed, and selectively sampled—to synchronize perfectly with every frame of the foreground content, ensuring a seamless and coherent final output.
 
----
+## Who is `vidkompy` for?
 
-## 1. Features
+`vidkompy` is for:
 
-### 1.1. Video Composition
+*   **Video editors and content creators** who need to precisely overlay video clips, such as picture-in-picture effects, screen recordings onto presentations, or aligning different camera angles of the same event.
+*   **Archivists and media professionals** working with historical footage or multiple video sources that need careful synchronization.
+*   **Developers** looking for a robust library to integrate automated video alignment and composition into their applications.
+*   **Anyone** who needs to combine videos accurately without manual frame-by-frame adjustments.
 
-- **Automatic Spatial Alignment**: Intelligently detects the optimal x/y offset to position the foreground video within the background, even if they are cropped differently.
-- **Advanced Temporal Synchronization**: Aligns videos with different start times, durations, and frame rates, eliminating temporal drift and ensuring content matches perfectly over time.
-- **Foreground-First Principle**: Guarantees that every frame of the foreground video is included in the output, preserving its original timing and quality. The background video is adapted to match the foreground.
-- **Drift-Free Alignment**: Uses optimized sliding window algorithms to create globally optimal, monotonic alignment, preventing the common "drift-and-catchup" artifacts.
-- **High-Performance Processing**: Leverages multi-core processing, direct pixel comparison, and optimized video I/O to deliver results quickly.
-- Sequential video composition is 10-100x faster than random-access methods.
-- **Smart Audio Handling**: Automatically uses the foreground audio track if available, falling back to the background audio. The audio is correctly synchronized with the final video.
-- **Flexible Operation Modes**: Supports specialized modes like `mask` for letterboxed content and `smooth` blending for seamless visual integration.
+## Why is `vidkompy` useful?
 
-### 1.2. Thumbnail Detection (`align` module)
+`vidkompy` saves time and effort by automating complex video alignment tasks. Its key benefits include:
 
-- **Multi-Precision Analysis**: Progressive refinement system with 5 precision levels (1ms to 200ms processing time)
-- **Advanced Algorithm Suite**: 6 specialized algorithms including template matching, feature matching, phase correlation, and hybrid approaches
-- **Parallel Processing**: Numba JIT compilation and ThreadPoolExecutor optimization for maximum performance
-- **Multiple Detection Methods**: Template matching, AKAZE/ORB/SIFT feature detection, histogram correlation, and sub-pixel refinement
-- **Intelligent Fallbacks**: Automatic algorithm selection and graceful fallback between detection methods
-- **Rich Analysis**: Comprehensive confidence metrics, processing statistics, and alternative result comparison
+*   **High Precision:** Achieves sub-second temporal accuracy and precise spatial positioning.
+*   **Content Integrity:** Prioritizes the foreground video, ensuring no frames are dropped or unnecessarily altered.
+*   **Automatic Alignment:**
+    *   **Spatial:** Intelligently detects the optimal x/y offset to position the foreground video, even with different croppings.
+    *   **Temporal:** Aligns videos with different start times, durations, and frame rates, eliminating drift.
+*   **Resilience:** Handles variations in video properties like resolution and aspect ratio.
+*   **Smart Audio Handling:** Uses foreground audio by default, ensuring it remains synchronized with the composed video.
+*   **Flexible:** Offers both a command-line interface for quick use and a Python API for integration.
+*   **Performance:** Leverages optimized algorithms and efficient video processing techniques.
 
-## 2. How It Works
+Key Features:
+*   **Foreground-First Principle:** Every frame of the foreground video is included in the output, preserving its original timing and quality.
+*   **Drift-Free Alignment:** Employs advanced algorithms for globally optimal, monotonic temporal alignment.
+*   **Specialized Modes:** Supports different alignment engines (e.g., `mask` for letterboxed content) and options like smooth blending.
+*   **Advanced Thumbnail Detection:** A standalone module (`align`) can find an image (or video frame) within another image or video with multiple precision levels and algorithms.
 
-The `vidkompy` pipeline is a multi-stage process designed for precision and accuracy:
+## Prerequisites
 
-1.  **Video Analysis**: The tool begins by probing both background (BG) and foreground (FG) videos using `ffprobe` to extract essential metadata: resolution, frames per second (FPS), duration, frame count, and audio stream information.
+Before using `vidkompy`, you must have **FFmpeg** installed on your system and accessible in your system's `PATH`. `vidkompy` relies on FFmpeg for all underlying video and audio processing tasks.
 
-2.  **Spatial Alignment**: To determine _where_ to place the foreground on the background, `vidkompy` extracts a sample frame from the middle of each video (where content is most likely to be stable). It then calculates the optimal (x, y) offset.
+You can download FFmpeg from [ffmpeg.org](https://ffmpeg.org/download.html).
 
-3.  **Temporal Alignment**: This is the core of `vidkompy`. To determine _when_ to start the overlay and how to map frames over time, the tool generates "fingerprints" of frames from both videos and uses Dynamic Time Warping (DTW) to find the best alignment path. This ensures every foreground frame is matched to the most suitable background frame.
+## Installation
 
-4.  **Video Composition**: Once the spatial and temporal alignments are known, `vidkompy` composes the final video. It reads both video streams sequentially (for maximum performance) and, for each foreground frame, fetches the corresponding background frame as determined by the alignment map. The foreground is then overlaid at the correct spatial position.
+`vidkompy` is a Python package. It is recommended to install it from the official repository to get the latest version.
 
-5.  **Audio Integration**: After the silent video is composed, `vidkompy` adds the appropriate audio track (preferring the foreground's audio) with the correct offset to ensure it's perfectly synchronized with the video content.
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/twardoch/vidkompy.git
+    cd vidkompy
+    ```
 
-## 3. Modular Architecture
+2.  **Install using `uv` (recommended) or `pip`:**
+    ```bash
+    # Using uv
+    uv pip install .
 
-`vidkompy` features a clean, modular architecture that separates concerns and enables easy extension:
+    # Or using pip
+    pip install .
+    ```
+    This will install `vidkompy` and its dependencies.
 
-### 3.1. Thumbnail Detection (`align` module)
+## How to Use `vidkompy`
 
-- **Core Classes**: `ThumbnailFinder` orchestrates the detection process
-- **Algorithms**: Multiple detection algorithms including template matching, feature matching, phase correlation, and hybrid approaches
-- **Precision System**: Progressive refinement with 5 precision levels (0=ballpark ~1ms to 4=precise ~200ms)
-- **Performance**: Numba-optimized computations with parallel processing support
-- **Rich Output**: Comprehensive result display with confidence metrics and processing statistics
+`vidkompy` can be used via its command-line interface (CLI) or programmatically in your Python scripts.
 
-### 3.2. Video Composition (`comp` module)
+### Command-Line Interface (CLI)
 
-- **Alignment Engines**: Specialized engines for different content types (Full, Mask)
-- **Unified Spatial Alignment**: Uses the advanced `align` module for consistent, high-quality spatial detection
-- **Temporal Synchronization**: Advanced DTW-based frame mapping with zero-drift constraints
-- **Audio Processing**: Intelligent audio track selection and synchronization
-- **Performance Optimization**: Sequential processing with 10-100x speedup over random access
+The CLI is accessed by running `python -m vidkompy`. It has two main subcommands: `comp` (for video composition) and `align` (for thumbnail detection).
 
-### 3.3. Key Design Principles
+#### Video Composition (`comp`)
 
-- **Unified Spatial Alignment**: Single spatial alignment implementation across all modules using the `align` module
-- **Separation of Concerns**: Each module handles a specific aspect of the processing pipeline
-- **Algorithm Flexibility**: Multiple algorithms available with automatic fallbacks
-- **Performance Focus**: Optimized for both speed and accuracy with configurable trade-offs
-- **Extensibility**: Clean interfaces allow easy addition of new algorithms and features
+This command overlays a foreground video onto a background video.
 
-## 4. The Algorithms
-
-`vidkompy` employs several sophisticated algorithms to achieve its high-precision results.
-
-### 4.1. Thumbnail Detection Algorithms (`align` module)
-
-The modular thumbnail detection system provides multiple specialized algorithms for robust image matching:
-
-#### 4.1.1. Template Matching Algorithm
-
-- **Multi-Scale Processing**: Tests multiple scale factors in parallel using ThreadPoolExecutor
-- **Ballpark Estimation**: Ultra-fast histogram correlation for initial scale estimation (~1ms)
-- **Parallel Optimization**: Numba JIT compilation for critical computational functions
-- **unscaled Bias**: Small preference for exact scale matches when confidence is similar
-- **Normalized Cross-Correlation**: Uses OpenCV's TM_CCOEFF_NORMED for reliable matching
-
-#### 4.1.2. Feature Matching Algorithm
-
-- **Multiple Detectors**: Supports AKAZE (default), ORB, and SIFT feature detectors
-- **Robust Matching**: Ratio test filtering and RANSAC-based outlier rejection
-- **Transformation Estimation**: Uses estimateAffinePartial2D and homography methods
-- **Confidence Calculation**: Based on inlier ratios and geometric consistency
-- **Automatic Fallbacks**: Graceful degradation when detection methods fail
-
-#### 4.1.3. Phase Correlation Algorithm
-
-- **FFT-Based Processing**: Uses scikit-image's phase_cross_correlation
-- **Sub-Pixel Accuracy**: 10x upsampling factor for precise position detection
-- **Scale Integration**: Works with scale estimates from other algorithms
-- **Error Conversion**: Transforms phase correlation error into confidence metrics
-
-#### 4.1.4. Hybrid Matching Algorithm
-
-- **Multi-Method Combination**: Intelligently combines feature, template, and phase correlation
-- **Weighted Selection**: Results weighted by confidence and method reliability
-- **Adaptive Strategy**: Adjusts approach based on initial feature detection success
-- **Cascaded Processing**: Feature → Template → Phase correlation pipeline
-
-#### 4.1.5. Histogram Correlation Algorithm
-
-- **Ultra-Fast Processing**: Provides ballpark scale estimation in ~1ms
-- **Multi-Region Sampling**: Tests correlation across multiple image regions
-- **Normalized Histograms**: Robust to brightness and contrast variations
-- **Numba Optimization**: JIT-compiled correlation functions for maximum speed
-
-#### 4.1.6. Sub-Pixel Refinement Algorithm
-
-- **Precision Enhancement**: Refines position estimates with sub-pixel accuracy
-- **Local Search**: Tests sub-pixel offsets around initial estimates
-- **Normalized Correlation**: Direct correlation calculation for fine-tuning
-- **Quality Improvement**: Enhances results from other algorithms
-
-### 4.2. Multi-Precision Analysis System
-
-The system offers 5 precision levels with different speed/accuracy trade-offs:
-
-- **Level 0 (Ballpark)**: Histogram correlation only (~1ms)
-- **Level 1 (Coarse)**: Parallel template matching with wide steps (~10ms)
-- **Level 2 (Balanced)**: Feature + template matching combination (~25ms, default)
-- **Level 3 (Fine)**: Hybrid algorithm with multiple methods (~50ms)
-- **Level 4 (Precise)**: Sub-pixel refinement for maximum accuracy (~200ms)
-
-### 4.3. Video Composition Algorithms (`comp` module)
-
-#### 4.3.1. Frame Fingerprinting (Perceptual Hashing)
-
-Instead of comparing the millions of pixels in a frame, `vidkompy` creates a tiny, unique "fingerprint" (a hash) for each frame. Comparing these small fingerprints is thousands of times faster and smart enough to ignore minor changes from video compression.
-
----
-
-The `FrameFingerprinter` module is designed for ultra-fast and robust frame comparison. It uses perceptual hashing, which generates a compact representation of a frame's visual structure.
-
-The process works as follows:
-
-1.  **Standardization**: The input frame is resized to a small, standard size (e.g., 64x64 pixels) and converted to grayscale. This ensures consistency and focuses on structural information over color.
-2.  **Multi-Algorithm Hashing**: To improve robustness, `vidkompy` computes several types of perceptual hashes for each frame, as different algorithms are sensitive to different visual features:
-
-- `pHash` (Perceptual Hash): Analyzes the frequency domain (using DCT), making it robust to changes in brightness, contrast, and gamma correction.
-- `AverageHash`: Computes a hash based on the average color of the frame.
-- `ColorMomentHash`: Captures the color distribution statistics of the frame.
-- `MarrHildrethHash`: Detects edges and shapes, making it sensitive to structural features.
-
-3.  **Combined Fingerprint**: The results from these hashers, along with a color histogram, are combined into a single "fingerprint" dictionary for the frame.
-4.  **Comparison**: To compare two frames, their fingerprints are compared. The similarity is calculated using a weighted average of the normalized Hamming distance between their hashes and the correlation between their histograms. The weights are tuned based on the reliability of each hash type for video content. This entire process is parallelized across multiple CPU cores for maximum speed.
-
-### 4.4. Unified Spatial Alignment System
-
-`vidkompy` now uses a unified spatial alignment system across both video composition and standalone thumbnail detection, leveraging the advanced multi-algorithm approach from the `align` module.
-
----
-
-**Spatial alignment determines the `(x, y)` coordinates at which to overlay the foreground frame onto the background. The system now uses the advanced `ThumbnailFinder` from the `align` module for both video composition and standalone analysis.**
-
-#### 4.4.1. Multi-Algorithm Approach
-
-The unified system provides 6 specialized algorithms with automatic fallbacks:
-
-1. **Template Matching**: Normalized cross-correlation with multi-scale parallel processing
-2. **Feature Matching**: AKAZE/ORB/SIFT feature detection with geometric validation
-3. **Phase Correlation**: FFT-based sub-pixel accuracy with 10x upsampling
-4. **Histogram Correlation**: Ultra-fast ballpark estimation (~1ms)
-5. **Hybrid Matching**: Intelligent combination of multiple methods
-6. **Sub-Pixel Refinement**: Maximum precision enhancement
-
-#### 4.4.2. Multi-Precision System
-
-The system offers 5 precision levels for optimal speed/accuracy trade-offs:
-
-- **Level 0 (Ballpark)**: Histogram correlation (~1ms) - ultra-fast scale estimation
-- **Level 1 (Coarse)**: Parallel template matching (~10ms) - quick detection
-- **Level 2 (Balanced)**: Feature + template combination (~25ms) - **default for video composition**
-- **Level 3 (Fine)**: Hybrid multi-algorithm (~50ms) - high quality detection
-- **Level 4 (Precise)**: Sub-pixel refinement (~200ms) - maximum accuracy
-
-#### 4.4.3. unscaled Preference
-
-The system includes intelligent **unscaled preference** that slightly favors 100% scale matches when confidence scores are similar, ideal for video composition where exact-size overlays are common.
-
-#### 4.4.4. Benefits of Unified System
-
-- **Better Accuracy**: Multi-algorithm approach with automatic fallbacks
-- **Multi-Scale Detection**: Finds thumbnails at various scales, not just 1:1
-- **Robustness**: Multiple detection methods handle different video artifacts
-- **Performance Options**: User-configurable precision levels
-- **Consistency**: Same spatial alignment quality for both composition and analysis
-
-### 4.5. Temporal Alignment Engines
-
-`vidkompy` offers two high-performance temporal alignment engines optimized for different scenarios:
-
-- **Full** (default): Direct pixel comparison with sliding windows for maximum accuracy
-- **Mask**: Content-focused comparison with intelligent masking for letterboxed content
-
----
-
-Temporal alignment is the most critical and complex part of `vidkompy`. The goal is to create a mapping `FrameAlignment(fg_frame_idx, bg_frame_idx)` for every single foreground frame. `vidkompy` provides two optimized engines for this task:
-
-#### 4.5.1. Full Engine (Default)
-
-The **Full Engine** uses direct pixel-by-pixel frame comparison with a sliding window approach for maximum accuracy:
-
-1. **Bidirectional Matching**:
-
-   - **Forward Pass**: Starts from the first FG frame, searches for best match in BG within a sliding window
-   - **Backward Pass**: Starts from the last FG frame, searches backward
-   - Merges both passes for robust alignment
-
-2. **Sliding Window Constraint**:
-
-   - Enforces monotonicity by design - can only search forward from the last matched frame
-   - Window size controls the maximum temporal displacement
-   - Prevents temporal jumps and ensures smooth progression
-
-3. **Direct Pixel Comparison**:
-   - Compares actual pixel values between FG and BG frames
-   - No information loss from hashing or fingerprinting
-   - More sensitive to compression artifacts but potentially more accurate
-
-**Characteristics:**
-
-- Processing time: ~40 seconds for an 8-second video (d10-w10 configuration)
-- Zero drift by design due to monotonic constraints
-- Perfect confidence scores (1.000)
-- Best overall performance for standard videos
-
-#### 4.5.2. Mask Engine (Content-Focused)
-
-The **Mask Engine** extends the Full engine approach with intelligent masking for letterboxed or pillarboxed content:
-
-1. **Content Mask Generation**:
-
-   - Automatically detects content regions (non-black areas) in FG frames
-   - Creates binary mask to focus comparison on actual content
-   - Helps with letterboxed or pillarboxed videos
-
-2. **Masked Comparison**:
-
-   - Only compares pixels within the mask region
-   - Ignores black borders and letterboxing
-   - More robust for videos with varying aspect ratios
-
-3. **Same Bidirectional Approach**:
-   - Uses forward and backward passes like Full engine
-   - Applies mask during all comparisons
-   - Maintains monotonicity constraints
-
-**Characteristics:**
-
-- Processing time: ~45 seconds for an 8-second video (d10-w10 configuration)
-- Perfect confidence scores (1.000)
-- Better handling of videos with black borders
-- Ideal for videos where content doesn't fill the entire frame
-
-#### 4.5.3. Engine Comparison
-
-| Aspect         | Full                    | Mask                            |
-| -------------- | ----------------------- | ------------------------------- |
-| **Algorithm**  | Direct pixel comparison | Masked pixel comparison         |
-| **Speed**      | ~5x real-time           | ~5x real-time                   |
-| **Drift**      | Zero (monotonic)        | Zero (monotonic)                |
-| **Memory**     | Medium                  | Medium                          |
-| **Confidence** | Perfect (1.000)         | Perfect (1.000)                 |
-| **Best For**   | Standard videos         | Letterboxed/pillarboxed content |
-
-## 5. Detailed Process Example
-
-This section provides a precise walkthrough of how `vidkompy` arrives at its thumbnail detection results, using an actual example analysis.
-
-### 5.1. Example Analysis: fg1.mp4 → bg1.mp4
-
-**Input Parameters:**
+**Basic Usage:**
 ```bash
-python -m vidkompy align --fg tests/fg1.mp4 --bg tests/bg1.mp4 -p 3 -n 12 --verbose
-```
-
-**Step 1: Frame Extraction**
-- **Foreground**: Extracted 12 frames from fg1.mp4 (1920×684 resolution)
-- **Background**: Extracted 12 frames from bg1.mp4 (1920×1080 resolution)
-- **Processing**: Converted frames to grayscale for analysis
-
-**Step 2: Multi-Level Precision Analysis**
-The system performed progressive analysis with 4 precision levels on the first frame pair:
-
-- **Level 0 (Ballpark ~1ms)**: Histogram correlation → scale ≈ 70.0%, confidence = 0.951
-- **Level 1 (Coarse ~10ms)**: Parallel template matching → scale = 84.00%, pos = (140, 173), confidence = 0.567  
-- **Level 2 (Balanced ~25ms)**: Feature + template matching → scale = 100.51%, pos = (-3, 104), confidence = 0.875
-- **Level 3 (Fine ~50ms)**: Hybrid multi-algorithm → scale = 98.97%, pos = (9, 114), confidence = 0.970
-
-**Step 3: unscaled Verification**
-Since `unscaled=True` (default), the system performed an additional check for exact 100% scale matching:
-- **unscaled Test**: Template matching at scale = 1.0 (100%)
-- **Result**: confidence = 0.981, position = (0, 109)
-- **Decision**: unscaled result (98.11%) was chosen over best precision result (97.0%)
-
-**Step 4: Final Result Calculation**
-The algorithm determined the optimal alignment:
-
-- **Confidence**: 98.11% (from unscaled matching)
-- **Scale**: 100% (no scaling needed)
-- **Position**: Foreground should be placed at (0, 109) in background coordinates
-- **Interpretation**: The 1920×684 foreground fits perfectly within the 1920×1080 background, centered horizontally (x=0) and positioned 109 pixels down from the top (y=109)
-
-**Step 5: Transformation Mathematics**
-The system calculated bidirectional transformations:
-
-*Forward (FG → BG):*
-- Scale FG by 100% → 1920×684 thumbnail
-- Place thumbnail at (0, 109) in BG coordinates
-
-*Reverse (BG → FG):*
-- Scale BG by 100% → 1920×1080 (no change)  
-- FG appears at (0, -109) relative to scaled BG
-- This means the BG extends 109 pixels above and 287 pixels below the FG content
-
-**Why This Result Makes Sense:**
-The analysis reveals that fg1.mp4 is a horizontally letterboxed version of bg1.mp4. The foreground (1920×684) represents the central content area of the background (1920×1080), with the background providing additional vertical space (396 pixels total: 109 above + 287 below). The 98.11% confidence indicates a near-perfect match with excellent spatial alignment.
-
-## 6. Usage
-
-### 6.1. Prerequisites
-
-You must have the **FFmpeg** binary installed on your system and accessible in your system's `PATH`. `vidkompy` depends on it for all video and audio processing tasks.
-
-### 6.2. Installation
-
-The tool is a Python package. It is recommended to install it from the repository to get the latest version.
-
-```bash
-# Clone the repository
-git clone https://github.com/twardoch/vidkompy.git
-cd vidkompy
-
-# Install using uv (or pip)
-uv pip install .
-```
-
-### 6.3. Command-Line Interface (CLI)
-
-`vidkompy` offers two main commands: video composition and thumbnail detection.
-
-**Video Composition Examples:**
-
-```bash
-# Full engine (default) - direct pixel comparison with zero drift
 python -m vidkompy comp --bg background.mp4 --fg foreground.mp4
+```
+This will create an output file like `background_overlay_foreground.mp4` in the current directory.
 
-# Mask engine for letterboxed/pillarboxed content
-python -m vidkompy comp --bg background.mp4 --fg foreground.mp4 --engine mask
+**Common Options:**
+*   `--output <filepath>`: Specify a custom output file path.
+    ```bash
+    python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --output result.mp4
+    ```
+*   `--engine <enginename>`: Choose the temporal alignment engine. (Currently defaults to `full`, `mask` engine is also available).
+    ```bash
+    # For letterboxed/pillarboxed content
+    python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --engine mask
+    ```
+*   `--align_precision <0-4>`: Set spatial alignment precision (default: 2). Higher is more accurate but slower.
+    ```bash
+    python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --align_precision 4
+    ```
+*   `--unscaled <true|false>`: For spatial alignment, `true` (default) prefers unscaled matches. `false` allows scaled matches.
+*   `--verbose`: Enable detailed logging output.
 
-# Custom output path
-python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --output result.mp4
-
-# Fine-tune performance with drift interval and window size
-python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --drift_interval 10 --window 10
-
-# High-precision spatial alignment (slower but more accurate)
-python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --align_precision 4
-
-# Multi-scale spatial alignment (allows scale detection)
-python -m vidkompy comp --bg bg.mp4 --fg fg.mp4 --unscaled false
+**Example with more options:**
+```bash
+python -m vidkompy comp --bg main_presentation.mp4 --fg speaker_inset.mp4 --output final_video.mp4 --align_precision 3 --verbose
 ```
 
-**Thumbnail Detection Examples:**
+#### Thumbnail Detection (`align`)
 
-The refactored thumbnail detection system now uses the `align` command with enhanced precision levels:
+This command finds a foreground image (or video frame) within a background image or video.
 
+**Basic Usage:**
 ```bash
-# Find thumbnail in image (new align command)
-python -m vidkompy align foreground.jpg background.jpg
-
-# Find thumbnail in video frame
-python -m vidkompy align foreground.jpg background.mp4
-
-# Precision levels 0-4 (0=ballpark ~1ms, 2=balanced ~25ms, 4=precise ~200ms)
-python -m vidkompy align foreground.jpg background.jpg --precision 4
-
-# Enable verbose logging for detailed analysis
-python -m vidkompy align foreground.jpg background.jpg --verbose
-
-# Multi-scale search (both no and scaled results)
-python -m vidkompy align foreground.jpg background.jpg --unscaled false
-
-# Process multiple video frames for better accuracy
-python -m vidkompy align foreground.mp4 background.mp4 --num_frames 10
-
-# Backward compatibility: 'find' command still works
-python -m vidkompy find foreground.jpg background.jpg
+python -m vidkompy align thumbnail_image.jpg main_video.mp4
 ```
 
-**CLI Help:**
+**Common Options:**
+*   `--precision <0-4>`: Set detection precision (default: 2).
+    *   `0`: Ballpark (~1ms) - Ultra-fast.
+    *   `1`: Coarse (~10ms) - Quick.
+    *   `2`: Balanced (~25ms) - Default.
+    *   `3`: Fine (~50ms) - High quality.
+    *   `4`: Precise (~200ms) - Maximum accuracy.
+*   `--num_frames <number>`: Max frames to process if inputs are videos (default: 7).
+*   `--unscaled <true|false>`: `true` (default) searches only at 100% scale. `false` searches multi-scale.
+*   `--verbose`: Enable detailed output and debug logging.
 
+**Example:**
 ```bash
-# Main command help
+python -m vidkompy align company_logo.png corporate_video.mp4 --precision 3 --verbose
+```
+
+#### Getting Help
+
+To see all available commands and their options:
+```bash
+# Main help
 python -m vidkompy --help
 
-# Video composition help
+# Help for video composition
 python -m vidkompy comp --help
 
-# Thumbnail detection help (new align command)
+# Help for thumbnail detection
 python -m vidkompy align --help
-
-# Backward compatibility
-python -m vidkompy find --help
 ```
 
-The CLI now supports these main commands:
+### Programmatic Usage
 
-- `comp`: Video composition with intelligent alignment
-- `align`: Advanced thumbnail detection with multi-precision analysis
-- `find`: Backward compatibility alias for thumbnail detection
+You can integrate `vidkompy`'s functionalities directly into your Python projects.
 
-**Video Composition Parameters:**
+#### Video Composition
 
-- `--bg`: Background video path
-- `--fg`: Foreground video path
-- `--output`: Output video path (auto-generated if not provided)
-- `--engine`: Temporal alignment engine - 'full' (default) or 'mask'
-- `--margin`: Border thickness for border matching mode (default: 8)
-- `--smooth`: Enable smooth blending at frame edges
-- `--spatial_precision`: Spatial alignment precision level 0-4 (0=ballpark ~1ms, 2=balanced ~25ms, 4=precise ~200ms, default: 2)
-- `--unscaled`: Prefer unscaled for spatial alignment (default: True)
-- `--verbose`: Enable verbose logging
+To overlay videos programmatically, use the `composite_videos` function.
 
-**Thumbnail Detection Parameters (align command):**
+```python
+from vidkompy.comp.vidkompy import composite_videos
+from pathlib import Path
 
-- `fg`: Foreground image/video path (first positional argument)
-- `bg`: Background image/video path (second positional argument)
-- `--precision`: Precision level 0-4 (0=ballpark ~1ms, 2=balanced ~25ms, 4=precise ~200ms, default: 2)
-- `--num_frames`: Maximum number of frames to process for videos (default: 7)
-- `--unscaled`: If True, only search at 100% scale; if False, search both no and multi-scale (default: True)
-- `--verbose`: Enable detailed output and debug logging
+# Define paths to your video files
+background_video = Path("path/to/your/background.mp4")
+foreground_video = Path("path/to/your/foreground.mp4")
+output_video = Path("path/to/your/composed_output.mp4")
 
-## 7. Performance
+try:
+    composite_videos(
+        bg=str(background_video),
+        fg=str(foreground_video),
+        output=str(output_video),
+        # engine="full",  # Default, 'mask' is also an option
+        align_precision=2, # Spatial alignment precision (0-4)
+        unscaled=True,     # Prefer unscaled spatial match
+        verbose=False
+    )
+    print(f"Video composed successfully: {output_video}")
+except Exception as e:
+    print(f"An error occurred during video composition: {e}")
 
-Recent updates have significantly improved `vidkompy`'s performance and accuracy:
-
-### 7.1. Thumbnail Detection Performance (`align` module)
-
-The modular architecture delivers excellent performance across different precision levels:
-
-| Precision Level | Processing Time | Use Case | Algorithms Used |
-| --- | --- | --- | --- |
-| **Level 0 (Ballpark)** | ~1ms | Ultra-fast scale estimation | Histogram correlation only |
-| **Level 1 (Coarse)** | ~10ms | Quick template matching | Parallel template matching |
-| **Level 2 (Balanced)** | ~25ms | Default balanced approach | Feature + template matching |
-| **Level 3 (Fine)** | ~50ms | High-quality detection | Hybrid multi-algorithm |
-| **Level 4 (Precise)** | ~200ms | Maximum accuracy | Sub-pixel refinement |
-
-**Key Performance Features:**
-
-- **Numba JIT Optimization**: Critical functions compiled for 5-20x speed improvements
-- **Parallel Processing**: ThreadPoolExecutor for concurrent scale testing
-- **Intelligent Caching**: Algorithm results cached for repeated operations
-- **Memory Efficiency**: Optimized data structures and streaming processing
-- **Graceful Degradation**: Automatic fallbacks maintain performance when algorithms fail
-
-### 7.2. Video Composition Performance (`comp` module)
-
-Based on actual benchmarks with an 8-second test video (1920x1080 background, 1920x870 foreground, ~480 frames):
-
-| Engine | Processing Time | Speed Ratio | Confidence | Notes |
-| --- | --- | --- | --- | --- |
-| **Full (default)** | 40.9 seconds | ~5x real-time | 1.000 (perfect) | Fastest overall with zero drift |
-| **Mask** | 45.8 seconds | ~6x real-time | 1.000 (perfect) | Best for letterboxed content |
-
-**Key Performance Insights:**
-
-- **Full Engine**: Delivers perfect confidence scores (1.000) with ~5x real-time processing. Uses direct frame mapping which completely eliminates drift while maintaining excellent performance.
-
-- **Mask Engine**: Slightly slower than Full engine but achieves perfect confidence. Ideal for content with black borders or letterboxing where content-focused comparison is beneficial.
-
-### 7.3. Technical Optimizations
-
-- **Zero Drift Design**: Both engines use sliding window constraints that enforce monotonicity by design, completely eliminating temporal drift.
-- **Optimized Compositing**: Sequential frame reading instead of random access yields a **10-100x speedup** in the final composition stage.
-- **Direct Pixel Comparison**: Frame comparison uses actual pixel values without information loss from hashing or compression.
-- **Bidirectional Matching**: Forward and backward passes are merged for robust alignment results.
-- **Efficient Memory Usage**: Both engines use streaming processing with reasonable memory footprints.
-
-### 7.4. Choosing the Right Engine
-
-**Use the Full Engine (default) when:**
-
-- Working with standard videos without letterboxing
-- You need the fastest processing with perfect accuracy
-- Videos have consistent content filling the frame
-- General-purpose video synchronization
-
-**Use the Mask Engine when:**
-
-- Working with letterboxed or pillarboxed content
-- Videos have significant black borders
-- Content doesn't fill the entire frame
-- Aspect ratio mismatches between foreground and background
-
-## 8. Development
-
-To contribute to `vidkompy`, set up a development environment using `hatch`.
-
-### 8.1. Setup
-
-1.  Clone the repository.
-2.  Ensure you have `hatch` installed (`pip install hatch`).
-3.  The project is managed through `hatch` environments defined in `pyproject.toml`.
-
-### 8.2. Key Commands
-
-Run these commands from the root of the repository.
-
-- **Run Tests**:
-
-```bash
-hatch run test
 ```
+The `composite_videos` function accepts most of the same parameters as the CLI `comp` command (e.g., `drift_interval`, `window`, `smooth`, `x_shift`, `y_shift`, `zero_shift`). Refer to its docstring or the CLI help for more details.
 
-- **Run Tests with Coverage Report**:
+#### Thumbnail Detection
 
-```bash
-hatch run test-cov
+To find a thumbnail image within a larger image or video, use the `ThumbnailFinder` class.
+
+```python
+from vidkompy.align.core import ThumbnailFinder
+from vidkompy.utils.logging import make_logger # Optional: for logging setup
+from pathlib import Path
+
+# Optional: Configure logging if you want to see detailed output like the CLI
+# make_logger(name="my_thumbnail_search", verbose=True)
+
+# Define paths
+foreground_image = Path("path/to/your/thumbnail.jpg")
+background_source = Path("path/to/your/background_video.mp4") # Can be an image or video
+
+# Initialize the finder
+finder = ThumbnailFinder()
+
+try:
+    result = finder.find_thumbnail(
+        fg=str(foreground_image),
+        bg=str(background_source),
+        precision=2,       # Detection precision (0-4)
+        num_frames=7,      # Max frames if background is a video
+        unscaled=True,     # Prefer 100% scale matches
+        verbose=False      # Set to True to see detailed console output during processing
+    )
+
+    # The 'result' object is a ThumbnailResult instance containing detection details
+    if result and result.confidence > 0.5: # Example confidence check
+        print(f"Thumbnail found with confidence: {result.confidence:.2f}")
+        print(f"  Scale: {result.scale_fg_to_thumb:.2f}%")
+        print(f"  Position (x, y): ({result.x_thumb_in_bg}, {result.y_thumb_in_bg})")
+        # Access more details from the result object as needed
+        # e.g., result.fg_size, result.bg_size, result.analysis_data
+    else:
+        print("Thumbnail not found or confidence too low.")
+
+except Exception as e:
+    print(f"An error occurred during thumbnail detection: {e}")
+
 ```
+The `ThumbnailFinder.find_thumbnail()` method will print analysis to the console if `verbose=True` (or if a logger is configured and its verbosity implies it), similar to the CLI. The returned `ThumbnailResult` object (from `vidkompy.align.data_types`) contains detailed information about the match, including:
+*   `confidence`: The confidence score of the match (0.0 to 1.0).
+*   `scale_fg_to_thumb`: Percentage to scale foreground to match background.
+*   `x_thumb_in_bg`, `y_thumb_in_bg`: Top-left coordinates of the thumbnail in the background.
+*   `fg_size`, `bg_size`, `thumbnail_size`: Dimensions.
+*   And more, including detailed `analysis_data`.
 
-- **Run Type Checking**:
+---
+## Technical Deep-Dive
 
-```bash
-hatch run type-check
-```
+This section provides a more detailed look into `vidkompy`'s internal workings, architecture, algorithms, and contribution guidelines.
 
-- **Check Formatting and Linting**:
+### How `vidkompy` Works: The Processing Pipeline
 
-```bash
-hatch run lint
-```
+`vidkompy` processes videos in a multi-stage pipeline designed for precision and accuracy:
 
-- **Automatically Fix Formatting and Linting Issues**:
+1.  **Video Analysis (Probing):**
+    *   Both background (BG) and foreground (FG) videos are first probed using `ffprobe`.
+    *   This extracts essential metadata: resolution, frames per second (FPS), duration, frame count, and audio stream information. This data informs subsequent processing steps.
 
-```bash
-hatch run fix
-```
+2.  **Spatial Alignment (Where to place FG on BG):**
+    *   To determine the (x, y) offset for the foreground video, `vidkompy` utilizes its advanced `align` module.
+    *   Typically, sample frames (e.g., from the middle of the videos) are used.
+    *   The `align` module employs a suite of algorithms (template matching, feature detection, etc.) with configurable precision to find the best spatial match of the foreground within the background. See "Thumbnail Detection Algorithms" below for details.
+    *   This step yields the precise coordinates and any necessary scaling factor for the overlay. For video composition, it defaults to a balanced precision and prefers unscaled (100%) matches unless specified otherwise.
 
-## 9. License
+3.  **Temporal Alignment (How to map FG frames to BG frames):**
+    *   This is crucial for synchronizing video content over time. `vidkompy` aims to map every foreground frame to a corresponding background frame.
+    *   The primary approach involves:
+        *   **Direct Frame Comparison:** The selected temporal alignment engine (e.g., `FullEngine`) compares actual pixel data between foreground and background frames.
+        *   **Sliding Window & Bidirectional Matching:** To find the optimal frame pairings, the engine searches within a constrained window, typically performing passes both forwards and backwards through the video timelines. This helps ensure a globally consistent and monotonic alignment, preventing drift.
+    *   The result is an alignment map `(fg_frame_idx -> bg_frame_idx)` that dictates which background frame to use for each foreground frame.
 
-This project is licensed under the MIT License. See the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
+4.  **Video Composition (Creating the Output):**
+    *   With spatial and temporal alignments determined, `vidkompy` proceeds to create the output video.
+    *   It reads both video streams sequentially (which is significantly faster than random access).
+    *   For each foreground frame, it fetches the corresponding background frame based on the temporal alignment map.
+    *   The foreground frame is then overlaid onto the selected background frame at the correct spatial (x,y) position, scaled if necessary.
+    *   Options like smooth blending at frame edges can be applied here.
+
+5.  **Audio Integration:**
+    *   After the silent video is composed, the audio track is added.
+    *   `vidkompy` typically prioritizes the foreground video's audio track. If unavailable, it falls back to the background's audio.
+    *   The chosen audio track is processed (e.g., trimmed or offset) to ensure it's perfectly synchronized with the newly composed video content.
+
+### Modular Architecture
+
+`vidkompy` is designed with a modular architecture to separate concerns and promote extensibility:
+
+*   **`src/vidkompy/align` (Thumbnail Detection & Spatial Alignment):**
+    *   **Core Logic (`core.py`):** Contains `ThumbnailFinder` which orchestrates the detection.
+    *   **Algorithms (`algorithms.py`):** Implementations of various matching algorithms (Template Matching, Feature Matching, etc.).
+    *   **Precision System (`precision.py`):** Manages multi-level precision analysis.
+    *   **Frame Extraction (`frame_extractor.py`):** Handles reading frames from images/videos.
+    *   **Data Types (`data_types.py`):** Defines structures like `ThumbnailResult`.
+    *   **Display (`display.py`):** Formats and shows results.
+    *   This module is used by the `comp` module for spatial alignment and can also be used independently via the `align` CLI command or programmatically.
+
+*   **`src/vidkompy/comp` (Video Composition):**
+    *   **Main Orchestration (`vidkompy.py`):** Contains `composite_videos` function and `AlignmentEngine` class that manages the composition pipeline.
+    *   **Video Processing (`video.py`):** `VideoProcessor` class handles interactions with FFmpeg for probing, frame reading, and final video/audio encoding.
+    *   **Temporal Alignment (`temporal.py`, `dtw_aligner.py`):** Implements temporal synchronization logic, including engines like `FullEngine` and `MaskEngine` (previously referred to as `TunnelSyncer` variants). These use techniques like direct pixel comparison within sliding windows.
+    *   **(Legacy/Support Components like `fingerprint.py`):** While perceptual hashing (`pHash`, `AverageHash`, etc.) was previously a more central part of temporal alignment, the current primary engines (`FullEngine`, `MaskEngine`) focus on direct pixel comparison for higher accuracy in the `comp` module. Fingerprinting techniques are more relevant to the `align` module's feature-based methods if used.
+
+*   **`src/vidkompy/utils` (Utilities):**
+    *   Contains helper modules for logging, image manipulation (e.g., grayscale conversion), Numba-optimized operations, and enums.
+
+**Key Design Principles:**
+*   **Separation of Concerns:** Each module has a clear responsibility.
+*   **Unified Spatial Alignment:** The `align` module provides consistent spatial alignment capabilities for all parts of `vidkompy`.
+*   **Algorithm Flexibility:** Multiple algorithms are available, especially in the `align` module, with mechanisms for fallbacks or selection based on precision.
+*   **Performance and Accuracy:** Optimized for both speed (e.g., sequential processing, Numba) and precision (e.g., direct pixel comparison, multi-level analysis).
+
+### Core Algorithms Explained
+
+`vidkompy` employs sophisticated algorithms for its tasks:
+
+#### Thumbnail Detection / Spatial Alignment Algorithms (`align` module)
+
+This module finds a smaller image (foreground/thumbnail) within a larger image or video (background). It uses a combination of techniques, often selected based on the chosen `precision` level:
+
+1.  **Template Matching (`TemplateMatchingAlgorithm`):**
+    *   **Method:** Slides the foreground image across the background image and calculates a similarity score (Normalized Cross-Correlation, `TM_CCOEFF_NORMED`) at each position.
+    *   **Multi-Scale:** Can test various scales of the foreground in parallel (using `ThreadPoolExecutor`).
+    *   **Optimization:** Critical parts may be JIT-compiled with Numba.
+    *   **Bias:** Can prefer unscaled (100%) matches if confidence scores are close.
+
+2.  **Feature Matching (`FeatureMatchingAlgorithm`):**
+    *   **Method:** Detects keypoints (distinctive features) in both images using detectors like AKAZE (default), ORB, or SIFT. It then matches these keypoints.
+    *   **Robustness:** Uses techniques like ratio tests and RANSAC (Random Sample Consensus) to filter out bad matches and estimate geometric transformations (e.g., affine, homography).
+    *   **Confidence:** Calculated based on the number and quality of inlier matches.
+
+3.  **Phase Correlation (`PhaseCorrelationAlgorithm`):**
+    *   **Method:** Operates in the frequency domain (using Fast Fourier Transform - FFT). It's particularly good at finding translational shifts.
+    *   **Sub-Pixel Accuracy:** Can achieve high precision by upsampling the phase correlation surface.
+    *   **Integration:** Often used to refine results from other methods or in hybrid approaches.
+
+4.  **Histogram Correlation (`HistogramCorrelationAlgorithm`):**
+    *   **Method:** Compares color/intensity histograms of image regions.
+    *   **Speed:** Very fast, often used for initial ballpark estimations or at low precision levels.
+    *   **Robustness:** Normalized histograms provide some robustness to lighting changes.
+
+5.  **Hybrid Matching (`HybridMatchingAlgorithm`):**
+    *   **Method:** Intelligently combines results from multiple algorithms (e.g., feature, template, phase correlation).
+    *   **Strategy:** May use a cascaded approach (e.g., features first, then template matching to refine). Weights results based on confidence and reliability.
+
+6.  **Sub-Pixel Refinement (`SubPixelRefinementAlgorithm`):**
+    *   **Method:** Takes an initial estimate (e.g., from template matching) and searches in a small neighborhood at sub-pixel offsets to fine-tune the position for maximum correlation.
+
+**Multi-Precision Analysis System (`PrecisionAnalyzer`):**
+The `align` module offers 5 precision levels, trading off speed for accuracy:
+*   **Level 0 (Ballpark):** ~1ms. Uses primarily Histogram Correlation.
+*   **Level 1 (Coarse):** ~10ms. Faster Template Matching with wider steps.
+*   **Level 2 (Balanced):** ~25ms. Default. Often a combination like Feature Matching + Template Matching.
+*   **Level 3 (Fine):** ~50ms. More comprehensive Hybrid methods.
+*   **Level 4 (Precise):** ~200ms. Includes Sub-Pixel Refinement for maximum accuracy.
+
+The system often performs a progressive analysis, starting with faster methods and refining with more precise ones. An "unscaled preference" logic is also applied: if an exact 100% scale match has high confidence, it might be preferred over a scaled match even if the latter's confidence is marginally higher, which is useful for direct overlays.
+
+#### Video Composition Algorithms (`comp` module)
+
+1.  **Spatial Alignment (Leveraging the `align` module):**
+    *   As described above, the `comp` module uses `ThumbnailFinder` from the `align` module to determine the (x,y) offset and scale for the foreground video.
+    *   For composition, it typically defaults to `precision=2` (Balanced) and `unscaled=True` (preferring 100% scale matches). These can be overridden by CLI parameters (`--align_precision`, `--unscaled false`).
+
+2.  **Temporal Alignment Engines (`FullEngine`, `MaskEngine`):**
+    These engines are responsible for creating the frame-to-frame mapping between the foreground and background videos.
+    *   **Core Principle:** Direct pixel comparison within a sliding window to ensure monotonicity (preventing time travel or jitter) and thus achieving zero drift.
+    *   **Bidirectional Matching:**
+        *   A **Forward Pass** starts from the first foreground frame and finds the best match in the background within a search window, moving forward.
+        *   A **Backward Pass** starts from the last foreground frame and searches backward.
+        *   The results of these passes are often merged or used to create a robust alignment path.
+    *   **Sliding Window Constraint:** The search for a match for the current foreground frame is limited to a "window" of background frames relative to the last match. This enforces temporal order and limits computational cost. The `window` parameter often controls this.
+    *   **`FullEngine` (Default):**
+        *   Compares the entire pixel content of the frames.
+        *   Best for standard videos where the entire frame is relevant.
+    *   **`MaskEngine`:**
+        *   Similar to `FullEngine` but first generates a content mask for the foreground frame (e.g., identifying non-black areas).
+        *   Comparison is then focused only on the pixels within this mask.
+        *   Ideal for letterboxed or pillarboxed content, as it ignores black bars.
+
+    *The parameter `drift_interval` is related to how often more significant realignments or checks might occur, though the core engines aim for continuous, drift-free alignment. The `window` parameter more directly controls the search space for frame-to-frame matching in these engines.*
+
+### Performance Details
+
+*   **Thumbnail Detection (`align` module):**
+    *   Performance varies by precision level (from ~1ms for Level 0 to ~200ms for Level 4 per frame pair).
+    *   Numba JIT compilation is used for critical functions.
+    *   Parallel processing (ThreadPoolExecutor) is used for tasks like multi-scale template matching.
+
+*   **Video Composition (`comp` module):**
+    *   Typically processes video at speeds multiple times faster than real-time (e.g., 5-6x real-time for common HD videos with `FullEngine` or `MaskEngine`).
+    *   **Sequential Frame Processing:** Reading frames sequentially for composition is 10-100x faster than random-access methods.
+    *   **Zero Drift by Design:** The monotonic constraints of the temporal alignment engines (Full, Mask) inherently prevent temporal drift.
+    *   **Direct Pixel Comparison:** Provides high accuracy for temporal alignment, though it can be computationally intensive (mitigated by sliding windows and optimizations).
+
+### Development and Contribution
+
+We welcome contributions to `vidkompy`! Here's how to get started:
+
+#### Setup
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/twardoch/vidkompy.git
+    cd vidkompy
+    ```
+2.  **Install Hatch:**
+    If you don't have it, install Hatch, which is used for project and environment management:
+    ```bash
+    pip install hatch
+    ```
+3.  **Development Environment:**
+    The project's dependencies and environments are defined in `pyproject.toml`. Hatch will manage these for you.
+
+#### Key Development Commands
+
+Run these commands from the root of the repository:
+
+*   **Run Tests:**
+    ```bash
+    hatch run test
+    ```
+*   **Run Tests with Coverage Report:**
+    ```bash
+    hatch run test-cov
+    ```
+*   **Run Type Checking (MyPy):**
+    ```bash
+    hatch run type-check
+    ```
+*   **Check Formatting (Ruff) and Linting (Ruff):**
+    ```bash
+    hatch run lint
+    ```
+*   **Automatically Fix Formatting and Linting Issues (Ruff):**
+    ```bash
+    hatch run fix
+    ```
+    It's recommended to run `hatch run fix` before committing changes.
+
+#### Coding Guidelines
+
+Please adhere to the following guidelines when contributing:
+
+*   **Style:**
+    *   Follow **PEP 8** for code style and **PEP 257** for docstring conventions.
+    *   Use clear, descriptive names for variables and functions.
+    *   Write comprehensive docstrings for all public modules, classes, and functions, explaining *what* the code does and *why*. Include information on where and how it's used if relevant.
+    *   Use **type hints** (e.g., `list`, `dict`, `str | None`) for function signatures and variables where appropriate.
+    *   Employ f-strings for string formatting.
+*   **Simplicity & Readability (PEP 20 - The Zen of Python):**
+    *   Keep code simple, explicit, and readable. Prioritize clarity over overly clever or complex solutions.
+    *   Favor flat structures over deeply nested ones.
+*   **Modularity:** Encapsulate repeated logic into concise, single-purpose functions.
+*   **`this_file` Convention:** For Python files, include a comment near the top indicating its path relative to the project root, e.g.:
+    ```python
+    # this_file: src/vidkompy/module/file.py
+    ```
+*   **Logging:** Use the `loguru` library for logging. Add meaningful log messages, especially for verbose/debug modes.
+*   **Error Handling:** Handle potential errors gracefully. Validate inputs and assumptions.
+*   **Dependencies:** Use `uv pip` for managing dependencies if working outside Hatch environments. All dependencies should be declared in `pyproject.toml`.
+*   **Commits:** Write clear and concise commit messages.
+*   **Updates to Documentation:** If your changes affect functionality or usage, please update `README.md` and relevant docstrings.
+*   **Changelog:** Add an entry to `CHANGELOG.md` for significant changes.
+
+Before making substantial changes or adding complex features, it's a good idea to open an issue to discuss your proposed approach.
+
+---
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
