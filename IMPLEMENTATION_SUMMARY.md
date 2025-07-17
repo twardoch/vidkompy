@@ -46,8 +46,9 @@ Created convenient scripts for local development workflow:
 Implemented comprehensive automation for continuous integration and deployment:
 
 #### Workflows Created:
-- **`.github/workflows/ci.yml`**: Continuous integration
-- **`.github/workflows/release.yml`**: Automated releases
+- **`github-workflows/ci.yml`**: Continuous integration (needs manual setup)
+- **`github-workflows/release.yml`**: Automated releases (needs manual setup)
+- **`GITHUB_ACTIONS_SETUP.md`**: Complete setup guide
 
 #### CI Features:
 - **Multi-platform testing**: Ubuntu, Windows, macOS

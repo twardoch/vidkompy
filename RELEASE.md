@@ -102,6 +102,12 @@ If you prefer manual control:
 
 ## GitHub Actions CI/CD
 
+### Setup Required
+
+**⚠️ Important**: GitHub Actions workflows require manual setup due to permission restrictions.
+
+See `GITHUB_ACTIONS_SETUP.md` for complete setup instructions.
+
 ### Continuous Integration (CI)
 
 **Trigger**: Push to main branch or pull request
@@ -128,6 +134,22 @@ If you prefer manual control:
 5. **Publish to PyPI**: Using trusted publishing (no API key needed)
 
 ### Setting Up GitHub Actions
+
+#### Manual Setup Steps
+
+1. **Copy workflow files**:
+   ```bash
+   mkdir -p .github/workflows
+   cp github-workflows/ci.yml .github/workflows/
+   cp github-workflows/release.yml .github/workflows/
+   ```
+
+2. **Commit and push**:
+   ```bash
+   git add .github/workflows/
+   git commit -m "feat: add GitHub Actions CI/CD workflows"
+   git push
+   ```
 
 #### Required Repository Secrets
 
