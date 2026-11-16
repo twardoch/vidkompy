@@ -93,3 +93,4 @@ venv
 venv.bak/
 venv/
 wheels/
+src/vidkompy/__version__.py
